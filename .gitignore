@@ -1,0 +1,16 @@
+/build/*
+!/build/.gitkeep
+/.Xil/
+*.jou
+*.log
+*.str
+*.xpr
+*.cache/
+*.gen/
+*.hw/
+*.ip_user_files/
+*.runs/
+*.sim/
+*.srcs/
+/clockInfo.txt
+/dfx_runtime.txt
