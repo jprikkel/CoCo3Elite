@@ -1,7 +1,7 @@
 param(
     [string]$Vivado = 'C:\AMD\2025.2\Vivado\bin\vivado.bat',
     [string]$Part = 'xc7a100tfgg676-2',
-    [ValidateSet('TEST_PATTERN', 'COCO_VIDEO')]
+    [ValidateSet('TEST_PATTERN', 'COCO_VIDEO', 'CPU_DIAGNOSTIC')]
     [string]$Mode = 'TEST_PATTERN'
 )
 

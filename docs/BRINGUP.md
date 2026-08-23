@@ -27,6 +27,21 @@ text on a dark background with the expected `COCO3FPGA ARTIX-7`,
 portable character ROM, legacy video fetch path, palette adapter, sync/blanking,
 and TMDS output are operating together on hardware.
 
+To build the Stage 2 CPU and 128 KiB BRAM diagnostic:
+
+```powershell
+& scripts/build_wukong.ps1 -Mode CPU_DIAGNOSTIC
+```
+
+Program `build/wukong/wukong_cpu_diagnostic.bit`. A successful CPU execution
+displays `CPU09 128K BRAM OK`, `RESET VECTOR PASSED`, and `STAGE 2 RUNNING`.
+This image uses a repository-owned diagnostic ROM and does not contain BASIC.
+Run `scripts/test_cpu_diagnostic.ps1` for the mixed-language CPU/BRAM test.
+
+Physical Stage 2 acceptance passed on 2026-08-23. The Wukong displayed all
+three expected messages, confirming reset-vector fetch, 6809 execution, both
+128 KiB BRAM byte lanes, concurrent video reads, and HDMI output on hardware.
+
 The launcher defaults to `C:\AMD\2025.2\Vivado\bin\vivado.bat`, selects the
 bundled Tcl Store to avoid the corrupt per-user catalog, and invokes the Tcl
 build. On another system, invoke `scripts/build_wukong.tcl` directly or pass a

@@ -136,19 +136,28 @@ Acceptance: simulation shows the CPU reading the reset vector and executing a
 small repository-owned diagnostic ROM that writes recognizable characters or
 color data into video RAM; hardware displays that result.
 
-### Stage 3: real ROM and DDR3 boot checkpoint
+Implementation status: `CPU_DIAGNOSTIC` integrates the `cpu09` core, a 128 KiB
+dual-port BRAM built from two byte-wide banks, and a repository-owned reset ROM.
+The mixed-language Vivado simulation passes reset-vector fetch, CPU execution,
+both RAM byte lanes, and video-port visibility. Vivado 2025.2 also passes full
+synthesis, implementation, timing, DRC, and bitstream generation. Physical
+display acceptance passed on 2026-08-23 with all three expected CPU-generated
+messages. Stage 2 is complete.
+
+### Stage 3: real ROM boot checkpoint
 
 - Add an ignored path such as `roms/coco3.rom` and a conversion/validation
   script that emits `build/roms/coco3.mem`.
 - Require an expected size and optionally a user-configured checksum before
   building.
 - Load the image into the portable ROM without adding it to source control.
-- Add the Wukong DDR3 controller and a memory frontend that preserves the
-  CPU/video timing contract established with diagnostic BRAM.
 - Enable the keyboard matrix only after the boot screen is stable.
 
 Acceptance: the physical board reaches the CoCo 3 startup screen repeatedly
 after power-on and reset, with stable HDMI and working keyboard input.
+
+The base 128 KiB CoCo 3 does not require DDR3. DDR3 is reserved for a later
+expanded-memory configuration.
 
 ### Stage 4: peripherals
 

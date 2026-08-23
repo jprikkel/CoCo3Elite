@@ -10,8 +10,8 @@ set part       [expr {$argc > 0 ? [lindex $argv 0] : "xc7a100tfgg676-2"}]
 set mode       [string toupper [expr {$argc > 1 ? [lindex $argv 1] : "TEST_PATTERN"}]]
 set top        wukong_top
 
-if {$mode ni {TEST_PATTERN COCO_VIDEO}} {
-    error "Unknown video mode '$mode'; use TEST_PATTERN or COCO_VIDEO"
+if {$mode ni {TEST_PATTERN COCO_VIDEO CPU_DIAGNOSTIC}} {
+    error "Unknown video mode '$mode'; use TEST_PATTERN, COCO_VIDEO, or CPU_DIAGNOSTIC"
 }
 
 file mkdir $output_dir
@@ -24,13 +24,22 @@ set sources [list \
     [file join $rtl_dir hdmi tmds_encoder.v] \
     [file join $rtl_dir hdmi tmds_serializer.v]]
 
-if {$mode eq "COCO_VIDEO"} {
+if {$mode in {COCO_VIDEO CPU_DIAGNOSTIC}} {
     lappend sources \
         [file join $repo_dir rtl core coco3_char_rom.v] \
         [file join $repo_dir rtl core coco3_synthetic_video_ram.v] \
         [file join $repo_dir rtl coco3vid.v] \
         [file join $rtl_dir coco_video_source.v]
     set_property verilog_define COCO_VIDEO [current_fileset]
+}
+
+if {$mode eq "CPU_DIAGNOSTIC"} {
+    lappend sources \
+        [file join $repo_dir rtl core coco3_128k_ram.v] \
+        [file join $repo_dir rtl core coco3_diagnostic_rom.v] \
+        [file join $rtl_dir coco3_diagnostic_system.v]
+    set_property verilog_define CPU_DIAGNOSTIC [current_fileset]
+    read_vhdl [file join $repo_dir rtl cpu09l_128.vhd]
 }
 
 read_verilog $sources
@@ -61,6 +70,7 @@ if {$worst_slack < 0} {
     error "Timing failed; bitstream not generated"
 }
 
-set bit_name [expr {$mode eq "COCO_VIDEO" ? "wukong_coco_video.bit" : "wukong_hdmi_test.bit"}]
+set bit_name [expr {$mode eq "CPU_DIAGNOSTIC" ? "wukong_cpu_diagnostic.bit" :
+                    ($mode eq "COCO_VIDEO" ? "wukong_coco_video.bit" : "wukong_hdmi_test.bit")}]
 write_bitstream -force [file join $output_dir $bit_name]
 puts "Wrote [file join $output_dir $bit_name] for $part in $mode mode"
