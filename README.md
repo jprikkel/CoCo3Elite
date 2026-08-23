@@ -11,10 +11,16 @@ ROM from block RAM and displays Extended Color BASIC over the board's HDMI
 connector. Test-pattern, legacy-video, CPU-diagnostic, and CoCo 2 boot images
 remain available as separate build modes.
 
+The long-term target family includes boards based on the Artix-7 `XC7A15T`,
+`XC7A50T`, and `XC7A100T`. The RTL is being kept portable across those devices;
+the Wukong v2 `XC7A100T` is the currently implemented and hardware-verified
+board target.
+
 ![Extended Color BASIC running on the QMTECH Wukong v2](docs/images/wukong-coco3-basic.png)
 
-*Hardware checkpoint: Extended Color BASIC 2.0 running from block RAM and
-displayed over HDMI on the QMTECH Wukong v2.*
+*Hardware checkpoint: Extended Color BASIC 2.0 with corrected GIME colors and
+vertical centering, running from block RAM and displayed over HDMI on the
+QMTECH Wukong v2.*
 
 ## Repository layout
 
