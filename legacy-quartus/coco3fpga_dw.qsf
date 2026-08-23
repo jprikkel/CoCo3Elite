@@ -311,23 +311,23 @@ set_instance_assignment -name CYCLONEII_TERMINATION "SERIES 25 OHMS" -to RAM0_DA
 set_instance_assignment -name CYCLONEII_TERMINATION "SERIES 25 OHMS" -to RAM0_DATA[13]
 set_instance_assignment -name CYCLONEII_TERMINATION "SERIES 25 OHMS" -to RAM0_DATA[14]
 set_instance_assignment -name CYCLONEII_TERMINATION "SERIES 25 OHMS" -to RAM0_DATA[15]
-set_global_assignment -name VHDL_FILE rtl/cpu09l_128.vhd
-set_global_assignment -name VERILOG_FILE rtl/FFF0.v
-set_global_assignment -name VERILOG_FILE rtl/SDCard.v
-set_global_assignment -name VERILOG_FILE rtl/ps2_keyboard.v
-set_global_assignment -name VERILOG_FILE rtl/cocokey.v
-set_global_assignment -name VERILOG_FILE rtl/uart_6551.v
-set_global_assignment -name VERILOG_FILE rtl/6551tx.v
-set_global_assignment -name VERILOG_FILE rtl/6551rx.v
-set_global_assignment -name VERILOG_FILE rtl/uart_6850.v
-set_global_assignment -name VERILOG_FILE rtl/6850TX.v
-set_global_assignment -name VERILOG_FILE rtl/6850RX.v
-set_global_assignment -name VERILOG_FILE rtl/coco3vid.v
-set_global_assignment -name VHDL_FILE rtl/T65_Pack.vhd
-set_global_assignment -name VHDL_FILE rtl/T65_MCode.vhd
-set_global_assignment -name VHDL_FILE rtl/T65_ALU.vhd
-set_global_assignment -name VHDL_FILE rtl/T65.vhd
-set_global_assignment -name VERILOG_FILE rtl/coco3fpga_dw.v
+set_global_assignment -name VHDL_FILE ../rtl/cpu09l_128.vhd
+set_global_assignment -name VERILOG_FILE FFF0.v
+set_global_assignment -name VERILOG_FILE ../rtl/SDCard.v
+set_global_assignment -name VERILOG_FILE ../rtl/ps2_keyboard.v
+set_global_assignment -name VERILOG_FILE ../rtl/cocokey.v
+set_global_assignment -name VERILOG_FILE ../rtl/uart_6551.v
+set_global_assignment -name VERILOG_FILE ../rtl/6551tx.v
+set_global_assignment -name VERILOG_FILE ../rtl/6551rx.v
+set_global_assignment -name VERILOG_FILE ../rtl/uart_6850.v
+set_global_assignment -name VERILOG_FILE ../rtl/6850TX.v
+set_global_assignment -name VERILOG_FILE ../rtl/6850RX.v
+set_global_assignment -name VERILOG_FILE ../rtl/coco3vid.v
+set_global_assignment -name VHDL_FILE ../rtl/T65_Pack.vhd
+set_global_assignment -name VHDL_FILE ../rtl/T65_MCode.vhd
+set_global_assignment -name VHDL_FILE ../rtl/T65_ALU.vhd
+set_global_assignment -name VHDL_FILE ../rtl/T65.vhd
+set_global_assignment -name VERILOG_FILE ../rtl/coco3fpga_dw.v
 set_global_assignment -name MIF_FILE disk_c0.mif
 set_global_assignment -name QIP_FILE disk_c0.qip
 set_global_assignment -name QIP_FILE disk_c8.qip
@@ -341,7 +341,7 @@ set_global_assignment -name QIP_FILE buffer_dp.qip
 set_global_assignment -name MIF_FILE buffer_dp.mif
 set_global_assignment -name QIP_FILE FIFO_READ.qip
 set_global_assignment -name QIP_FILE FIFO_WRITE.qip
-set_global_assignment -name VERILOG_FILE rtl/i2c.v
+set_global_assignment -name VERILOG_FILE ../rtl/i2c.v
 set_global_assignment -name MIF_FILE disk_02.mif
 set_global_assignment -name QIP_FILE disk02_1.qip
 set_global_assignment -name MIF_FILE DISK_02.mif
@@ -371,12 +371,12 @@ set_location_assignment PIN_H18 -to TEST_2
 set_location_assignment PIN_J15 -to TEST_3
 set_location_assignment PIN_H17 -to TEST_4
 
-set_global_assignment -name VERILOG_FILE rtl/PH2_CLK.v
-set_global_assignment -name VERILOG_FILE rtl/FIFO_WRITE.v
-set_global_assignment -name VERILOG_FILE rtl/FIFO_READ.v
-set_global_assignment -name VERILOG_FILE rtl/disk02.v
-set_global_assignment -name VERILOG_FILE rtl/COCO3GEN.v
-set_global_assignment -name VERILOG_FILE rtl/buffer_dp.v
+set_global_assignment -name VERILOG_FILE PH2_CLK.v
+set_global_assignment -name VERILOG_FILE FIFO_WRITE.v
+set_global_assignment -name VERILOG_FILE FIFO_READ.v
+set_global_assignment -name VERILOG_FILE disk02.v
+set_global_assignment -name VERILOG_FILE COCO3GEN.v
+set_global_assignment -name VERILOG_FILE buffer_dp.v
 set_global_assignment -name PROJECT_OUTPUT_DIRECTORY output_files
 set_global_assignment -name ERROR_CHECK_FREQUENCY_DIVISOR 1
 
