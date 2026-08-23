@@ -3,6 +3,7 @@
 /.Xil/
 *.jou
 *.log
+*.dmp
 *.str
 *.xpr
 *.cache/
