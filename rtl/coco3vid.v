@@ -74,6 +74,7 @@ HBLANKING,
 VBLANKING,
 RAM_ADDRESS,
 RAM_DATA,
+VIDEO_ACTIVE,
 COCO,
 V,
 BP,
@@ -114,6 +115,7 @@ reg					VBLANKING;
 output	[19:0]	RAM_ADDRESS;	// 2MB
 reg		[19:0]	RAM_ADDRESS;
 input		[15:0]	RAM_DATA;
+output              VIDEO_ACTIVE;
 input					COCO;
 input		[2:0]		V;
 input					BP;
@@ -1849,12 +1851,24 @@ assign CCOLOR[0] = ({VBLANKING,HBLANKING} == 2'b00)				?	COLOR0[PIXEL_COUNT[3:0]
 		({(VBORDER&HBORDER),(VBLANKING|HBLANKING)} == 2'b11)	?	BORDER[0]:										// Border
 																					1'b0;												// Retrace
 
+assign VIDEO_ACTIVE = ~(VBLANKING | HBLANKING) | (VBORDER & HBORDER);
+
 /*****************************************************************************
 * Count pixels across each line
 * 32 and 40 character modes use double wide pixels
 ******************************************************************************/
-always @ (negedge PIX_CLK)
+always @ (negedge PIX_CLK or negedge RESET_N)
 begin
+	if(~RESET_N)
+	begin
+		PIXEL_COUNT <= 10'd000;
+		HBLANKING <= 1'b0;
+		HBORDER <= 1'b1;
+		HSYNC <= 1'b1;
+		SYNC_FLAG <= 1'b0;
+	end
+	else
+	begin
 		case(PIXEL_COUNT)
 		10'd013:
 		begin
@@ -1931,7 +1945,7 @@ begin
 			PIXEL_COUNT <= PIXEL_COUNT + 1'b1;
 		end
 		endcase
-//	end
+	end
 end
 
 /*****************************************************************************
@@ -2013,9 +2027,19 @@ assign SCREEN_OFF =
 * Keeps track of how many lines are in each row.
 * There are 2X lines per coco line.
 ******************************************************************************/
-always @ (negedge HSYNC or posedge VBLANKING)
+always @ (negedge HSYNC or posedge VBLANKING or negedge RESET_N)
 begin
-	if(VBLANKING)
+	if(~RESET_N)
+	begin
+		SIX_R <= 1'b0;
+		SG_LINES <= 3'b000;
+		NUM_ROW <= 4'b0000;
+		UNDERLINE <= 1'b0;
+		COCO1_VLPR <= 4'h0;
+		VLPR <= 4'h0;
+		ROW_ADD <= 21'h000000;
+	end
+	else if(VBLANKING)
 	begin
 		SIX_R <= 1'b0;
 		SG_LINES <= 3'b000;
@@ -2327,6 +2351,7 @@ begin
 	begin
 		LINE <= 10'd00;
 		VBLANKING <= 1'b0;
+		VBORDER <= 1'b1;
 		VSYNC <= 1'b1;
 	end
 	else

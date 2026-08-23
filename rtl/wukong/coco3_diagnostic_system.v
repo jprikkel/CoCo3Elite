@@ -85,6 +85,7 @@ module coco3_diagnostic_system (
         .HSYNC(hsync), .SYNC_FLAG(sync_flag), .VSYNC(vsync),
         .HBLANKING(hblank), .VBLANKING(vblank),
         .RAM_ADDRESS(video_address), .RAM_DATA(video_data),
+        .VIDEO_ACTIVE(video_enable),
         .COCO(1'b0), .V(3'b000), .BP(1'b0), .VERT(7'h00),
         .VID_CONT(4'h0), .CSS(1'b0), .LPF(2'b00),
         .VERT_FIN_SCRL(4'h0), .HLPR(1'b0), .LPR(3'b101),
@@ -93,8 +94,6 @@ module coco3_diagnostic_system (
         .SCRN_START_MSB(8'h00), .SCRN_START_LSB(8'h00),
         .BLINK(1'b1), .SWITCH5(1'b0)
     );
-
-    assign video_enable = ~(hblank | vblank);
 
     always @* begin
         if (color[8]) begin

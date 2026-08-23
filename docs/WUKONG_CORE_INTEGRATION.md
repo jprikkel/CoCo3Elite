@@ -156,6 +156,15 @@ messages. Stage 2 is complete.
 Acceptance: the physical board reaches the CoCo 3 startup screen repeatedly
 after power-on and reset, with stable HDMI and working keyboard input.
 
+Implementation status: the repository now provides an ignored
+`roms/coco3.rom` input and `scripts/prepare_coco3_rom.ps1`, which validates an
+exact 32 KiB image, optionally enforces its SHA-256 digest, checks that the
+reset vector points into ROM, and emits `build/roms/coco3.mem`. No copyrighted
+ROM data is stored in Git. `coco3_system_rom.v` provides the inferred block-ROM
+reader and `test_system_rom.ps1` verifies the reconstructed reset vector and
+reset target. Real-boot memory decode and minimum GIME/SAM/PIA integration
+remain to be implemented.
+
 The base 128 KiB CoCo 3 does not require DDR3. DDR3 is reserved for a later
 expanded-memory configuration.
 
@@ -177,7 +186,7 @@ their subsystem is enabled.
 
 ## Immediate next change
 
-Implement Stage 1 only: portable character ROM, synthetic dual-port video RAM,
-legacy video-to-TMDS adapter, and build-time source selection. This validates
-the most timing-sensitive reusable core block without requiring copyrighted
-ROM data or changing CPU/memory behavior at the same time.
+Validate a user-supplied CoCo 3 system ROM, then implement the smallest
+`COCO3_BOOT` system boundary that preserves its reset memory map and required
+power-on GIME/SAM/PIA behavior. Keep all three verified fallback images
+selectable while adding simulation coverage before generating hardware.

@@ -35,7 +35,18 @@ module wukong_top (
         .video_reset  (video_reset)
     );
 
-`ifdef CPU_DIAGNOSTIC
+`ifdef COCO2_BOOT
+    coco2_boot_system source_i (
+        .pixel_clk(pixel_clk), .reset(video_reset), .hsync(hsync),
+        .vsync(vsync), .video_enable(video_enable), .red(red), .green(green), .blue(blue)
+    );
+`elsif COCO3_BOOT
+    coco3_boot_system source_i (
+        .pixel_clk(pixel_clk), .reset(video_reset), .hsync(hsync),
+        .vsync(vsync), .video_enable(video_enable),
+        .red(red), .green(green), .blue(blue)
+    );
+`elsif CPU_DIAGNOSTIC
     coco3_diagnostic_system source_i (
         .pixel_clk    (pixel_clk),
         .reset        (video_reset),

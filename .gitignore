@@ -16,3 +16,5 @@
 /dfx_runtime.txt
 /xsim.dir/
 /*.pb
+/roms/*.rom
+/roms/*.bin

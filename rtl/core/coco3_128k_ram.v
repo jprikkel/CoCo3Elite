@@ -3,7 +3,9 @@
 
 // 128 KiB base CoCo 3 memory. The CPU currently accesses the lower 64 KiB;
 // later GIME/SAM translation will supply the seventeenth physical address bit.
-module coco3_128k_ram (
+module coco3_128k_ram #(
+    parameter [7:0] INIT_VALUE = 8'h20
+) (
     input  wire        clock,
     input  wire [16:0] cpu_address,
     input  wire [7:0]  cpu_write_data,
@@ -21,8 +23,8 @@ module coco3_128k_ram (
     initial begin
         for (i = 0; i < 65536; i = i + 1)
             begin
-                memory_low[i]  = 8'h20;
-                memory_high[i] = 8'h20;
+                memory_low[i]  = INIT_VALUE;
+                memory_high[i] = INIT_VALUE;
             end
     end
 

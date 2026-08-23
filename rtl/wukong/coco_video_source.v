@@ -33,6 +33,7 @@ module coco_video_source (
         .VBLANKING      (vblank),
         .RAM_ADDRESS    (video_address),
         .RAM_DATA       (video_data),
+        .VIDEO_ACTIVE   (video_enable),
         .COCO           (1'b0),
         .V              (3'b000),
         .BP             (1'b0),
@@ -53,8 +54,6 @@ module coco_video_source (
         .BLINK          (1'b1),
         .SWITCH5        (1'b0)
     );
-
-    assign video_enable = ~(hblank | vblank);
 
     // Diagnostic palette. It makes both indexed legacy colors and the special
     // direct-color encoding visible without depending on live GIME registers.

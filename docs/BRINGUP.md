@@ -42,6 +42,23 @@ Physical Stage 2 acceptance passed on 2026-08-23. The Wukong displayed all
 three expected messages, confirming reset-vector fetch, 6809 execution, both
 128 KiB BRAM byte lanes, concurrent video reads, and HDMI output on hardware.
 
+## Stage 3 ROM preparation
+
+The real boot image is user-supplied and is never committed. Place a legally
+obtained CoCo 3 system ROM at `roms/coco3.rom`, then run:
+
+```powershell
+& scripts/prepare_coco3_rom.ps1
+```
+
+The script accepts a raw 32 KiB image or the historical 32,258-byte CoCo3FPGA
+flash format. For the latter, it removes the `$8000` load header and recreates
+the vector page from the original `FFF0.mif` behavior. It rejects an incorrect
+format or reset vector, reports the source ROM SHA-256, and creates the ignored
+Vivado input `build/roms/coco3.mem`. Use `-ExpectedSha256` to enforce the source
+digest for reproducible builds. The real-boot RTL and `COCO3_BOOT` build
+selector are the next checkpoint after this input has been validated.
+
 The launcher defaults to `C:\AMD\2025.2\Vivado\bin\vivado.bat`, selects the
 bundled Tcl Store to avoid the corrupt per-user catalog, and invokes the Tcl
 build. On another system, invoke `scripts/build_wukong.tcl` directly or pass a
