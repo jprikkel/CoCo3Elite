@@ -1,23 +1,39 @@
 # Reproducible non-project build for the standalone Wukong HDMI checkpoint.
 # Usage: vivado -mode batch -source scripts/build_wukong.tcl
-# Override part: vivado -mode batch -source ... -tclargs xc7a200tfbg676-2
+# Override part/mode: vivado -mode batch -source ... -tclargs <part> COCO_VIDEO
 
 set script_dir [file normalize [file dirname [info script]]]
 set repo_dir   [file normalize [file join $script_dir ..]]
 set rtl_dir    [file join $repo_dir rtl wukong]
 set output_dir [file join $repo_dir build wukong]
 set part       [expr {$argc > 0 ? [lindex $argv 0] : "xc7a100tfgg676-2"}]
+set mode       [string toupper [expr {$argc > 1 ? [lindex $argv 1] : "TEST_PATTERN"}]]
 set top        wukong_top
+
+if {$mode ni {TEST_PATTERN COCO_VIDEO}} {
+    error "Unknown video mode '$mode'; use TEST_PATTERN or COCO_VIDEO"
+}
 
 file mkdir $output_dir
 
-read_verilog [list \
+set sources [list \
     [file join $rtl_dir wukong_top.v] \
     [file join $rtl_dir clocking.v] \
     [file join $rtl_dir hdmi video_timing.v] \
     [file join $rtl_dir hdmi test_pattern.v] \
     [file join $rtl_dir hdmi tmds_encoder.v] \
     [file join $rtl_dir hdmi tmds_serializer.v]]
+
+if {$mode eq "COCO_VIDEO"} {
+    lappend sources \
+        [file join $repo_dir rtl core coco3_char_rom.v] \
+        [file join $repo_dir rtl core coco3_synthetic_video_ram.v] \
+        [file join $repo_dir rtl coco3vid.v] \
+        [file join $rtl_dir coco_video_source.v]
+    set_property verilog_define COCO_VIDEO [current_fileset]
+}
+
+read_verilog $sources
 read_xdc [file join $repo_dir constraints wukong.xdc]
 
 synth_design -top $top -part $part
@@ -45,5 +61,6 @@ if {$worst_slack < 0} {
     error "Timing failed; bitstream not generated"
 }
 
-write_bitstream -force [file join $output_dir wukong_hdmi_test.bit]
-puts "Wrote [file join $output_dir wukong_hdmi_test.bit] for $part"
+set bit_name [expr {$mode eq "COCO_VIDEO" ? "wukong_coco_video.bit" : "wukong_hdmi_test.bit"}]
+write_bitstream -force [file join $output_dir $bit_name]
+puts "Wrote [file join $output_dir $bit_name] for $part in $mode mode"

@@ -9,6 +9,24 @@ repository root run:
 & scripts/build_wukong.ps1
 ```
 
+The default remains the verified standalone test pattern. To build the Stage 1
+legacy CoCo video checkpoint instead, run:
+
+```powershell
+& scripts/build_wukong.ps1 -Mode COCO_VIDEO
+```
+
+That mode produces `build/wukong/wukong_coco_video.bit`. It uses the original
+CoCo video timing and character generator with a synthetic read-only text
+screen; it does not yet contain the CPU, system ROM, keyboard, or writable main
+RAM.
+
+Physical acceptance passed on 2026-08-23. The board displayed green 80-column
+text on a dark background with the expected `COCO3FPGA ARTIX-7`,
+`QMTECH WUKONG VIDEO OK`, and `STAGE 1 PASSED` messages. This confirms the
+portable character ROM, legacy video fetch path, palette adapter, sync/blanking,
+and TMDS output are operating together on hardware.
+
 The launcher defaults to `C:\AMD\2025.2\Vivado\bin\vivado.bat`, selects the
 bundled Tcl Store to avoid the corrupt per-user catalog, and invokes the Tcl
 build. On another system, invoke `scripts/build_wukong.tcl` directly or pass a

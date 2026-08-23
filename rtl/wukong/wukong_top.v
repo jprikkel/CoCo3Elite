@@ -35,6 +35,18 @@ module wukong_top (
         .video_reset  (video_reset)
     );
 
+`ifdef COCO_VIDEO
+    coco_video_source source_i (
+        .pixel_clk    (pixel_clk),
+        .reset        (video_reset),
+        .hsync        (hsync),
+        .vsync        (vsync),
+        .video_enable (video_enable),
+        .red          (red),
+        .green        (green),
+        .blue         (blue)
+    );
+`else
     video_timing timing_i (
         .pixel_clk    (pixel_clk),
         .reset        (video_reset),
@@ -53,6 +65,7 @@ module wukong_top (
         .green        (green),
         .blue         (blue)
     );
+`endif
 
     tmds_encoder encode_blue_i (
         .pixel_clk    (pixel_clk),

@@ -1,6 +1,8 @@
 param(
     [string]$Vivado = 'C:\AMD\2025.2\Vivado\bin\vivado.bat',
-    [string]$Part = 'xc7a100tfgg676-2'
+    [string]$Part = 'xc7a100tfgg676-2',
+    [ValidateSet('TEST_PATTERN', 'COCO_VIDEO')]
+    [string]$Mode = 'TEST_PATTERN'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -16,7 +18,7 @@ $env:XILINX_TCLAPP_REPO = Join-Path $vivadoRoot 'data\XilinxTclStore'
 $env:XILINX_LOCAL_USER_DATA = 'NO'
 
 & $Vivado -mode batch -nojournal -nolog `
-    -source scripts/build_wukong.tcl -tclargs $Part
+    -source scripts/build_wukong.tcl -tclargs $Part $Mode
 
 if ($LASTEXITCODE -ne 0) {
     throw "Vivado failed with exit code $LASTEXITCODE"
