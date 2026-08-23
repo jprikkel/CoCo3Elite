@@ -2350,32 +2350,53 @@ begin
 	if(~RESET_N)
 	begin
 		LINE <= 10'd00;
-		VBLANKING <= 1'b0;
+		VBLANKING <= 1'b1;
 		VBORDER <= 1'b1;
 		VSYNC <= 1'b1;
 	end
 	else
 	case (LINE)
-// Video
-	10'd383:								// End of 192 line display
+// Center each GIME display height in the 225-line CoCo viewport. Each CoCo
+// line is emitted twice, so the required top offsets are 32, 24, 14, and 0
+// scanlines for the 192-, 200-, 210-, and 225-line modes respectively.
+	10'd13:
 	begin
-		LINE <= 10'd384;
+		LINE <= 10'd14;
+		if((LPF == 2'b10) && (COCO == 1'b0))
+			VBLANKING <= 1'b0;
+	end
+	10'd23:
+	begin
+		LINE <= 10'd24;
+		if((LPF == 2'b01) && (COCO == 1'b0))
+			VBLANKING <= 1'b0;
+	end
+	10'd31:
+	begin
+		LINE <= 10'd32;
+		if((LPF == 2'b00) || (COCO == 1'b1))
+			VBLANKING <= 1'b0;
+	end
+// Video
+	10'd415:								// End of 192 line display
+	begin
+		LINE <= 10'd416;
 		if((LPF == 2'b00) || (COCO == 1'b1))		// Standard COCO modes are always 192
 		begin
 			VBLANKING <= 1'b1;
 		end
 	end
-	10'd399:								// End of 200 line display
+	10'd423:								// End of 200 line display
 	begin
-		LINE <= 10'd400;
+		LINE <= 10'd424;
 		if(LPF == 2'b01)
 		begin
 			VBLANKING <= 1'b1;
 		end
 	end
-	10'd419:								// End of 210 line display
+	10'd433:								// End of 210 line display
 	begin
-		LINE <= 10'd420;
+		LINE <= 10'd434;
 		if(LPF == 2'b10)
 		begin
 			VBLANKING <= 1'b1;
@@ -2405,17 +2426,19 @@ begin
 		LINE <= 10'd480;
 		VSYNC <= 1'b1;					// Sync off
 	end
-// End of porch, start of border
+// End of porch, start of top border
 	10'd505:
 	begin
 		LINE <= 10'd506;
 		VBORDER <= 1'b1;
 	end
-// End of border, start of video, restart state machine
-	10'd523:                   // -1
+// End of frame. The 225-line mode starts immediately after wrap; shorter
+// modes remain blanked until their centered start position above.
+	10'd523:
 	begin
 		LINE <= 10'd000;
-		VBLANKING <= 1'b0;
+		if((LPF == 2'b11) && (COCO == 1'b0))
+			VBLANKING <= 1'b0;
 	end
 	default:
 	begin

@@ -29,6 +29,7 @@ module coco3_boot_system (
     reg [7:0] start_msb, start_lsb;
     reg [5:0] palette [0:15];
     reg pia_ddr4;
+    reg [3:0] direct_red, direct_green, direct_blue;
     integer i;
 
     coco3_boot_machine machine_i (
@@ -101,13 +102,41 @@ module coco3_boot_system (
     );
     always @* begin
         if (color[8]) begin
-            red={color[5:4],color[5:4],color[5:4],color[5:4]};
-            green={color[3:2],color[3:2],color[3:2],color[3:2]};
-            blue={color[1:0],color[1:0],color[1:0],color[1:0]};
+            // Preserve the four direct-color intensity modes used by the
+            // original CoCo3FPGA DAC. COLOR[5:0] is R-G-B interleaved.
+            case (color[7:6])
+                2'b00: begin
+                    direct_red   = {1'b0, color[5], color[2], 1'b0};
+                    direct_green = {1'b0, color[4], color[1], 1'b0};
+                    direct_blue  = {1'b0, color[3], color[0], 1'b0};
+                end
+                2'b01: begin
+                    direct_red   = {1'b0, color[5], color[2], 1'b0} + {2'b00, color[5], color[2]};
+                    direct_green = {1'b0, color[4], color[1], 1'b0} + {2'b00, color[4], color[1]};
+                    direct_blue  = {1'b0, color[3], color[0], 1'b0} + {2'b00, color[3], color[0]};
+                end
+                2'b10: begin
+                    direct_red   = {color[5], color[2], 2'b00};
+                    direct_green = {color[4], color[1], 2'b00};
+                    direct_blue  = {color[3], color[0], 2'b00};
+                end
+                default: begin
+                    direct_red   = {color[5], color[2], color[5], color[2]};
+                    direct_green = {color[4], color[1], color[4], color[1]};
+                    direct_blue  = {color[3], color[0], color[3], color[0]};
+                end
+            endcase
+            red   = {direct_red, direct_red};
+            green = {direct_green, direct_green};
+            blue  = {direct_blue, direct_blue};
         end else begin
-            red={palette[color[3:0]][5:4],palette[color[3:0]][5:4],palette[color[3:0]][5:4],palette[color[3:0]][5:4]};
-            green={palette[color[3:0]][3:2],palette[color[3:0]][3:2],palette[color[3:0]][3:2],palette[color[3:0]][3:2]};
-            blue={palette[color[3:0]][1:0],palette[color[3:0]][1:0],palette[color[3:0]][1:0],palette[color[3:0]][1:0]};
+            // GIME palette encoding is R2 G2 B2 R1 G1 B1, not RR GG BB.
+            red={palette[color[3:0]][5],palette[color[3:0]][2],palette[color[3:0]][5],palette[color[3:0]][2],
+                 palette[color[3:0]][5],palette[color[3:0]][2],palette[color[3:0]][5],palette[color[3:0]][2]};
+            green={palette[color[3:0]][4],palette[color[3:0]][1],palette[color[3:0]][4],palette[color[3:0]][1],
+                   palette[color[3:0]][4],palette[color[3:0]][1],palette[color[3:0]][4],palette[color[3:0]][1]};
+            blue={palette[color[3:0]][3],palette[color[3:0]][0],palette[color[3:0]][3],palette[color[3:0]][0],
+                  palette[color[3:0]][3],palette[color[3:0]][0],palette[color[3:0]][3],palette[color[3:0]][0]};
         end
     end
     wire _unused = sync_flag;

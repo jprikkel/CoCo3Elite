@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 `default_nettype none
 
 // Portable replacement for the Quartus COCO3GEN single-port ROM.

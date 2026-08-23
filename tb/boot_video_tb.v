@@ -1,11 +1,44 @@
 `timescale 1ns/1ps
 module boot_video_tb;
- reg clock=0, reset=1; wire hs,vs,de; wire [7:0] r,g,b; integer n;
+ reg clock=0, reset=1; wire hs,vs,de; wire [7:0] r,g,b;
+ integer n, active_lines, first_active, last_active;
  always #5 clock=~clock;
  coco3_boot_system dut(.pixel_clk(clock),.reset(reset),.hsync(hs),.vsync(vs),.video_enable(de),.red(r),.green(g),.blue(b));
  initial begin
   repeat(8) @(posedge clock); reset=0;
   repeat(5000000) @(posedge clock);
+
+  // GIME palette bits are R2 G2 B2 R1 G1 B1. Full green must not decode
+  // as magenta, which catches the adjacent-pair mapping used by the first
+  // Wukong checkpoint.
+  dut.palette[0] = 6'b010010;
+  force dut.color = 9'h000;
+  #1;
+  if ({r,g,b} !== 24'h00ff00) begin
+   $display("FAIL: palette green decoded as RGB %02h%02h%02h",r,g,b);
+   $fatal;
+  end
+  release dut.color;
+
+  // A 192-line CoCo image is doubled to 384 scanlines and centered within
+  // the legacy 225-line viewport: scanlines 32 through 415 inclusive.
+  wait(dut.video_i.LINE == 10'd523);
+  @(negedge hs); #1;
+  active_lines=0; first_active=-1; last_active=-1;
+  for(n=0;n<524;n=n+1) begin
+   if(!dut.vblank) begin
+    active_lines=active_lines+1;
+    if(first_active < 0) first_active=dut.video_i.LINE;
+    last_active=dut.video_i.LINE;
+   end
+   @(negedge hs); #1;
+  end
+  if((active_lines != 384) || (first_active != 32) || (last_active != 415)) begin
+   $display("FAIL: raster active=%0d first=%0d last=%0d",active_lines,first_active,last_active);
+   $fatal;
+  end
+  $display("PASS: green palette decode and centered 192-line raster");
+
   $display("VIDEO coco=%0d v=%0h vert=%0h vid=%0h hres=%0h lpr=%0h start=%0h%02h%02h",
    dut.coco,dut.v,dut.vert,dut.vid_cont,dut.hres,dut.lpr,dut.start_hsb,dut.start_msb,dut.start_lsb);
   $display("CPU address=%04h all_ram=%0d mmu_enable=%0d task=%0d maps=%02h %02h %02h %02h %02h %02h %02h %02h",
