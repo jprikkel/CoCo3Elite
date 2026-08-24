@@ -7,8 +7,8 @@ existing RTL receives PS/2 scan codes and converts them into the CoCo keyboard
 matrix, so the Wukong port should retain this interface for its first working
 keyboard implementation.
 
-This interface is planned for the Wukong port but is not yet connected in the
-current top-level design.
+This interface is implemented in the Wukong `COCO3_BOOT` build and awaits
+physical keyboard acceptance testing.
 
 ## Recommended Wukong connection
 

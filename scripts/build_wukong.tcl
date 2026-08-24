@@ -50,6 +50,9 @@ if {$mode eq "COCO3_BOOT"} {
         error "Prepared ROM not found at $rom_mem; run scripts/prepare_coco3_rom.ps1"
     }
     lappend sources \
+        [file join $repo_dir rtl ps2_keyboard.v] \
+        [file join $repo_dir rtl cocokey.v] \
+        [file join $repo_dir rtl core coco3_keyboard_matrix.v] \
         [file join $repo_dir rtl core coco3_128k_ram.v] \
         [file join $repo_dir rtl core coco3_system_rom.v] \
         [file join $repo_dir rtl core coco3_boot_machine.v] \

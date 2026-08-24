@@ -214,6 +214,11 @@ Acceptance for each peripheral checkpoint requires a focused simulation,
 successful implementation and timing, and a physical-board test before the
 next peripheral is enabled.
 
+PS/2 implementation status: J14 clock (`P23`) and data (`R23`) are connected
+to the existing scan-code decoder and a portable active-low CoCo keyboard
+matrix. Frame-level press/release simulation and the real-ROM boot regression
+pass. Physical keyboard acceptance is pending.
+
 ## Verification requirements
 
 - Preserve the last known-good test-pattern build mode.

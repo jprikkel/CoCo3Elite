@@ -32,6 +32,7 @@ try {
     Invoke-VivadoTool xvlog @(
         (Join-Path $repoRoot 'rtl\core\coco3_128k_ram.v'),
         (Join-Path $repoRoot 'rtl\core\coco3_system_rom.v'),
+        (Join-Path $repoRoot 'rtl\core\coco3_keyboard_matrix.v'),
         (Join-Path $repoRoot 'rtl\core\coco3_boot_machine.v'),
         (Join-Path $repoRoot 'tb\boot_machine_tb.v')
     )

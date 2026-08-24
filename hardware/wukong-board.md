@@ -20,7 +20,7 @@ and speed grade should be confirmed from the marking on the fitted device.*
 | HDMI output | Used | 640x480 digital video output for the CoCo display |
 | JTAG header | Used | Volatile FPGA programming and hardware testing |
 | Artix-7 block RAM | Used | 128 KiB CoCo main memory, system ROM, character ROM, and supporting buffers |
-| PMOD J14 | Planned | Direct clock, data, and power for the verified 3.3 V PS/2 keyboard |
+| PMOD J14 | Implemented; test pending | Direct clock, data, and power for the verified 3.3 V PS/2 keyboard |
 | Micro SD slot | Planned | Direct local disk-image storage over SPI; DriveWire is not planned |
 | Remaining PMOD connectors | Planned | External audio, joystick ADC, and optional I2C RTC modules |
 | CH340N USB-to-UART | Optional | Diagnostic console or independent RS-232 PAK; not storage and not a USB keyboard host |

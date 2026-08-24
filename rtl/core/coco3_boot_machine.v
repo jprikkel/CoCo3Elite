@@ -12,6 +12,9 @@ module coco3_boot_machine (
     output wire        debug_ram_write,
     output wire        debug_io_write,
     output wire [7:0]  debug_write_data,
+    input  wire [55:0] keyboard_keys,
+    input  wire        keyboard_shift,
+    input  wire        keyboard_shift_override,
     input  wire        video_hsync,
     input  wire        video_vsync,
     input  wire [19:0] video_address,
@@ -58,6 +61,9 @@ module coco3_boot_machine (
                    (pia0_crb[0] && pia0_vsync_event);
     wire ram_write = active && !read_cycle && !io_select && !rom_select;
     wire io_write = active && !read_cycle && io_select;
+    wire [7:0] keyboard_columns =
+        (pia0_outb & pia0_ddrb) | (~pia0_ddrb);
+    wire [7:0] keyboard_rows;
     reg [7:0] io_read_data;
     wire [7:0] read_data = io_select ? io_read_data :
                              (rom_select ? rom_data : ram_data);
@@ -66,7 +72,8 @@ module coco3_boot_machine (
         io_read_data = 8'hFF;
         case (address)
             16'hFF00: io_read_data = pia0_cra[2]
-                ? ((pia0_outa & pia0_ddra) | (~pia0_ddra)) : pia0_ddra;
+                ? ((pia0_outa & pia0_ddra) |
+                   (keyboard_rows & ~pia0_ddra)) : pia0_ddra;
             16'hFF01: io_read_data = {pia0_hsync_event, 3'b011, pia0_cra[3:0]};
             16'hFF02: io_read_data = pia0_crb[2]
                 ? ((pia0_outb & pia0_ddrb) | (~pia0_ddrb)) : pia0_ddrb;
@@ -152,6 +159,14 @@ module coco3_boot_machine (
         .cpu_write_data(write_data), .cpu_write_enable(ram_write),
         .cpu_read_data(ram_data), .video_address(video_address),
         .video_read_data(video_read_data)
+    );
+
+    coco3_keyboard_matrix keyboard_matrix_i (
+        .keys(keyboard_keys),
+        .forced_shift(keyboard_shift),
+        .shift_override(keyboard_shift_override),
+        .columns(keyboard_columns),
+        .rows(keyboard_rows)
     );
 
     assign debug_address = address;
