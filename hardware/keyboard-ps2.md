@@ -47,6 +47,44 @@ clock and data pull-ups must not drive either FPGA input above 3.3 V.
 *PS/2 interface wiring used during hardware testing with the HP KB-0133. Check
 the connector pinout and voltages independently before reproducing this setup.*
 
+## PS/2 key mapping
+
+Letters, digits, Enter, Space, Tab, both Shift keys, Ctrl, Alt, F1, F2, and the
+four cursor keys map to their corresponding CoCo keys. The following PC keys
+have special CoCo meanings:
+
+| PS/2 keyboard key | CoCo key or action | Notes |
+| --- | --- | --- |
+| Esc | Break | Hardware-verified with Extended Color BASIC |
+| Backspace | Left Arrow | The CoCo uses Left Arrow as its destructive backspace key |
+| F12 | `@` | Provides the CoCo's dedicated at-sign key |
+| Caps Lock | Clear | Generates the CoCo `Shift+0` Clear combination; it does not latch alphabetic case |
+| Scroll Lock | `Ctrl+W` | Generates the CoCo control-key combination while held |
+
+The PC punctuation keys are translated into the combinations available in the
+CoCo keyboard matrix. This makes the printed legends behave naturally even
+where the CoCo has no matching physical key:
+
+| PS/2 legend | CoCo matrix combination |
+| --- | --- |
+| `@` (`Shift+2`) | CoCo `@` |
+| `~` (grave/tilde key) | `Ctrl+3` |
+| `^` (`Shift+6`) | `Ctrl+7` |
+| `&` (`Shift+7`) | `Shift+6` |
+| `*` (`Shift+8`) | `Shift+:` |
+| `(` / `)` | `Shift+8` / `Shift+9` |
+| `_` (`Shift+-`) | `Ctrl+-` |
+| `=` / `+` | `Shift+-` / `Shift+;` |
+| `\\` / `|` | `Ctrl+/` / `Ctrl+1` |
+| `[` / `]` | `Ctrl+8` / `Ctrl+9` |
+| `{` / `}` | `Ctrl+,` / `Ctrl+.` |
+| `'` / `"` | `Shift+7` / `Shift+2` |
+
+F3 through F11 and the Insert, Home, End, Page Up, Page Down, Print Screen,
+Pause, and numeric-keypad navigation keys are not currently mapped. The
+decoder recognizes Ctrl+Alt+Delete as a reset request, but that request is not
+connected to system reset in the current Wukong build.
+
 ## Other PS/2 keyboards
 
 Many PS/2 keyboards expect a 5 V supply. The Artix-7 FPGA I/O is not 5 V
@@ -88,11 +126,11 @@ The relevant existing source files are:
 
 - `rtl/ps2_keyboard.v` — receives serial PS/2 frames and scan codes.
 - `rtl/cocokey.v` — maps scan codes to CoCo key states.
-- `rtl/coco3fpga_dw.v` — converts those key states into the CoCo keyboard
-  matrix read by the emulated machine.
+- `rtl/core/coco3_keyboard_matrix.v` — converts those key states into the
+  active-low CoCo matrix rows read through PIA0.
 
-The Wukong top-level integration must carry `ps2_clk` and `ps2_data` from the
-FPGA pins to this existing path.
+The Wukong top-level integration carries `ps2_clk` and `ps2_data` from the FPGA
+pins to this path.
 
 ## Keyboard compatibility
 
