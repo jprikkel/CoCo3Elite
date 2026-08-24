@@ -16,6 +16,12 @@ The long-term target family includes boards based on the Artix-7 `XC7A15T`,
 the Wukong V3 `XC7A100T` is the currently implemented and hardware-verified
 board target.
 
+Hardware interface documentation is maintained under [`hardware/`](hardware/):
+
+- [QMTECH Wukong V3 board overview](hardware/wukong-board.md)
+- [Wukong V3 PMOD pinout](hardware/wukong-pmod-pinout.md)
+- [PS/2 keyboard interface](hardware/keyboard-ps2.md)
+
 ![Extended Color BASIC running on the QMTECH Wukong V3](docs/images/wukong-coco3-basic.png)
 
 *Hardware checkpoint: Extended Color BASIC 2.0 with corrected GIME colors and

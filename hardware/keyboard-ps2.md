@@ -19,23 +19,36 @@ Use PMOD connector J14 for the two PS/2 signals:
 | PS/2 clock | 1 | P23 | LVCMOS33 |
 | PS/2 data | 2 | R23 | LVCMOS33 |
 | Ground | 5 | GND | — |
-| Level-shifter low-voltage supply | 6 | 3.3 V | — |
+| Keyboard power | 6 | 3.3 V | — |
 
 J14 pins 1 and 2 were selected to keep the connection together on one side of
 the PMOD connector. Other unused PMOD signal pins can be substituted by
 changing the constraints.
 
-## Voltage and power requirements
+## Verified 3.3 V keyboard connection
 
-A PS/2 keyboard normally operates from 5 V, while the Artix-7 FPGA I/O is
-3.3 V and is not 5 V tolerant. Do not connect the keyboard clock or data lines
-directly to the FPGA.
+The keyboard selected for this project is confirmed to operate from 3.3 V. It
+can therefore be powered from J14 pin 6 and connected directly to the two
+LVCMOS33 FPGA inputs:
 
-Use a two-channel, bidirectional, open-drain-compatible level shifter between
-the keyboard and J14. A BSS138-based I2C level-shifter module is suitable for
-these PS/2 clock and data signals.
+| PS/2 keyboard | Wukong J14 |
+| --- | --- |
+| Clock | Pin 1 (`P23`) |
+| Data | Pin 2 (`R23`) |
+| Ground | Pin 5 (GND) |
+| Power | Pin 6 (3.3 V) |
 
-Connect the hardware as follows:
+Confirm the keyboard is the verified 3.3 V model before connecting it. Its
+clock and data pull-ups must not drive either FPGA input above 3.3 V.
+
+## Other PS/2 keyboards
+
+Many PS/2 keyboards expect a 5 V supply. The Artix-7 FPGA I/O is not 5 V
+tolerant, so a 5 V keyboard must not be connected directly to J14.
+
+For a 5 V keyboard, use a two-channel, bidirectional, open-drain-compatible
+level shifter between the keyboard and J14. A BSS138-based I2C level-shifter
+module is suitable for PS/2 clock and data:
 
 | PS/2 side | Level shifter | Wukong side |
 | --- | --- | --- |
@@ -45,9 +58,9 @@ Connect the hardware as follows:
 | Ground | GND | J14 pin 5 and 5 V supply ground |
 | — | LV supply | J14 pin 6 (3.3 V) |
 
-The PMOD connector does not provide 5 V. Obtain keyboard power from a verified
-regulated 5 V point or a separate 5 V supply, and connect its ground to the
-Wukong ground. Verify the supply voltage before connecting the keyboard.
+The PMOD connector does not provide 5 V. Obtain 5 V keyboard power from a
+verified regulated point or a separate supply, and connect its ground to the
+Wukong ground. Verify all supply and signal voltages before connecting it.
 
 ## Vivado constraints
 
