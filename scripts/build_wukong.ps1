@@ -1,7 +1,7 @@
 param(
     [string]$Vivado = 'C:\AMD\2025.2\Vivado\bin\vivado.bat',
     [string]$Part = 'xc7a100tfgg676-2',
-    [ValidateSet('TEST_PATTERN', 'COCO_VIDEO', 'CPU_DIAGNOSTIC', 'COCO3_BOOT', 'COCO2_BOOT')]
+    [ValidateSet('TEST_PATTERN', 'COCO_VIDEO', 'CPU_DIAGNOSTIC', 'COCO3_BOOT')]
     [string]$Mode = 'TEST_PATTERN'
 )
 
@@ -26,7 +26,7 @@ foreach ($name in @('coco3gen.mem', 'coco3_diagnostic.mem')) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "rtl\core\$name") `
         -Destination (Join-Path $stagedCoreDir $name) -Force
 }
-foreach ($name in @('coco2.mem', 'coco3.mem')) {
+foreach ($name in @('coco3.mem')) {
     $source = Join-Path $repoRoot "build\roms\$name"
     if (Test-Path -LiteralPath $source -PathType Leaf) {
         Copy-Item -LiteralPath $source -Destination (Join-Path $stagedRomDir $name) -Force

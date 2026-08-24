@@ -20,7 +20,3 @@ pass it explicitly:
 ```powershell
 & scripts/prepare_coco3_rom.ps1 -ExpectedSha256 '<64 hex digits>'
 ```
-
-For the separate CoCo 2 Extended BASIC checkpoint, place `extbas11.rom` and
-`bas13.rom` here and run `scripts/prepare_coco2_rom.ps1`. Each input must be
-exactly 8 KiB. The generated `build/roms/coco2.mem` is also ignored by Git.

@@ -12,6 +12,11 @@ DriveWire or a host computer for storage.
 *QMTECH Wukong V3 showing its principal external interfaces. The exact FPGA
 and speed grade should be confirmed from the marking on the fitted device.*
 
+![QMTECH Wukong V3 hardware test setup](wukong-v3-test-setup.png)
+
+*Hardware test setup with HDMI video, JTAG programming, board power, and the
+PS/2 keyboard interface connected to PMOD J14.*
+
 ## Interface status
 
 | Board resource | Project status | Intended use |
@@ -20,7 +25,7 @@ and speed grade should be confirmed from the marking on the fitted device.*
 | HDMI output | Used | 640x480 digital video output for the CoCo display |
 | JTAG header | Used | Volatile FPGA programming and hardware testing |
 | Artix-7 block RAM | Used | 128 KiB CoCo main memory, system ROM, character ROM, and supporting buffers |
-| PMOD J14 | Implemented; test pending | Direct clock, data, and power for the verified 3.3 V PS/2 keyboard |
+| PMOD J14 | Implemented and verified | Direct clock, data, and power for the HP KB-0133 PS/2 keyboard |
 | Micro SD slot | Planned | Direct local disk-image storage over SPI; DriveWire is not planned |
 | Remaining PMOD connectors | Planned | External audio, joystick ADC, and optional I2C RTC modules |
 | CH340N USB-to-UART | Optional | Diagnostic console or independent RS-232 PAK; not storage and not a USB keyboard host |
@@ -61,7 +66,7 @@ share the inferred memory through separate ports.
 
 ### PS/2 keyboard
 
-The first input peripheral will use PMOD J14:
+The hardware-verified HP KB-0133 keyboard uses PMOD J14:
 
 | Function | J14 pin | FPGA pin |
 | --- | ---: | --- |

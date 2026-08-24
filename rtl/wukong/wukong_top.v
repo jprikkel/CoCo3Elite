@@ -37,12 +37,7 @@ module wukong_top (
         .video_reset  (video_reset)
     );
 
-`ifdef COCO2_BOOT
-    coco2_boot_system source_i (
-        .pixel_clk(pixel_clk), .reset(video_reset), .hsync(hsync),
-        .vsync(vsync), .video_enable(video_enable), .red(red), .green(green), .blue(blue)
-    );
-`elsif COCO3_BOOT
+`ifdef COCO3_BOOT
     coco3_boot_system source_i (
         .pixel_clk(pixel_clk), .reset(video_reset), .hsync(hsync),
         .ps2_clk(ps2_clk), .ps2_data(ps2_data),

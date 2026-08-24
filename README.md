@@ -8,8 +8,8 @@ the QMTECH Wukong V3 FPGA development board.
 The current port targets the Wukong V3 fitted with an Artix-7 `XC7A100T` in
 the FGG676 package. The hardware-verified build boots a 128 KiB CoCo 3 system
 ROM from block RAM and displays Extended Color BASIC over the board's HDMI
-connector. Test-pattern, legacy-video, CPU-diagnostic, and CoCo 2 boot images
-remain available as separate build modes.
+connector. Test-pattern, legacy-video, and CPU-diagnostic images remain
+available as separate build modes.
 
 The long-term target family includes boards based on the Artix-7 `XC7A15T`,
 `XC7A50T`, and `XC7A100T`. The RTL is being kept portable across those devices;
@@ -79,13 +79,6 @@ The importer accepts either a raw 32 KiB CoCo 3 image or the historical
 32,258-byte CoCo3FPGA flash format. It validates the reset vector, prints the
 source SHA-256 digest, and writes `build/roms/coco3.mem` for Vivado.
 
-For the separate CoCo 2 checkpoint, place the 8 KiB BASIC and Extended BASIC
-images at `roms/bas13.rom` and `roms/extbas11.rom`, then run:
-
-```powershell
-& .\scripts\prepare_coco2_rom.ps1
-```
-
 ## Building a bitstream
 
 Prepare the appropriate ROM first, then build the hardware-verified CoCo 3
@@ -113,7 +106,6 @@ Other selectable modes are:
 | `COCO_VIDEO` | `wukong_coco_video.bit` | Legacy CoCo video-core checkpoint |
 | `CPU_DIAGNOSTIC` | `wukong_cpu_diagnostic.bit` | CPU and 128 KiB block-RAM diagnostic |
 | `COCO3_BOOT` | `wukong_coco3_boot.bit` | CoCo 3 ROM boot |
-| `COCO2_BOOT` | `wukong_coco2_boot.bit` | CoCo 2 BASIC/Extended BASIC experiment |
 
 For example, to use another Vivado installation or compatible FPGA part:
 
