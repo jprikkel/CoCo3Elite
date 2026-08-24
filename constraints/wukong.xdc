@@ -1,5 +1,5 @@
-# QMTECH Wukong v2, XC7A100T-2FGG676.
-# Pin source: vendor-derived v2 board definition and schematic listed in
+# QMTECH Wukong V3, XC7A100T-FGG676.
+# Pin source: the vendor V3 manuals under docs/, as summarized in
 # docs/WUKONG_PORT.md. Only the no-wiring HDMI milestone pins are constrained.
 
 set_property -dict { PACKAGE_PIN M21 IOSTANDARD LVCMOS33 } [get_ports clk_50mhz]

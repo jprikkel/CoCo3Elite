@@ -1,21 +1,18 @@
-# QMTECH Wukong v2 port notes
+# QMTECH Wukong V3 port notes
 
 ## Standalone HDMI checkpoint
 
-This source set targets the QMTECH Wukong revision 2 board populated with an
-Artix-7 `XC7A100T-2FGG676`. It is deliberately independent of all legacy CoCo
+This source set targets the QMTECH Wukong V3 board populated with an Artix-7
+`XC7A100T` in the FGG676 package. It is deliberately independent of all legacy CoCo
 RTL, DDR3, SD, Ethernet, serial, PS/2, buttons, switches, and PMOD connectors.
 
-Pin provenance is the QMTECH v2 material mirrored at
-[DavidJRichards/QMTECH_XC7A100T_Wukong_Board](https://github.com/DavidJRichards/QMTECH_XC7A100T_Wukong_Board):
+Pin provenance is the vendor V3 material stored in this repository:
 
-- `Documents/QMTECH-XC7A100T_200T-Wukong-Board-V02-20210426.pdf`
-- `board/wukong-xc7a100t.xdc`
-- `board/Wukong/1.0/part0_pins.xml`
-- `Litex/platforms/qmtech_wukong.py`
+- `docs/QMTECH_Artix-7_XC7A100T_Wukong_Board_V3_User_Manual(Hardware)_V01.pdf`
+- `docs/QMTECH_Artix-7_XC7A100T_Wukong_Board_V3_User_Manual(Experiments)-V01.pdf`
+- `docs/QMTECH_Artix-7_XC7A100T_Wukong_Board_V3_User_Manual(Vivado2018.3)-V01.pdf`
 
-The constraint and LiteX platform files independently agree on the following
-revision-2 pins:
+The following V3 pins are used by the hardware-verified HDMI build:
 
 | Signal | Positive pin | Negative pin | Standard |
 |---|---:|---:|---|
@@ -59,10 +56,14 @@ region, a 64-pixel grid, and a white border.
 This clock block is only the HDMI checkpoint clocking. It makes no decision
 about the later CoCo `PH_2` architecture.
 
-## XC7A200T compatibility
+## Vivado part selection
 
 `scripts/build_wukong.tcl` accepts a part name as its first Tcl argument. The
-default is `xc7a100tfgg676-2`. A Wukong v2 XC7A200T build can be requested with
-the exact part fitted to that board (commonly `xc7a200tfbg676-2`), but package
-pin compatibility must be confirmed against its board documentation before
-programming.
+default is `xc7a100tfgg676-2`, matching the setting used for the verified
+bitstream. The V3 manual describes an `XC7A100T-1FGG676C`; check the marking on
+the fitted FPGA before relying on speed-grade-specific timing. A different
+speed grade can be passed as the first Tcl argument without changing the board
+pin assignments.
+
+The four V3 PMOD connector pinouts are recorded in
+`hardware/wukong-pmod-pinout.md`.
