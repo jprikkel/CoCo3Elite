@@ -1,3 +1,5 @@
+`timescale 1ns/1ps
+
 ////////////////////////////////////////////////////////////////////////////////
 // Project Name:	CoCo3FPGA Version 3.0
 // File Name:		ps2_keyboard.v
@@ -84,10 +86,10 @@ reg					RX_EXTENDED;
 output	[7:0]		RX_SCAN;
 reg		[7:0]		RX_SCAN;
 
-reg					KB_CLK;
-reg					KB_DATA;
-reg					KB_CLK_B;
-reg					KB_DATA_B;
+(* ASYNC_REG = "TRUE" *) reg KB_CLK;
+(* ASYNC_REG = "TRUE" *) reg KB_DATA;
+(* ASYNC_REG = "TRUE" *) reg KB_CLK_B;
+(* ASYNC_REG = "TRUE" *) reg KB_DATA_B;
 reg					PRESSED_N;
 reg					EXTENDED;
 reg		[2:0]		BIT;

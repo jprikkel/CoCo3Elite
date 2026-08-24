@@ -7,6 +7,31 @@ boot screen while keeping the known-good 640x480 TMDS transmitter available as
 a fallback. The first core milestone intentionally excludes disk, SD, audio,
 joysticks, serial ports, and DDR3.
 
+## Wukong peripheral direction
+
+The Wukong port will use locally attached hardware and will not implement
+DriveWire. Disk-image storage will use the board's onboard Micro SD slot rather
+than a serial connection to a host computer. The onboard CH340N USB-to-UART
+bridge is not part of the storage design; it may remain unused or be enabled
+later as an optional diagnostic console or RS-232 PAK connection.
+
+After the real-ROM boot milestone, add hardware interfaces in this order:
+
+1. PS/2 keyboard through PMOD J14, using the existing PS/2 receiver and CoCo
+   keyboard-matrix translation logic.
+2. Direct Micro SD storage through the existing SPI controller, adapted to the
+   Wukong slot and verified without DriveWire dependencies.
+3. Audio through a PMOD I2S DAC or a small external audio interface.
+4. CoCo joystick inputs through an external ADC connected to a PMOD header.
+5. An optional DS3231-compatible real-time clock over I2C.
+6. External SDRAM or DDR3 only for expanded-memory configurations that exceed
+   the practical block-RAM capacity.
+7. Optional RS-232 PAK support, kept independent of storage and DriveWire.
+
+Ethernet and Wi-Fi are not initial port milestones. A USB keyboard is also not
+an initial target because the board's Mini-USB connector is a CH340N UART
+device, not a USB host; native PS/2 is the supported keyboard path.
+
 ## Legacy design findings
 
 ### Top level and CPU
@@ -170,9 +195,29 @@ expanded-memory configuration.
 
 ### Stage 4: peripherals
 
-Add one subsystem per checkpoint: SD/storage, serial/DriveWire, audio, then
-joysticks. Replace `disk02`, FIFOs, and other Altera-generated blocks only when
-their subsystem is enabled.
+Add one subsystem per checkpoint in the following order:
+
+1. PS/2 keyboard through PMOD J14.
+2. Direct storage using the onboard Micro SD slot and SPI.
+3. Audio using an external PMOD-compatible interface.
+4. Joysticks using an external ADC.
+5. Optional I2C RTC and RS-232 PAK interfaces.
+6. Optional external-memory support for configurations larger than BRAM can
+   accommodate.
+
+DriveWire is explicitly out of scope. Replace `disk02`, FIFOs, and other
+Altera-generated blocks only when required by one of the selected local
+subsystems. Preserve the original source files for reference even when their
+DriveWire paths are not ported.
+
+Acceptance for each peripheral checkpoint requires a focused simulation,
+successful implementation and timing, and a physical-board test before the
+next peripheral is enabled.
+
+PS/2 implementation status: J14 clock (`P23`) and data (`R23`) are connected
+to the existing scan-code decoder and a portable active-low CoCo keyboard
+matrix. Frame-level press/release simulation and the real-ROM boot regression
+pass. Physical keyboard acceptance is pending.
 
 ## Verification requirements
 

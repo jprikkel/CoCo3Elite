@@ -1,9 +1,14 @@
-# QMTECH Wukong v2, XC7A100T-2FGG676.
-# Pin source: vendor-derived v2 board definition and schematic listed in
+# QMTECH Wukong V3, XC7A100T-FGG676.
+# Pin source: the vendor V3 manuals under docs/, as summarized in
 # docs/WUKONG_PORT.md. Only the no-wiring HDMI milestone pins are constrained.
 
 set_property -dict { PACKAGE_PIN M21 IOSTANDARD LVCMOS33 } [get_ports clk_50mhz]
 create_clock -name clk_50mhz -period 20.000 [get_ports clk_50mhz]
+
+# PS/2 keyboard on PMOD J14. Both signals are open-drain and idle high.
+set_property -dict { PACKAGE_PIN P23 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports ps2_clk]
+set_property -dict { PACKAGE_PIN R23 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports ps2_data]
+set_false_path -from [get_ports {ps2_clk ps2_data}]
 
 set_property -dict { PACKAGE_PIN E1 IOSTANDARD TMDS_33 } [get_ports {hdmi_tx_p[0]}]
 set_property -dict { PACKAGE_PIN D1 IOSTANDARD TMDS_33 } [get_ports {hdmi_tx_n[0]}]

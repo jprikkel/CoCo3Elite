@@ -30,7 +30,9 @@ module boot_machine_tb;
         .clock(clock), .reset(reset), .debug_address(address),
         .debug_vma(vma), .debug_read(read_cycle),
         .debug_ram_write(ram_write), .debug_io_write(io_write),
-        .debug_write_data(), .video_hsync(video_hsync),
+        .debug_write_data(), .keyboard_keys(56'b0),
+        .keyboard_shift(1'b0), .keyboard_shift_override(1'b0),
+        .video_hsync(video_hsync),
         .video_vsync(video_vsync), .video_address(20'h00000),
         .video_read_data()
     );

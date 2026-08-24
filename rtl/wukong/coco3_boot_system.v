@@ -3,6 +3,7 @@
 
 module coco3_boot_system (
     input wire pixel_clk, input wire reset,
+    input wire ps2_clk, input wire ps2_data,
     output wire hsync, output wire vsync, output wire video_enable,
     output reg [7:0] red, output reg [7:0] green, output reg [7:0] blue
 );
@@ -31,11 +32,30 @@ module coco3_boot_system (
     reg pia_ddr4;
     reg [3:0] direct_red, direct_green, direct_blue;
     integer i;
+    wire [55:0] keyboard_keys;
+    wire keyboard_shift;
+    wire keyboard_shift_override;
+    wire keyboard_reset;
+
+    COCOKEY keyboard_i (
+        .RESET_N(~reset),
+        .CLK50MHZ(pixel_clk),
+        .SLO_CLK(pixel_clk),
+        .PS2_CLK(ps2_clk),
+        .PS2_DATA(ps2_data),
+        .KEY(keyboard_keys),
+        .SHIFT(keyboard_shift),
+        .SHIFT_OVERRIDE(keyboard_shift_override),
+        .RESET(keyboard_reset)
+    );
 
     coco3_boot_machine machine_i (
         .clock(pixel_clk), .reset(reset), .debug_address(cpu_address),
         .debug_vma(), .debug_read(), .debug_ram_write(),
         .debug_io_write(io_write), .debug_write_data(cpu_data),
+        .keyboard_keys(keyboard_keys),
+        .keyboard_shift(keyboard_shift),
+        .keyboard_shift_override(keyboard_shift_override),
         .video_hsync(hsync), .video_vsync(vsync),
         .video_address(video_address), .video_read_data(video_data)
     );
@@ -139,6 +159,6 @@ module coco3_boot_system (
                   palette[color[3:0]][3],palette[color[3:0]][0],palette[color[3:0]][3],palette[color[3:0]][0]};
         end
     end
-    wire _unused = sync_flag;
+    wire _unused = sync_flag ^ keyboard_reset;
 endmodule
 `default_nettype wire

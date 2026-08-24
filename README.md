@@ -1,26 +1,32 @@
-# CoCo3FPGA for QMTECH Wukong v2
+# CoCo3FPGA for QMTECH Wukong V3
 
 This repository is a hardware port of
 [richard42/CoCo3FPGA](https://github.com/richard42/CoCo3FPGA). It preserves the
 original Quartus sources while adding an AMD/Xilinx Vivado implementation for
-the QMTECH Wukong v2 FPGA development board.
+the QMTECH Wukong V3 FPGA development board.
 
-The current port targets the Wukong v2 fitted with an Artix-7
-`XC7A100T-2FGG676`. The hardware-verified build boots a 128 KiB CoCo 3 system
+The current port targets the Wukong V3 fitted with an Artix-7 `XC7A100T` in
+the FGG676 package. The hardware-verified build boots a 128 KiB CoCo 3 system
 ROM from block RAM and displays Extended Color BASIC over the board's HDMI
 connector. Test-pattern, legacy-video, CPU-diagnostic, and CoCo 2 boot images
 remain available as separate build modes.
 
 The long-term target family includes boards based on the Artix-7 `XC7A15T`,
 `XC7A50T`, and `XC7A100T`. The RTL is being kept portable across those devices;
-the Wukong v2 `XC7A100T` is the currently implemented and hardware-verified
+the Wukong V3 `XC7A100T` is the currently implemented and hardware-verified
 board target.
 
-![Extended Color BASIC running on the QMTECH Wukong v2](docs/images/wukong-coco3-basic.png)
+Hardware interface documentation is maintained under [`hardware/`](hardware/):
+
+- [QMTECH Wukong V3 board overview](hardware/wukong-board.md)
+- [Wukong V3 PMOD pinout](hardware/wukong-pmod-pinout.md)
+- [PS/2 keyboard interface](hardware/keyboard-ps2.md)
+
+![Extended Color BASIC running on the QMTECH Wukong V3](docs/images/wukong-coco3-basic.png)
 
 *Hardware checkpoint: Extended Color BASIC 2.0 with corrected GIME colors and
 vertical centering, running from block RAM and displayed over HDMI on the
-QMTECH Wukong v2.*
+QMTECH Wukong V3.*
 
 ## Repository layout
 
@@ -35,6 +41,7 @@ CoCo3FPGA/
 |-- tb/               Testbench sources
 |-- build/            Generated ROM images, reports, checkpoints, and bitstreams
 |-- roms/             User-supplied ROM inputs; ROM binaries are ignored by Git
+|-- hardware/         Wukong interface pinouts and external wiring guides
 |-- docs/              Porting notes, bring-up results, and board documentation
 `-- legacy-quartus/    Original Intel/Altera Quartus project and support files
 ```

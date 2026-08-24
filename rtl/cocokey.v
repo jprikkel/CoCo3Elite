@@ -1,3 +1,5 @@
+`timescale 1ns/1ps
+
 ////////////////////////////////////////////////////////////////////////////////
 // Project Name:	CoCo3FPGA Version 3.0
 // File Name:		cocokey.v
@@ -539,8 +541,11 @@ end
 //	KB_CLK[3] = 50/16	= 3.125 MHz
 //	KB_CLK[4] = 50/32	= 1.5625 MHz
 //	KB_CLK[5] = 50/64	= 0.78125 MHz
-always @ (posedge CLK50MHZ)				//50 MHz
-	KB_CLK <= KB_CLK + 1'b1;
+always @ (posedge CLK50MHZ or negedge RESET_N)		//50 MHz nominal
+	if(~RESET_N)
+		KB_CLK <= 5'h00;
+	else
+		KB_CLK <= KB_CLK + 1'b1;
 
 ps2_keyboard KEYBOARD(
 		.RESET_N(RESET_N),

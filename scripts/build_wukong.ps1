@@ -6,9 +6,31 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$buildDir = Join-Path $repoRoot 'build\wukong'
+$buildTcl = Join-Path $PSScriptRoot 'build_wukong.tcl'
 
 if (-not (Test-Path -LiteralPath $Vivado)) {
     throw "Vivado was not found at: $Vivado"
+}
+
+New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
+
+# Vivado resolves $readmemh paths from its process working directory. Mirror
+# the small initialization inputs needed by the selectable build modes so the
+# process can run entirely inside build/wukong instead of polluting repo root.
+$stagedCoreDir = Join-Path $buildDir 'rtl\core'
+$stagedRomDir = Join-Path $buildDir 'build\roms'
+New-Item -ItemType Directory -Force -Path $stagedCoreDir, $stagedRomDir | Out-Null
+foreach ($name in @('coco3gen.mem', 'coco3_diagnostic.mem')) {
+    Copy-Item -LiteralPath (Join-Path $repoRoot "rtl\core\$name") `
+        -Destination (Join-Path $stagedCoreDir $name) -Force
+}
+foreach ($name in @('coco2.mem', 'coco3.mem')) {
+    $source = Join-Path $repoRoot "build\roms\$name"
+    if (Test-Path -LiteralPath $source -PathType Leaf) {
+        Copy-Item -LiteralPath $source -Destination (Join-Path $stagedRomDir $name) -Force
+    }
 }
 
 # This installation's per-user Tcl Store catalog is corrupt. Use the bundled
@@ -17,9 +39,28 @@ $vivadoRoot = Split-Path -Parent (Split-Path -Parent $Vivado)
 $env:XILINX_TCLAPP_REPO = Join-Path $vivadoRoot 'data\XilinxTclStore'
 $env:XILINX_LOCAL_USER_DATA = 'NO'
 
-& $Vivado -mode batch -nojournal -nolog `
-    -source scripts/build_wukong.tcl -tclargs $Part $Mode
+Push-Location $buildDir
+try {
+    & $Vivado -mode batch -nojournal -nolog `
+        -source $buildTcl -tclargs $Part $Mode
+    $vivadoExitCode = $LASTEXITCODE
+} finally {
+    Pop-Location
 
-if ($LASTEXITCODE -ne 0) {
-    throw "Vivado failed with exit code $LASTEXITCODE"
+    # AMD Vivado 2025.2 setupEnv.bat uses the Unix command "mkdir -p" on
+    # Windows. Windows mkdir treats -p as a directory name, so every launcher
+    # invocation creates an empty directory with that name in its working
+    # directory. Remove only that known-empty launcher artifact.
+    $dashPArtifact = Join-Path $buildDir '-p'
+    if (Test-Path -LiteralPath $dashPArtifact -PathType Container) {
+        if ((Get-ChildItem -LiteralPath $dashPArtifact -Force | Measure-Object).Count -eq 0) {
+            Remove-Item -LiteralPath $dashPArtifact -Force
+        } else {
+            Write-Warning "Vivado launcher artifact is not empty; leaving it at $dashPArtifact"
+        }
+    }
+}
+
+if ($vivadoExitCode -ne 0) {
+    throw "Vivado failed with exit code $vivadoExitCode"
 }

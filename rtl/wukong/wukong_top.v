@@ -2,6 +2,8 @@
 
 module wukong_top (
     input  wire       clk_50mhz,
+    input  wire       ps2_clk,
+    input  wire       ps2_data,
     output wire [2:0] hdmi_tx_p,
     output wire [2:0] hdmi_tx_n,
     output wire       hdmi_clk_p,
@@ -43,6 +45,7 @@ module wukong_top (
 `elsif COCO3_BOOT
     coco3_boot_system source_i (
         .pixel_clk(pixel_clk), .reset(video_reset), .hsync(hsync),
+        .ps2_clk(ps2_clk), .ps2_data(ps2_data),
         .vsync(vsync), .video_enable(video_enable),
         .red(red), .green(green), .blue(blue)
     );

@@ -3,10 +3,18 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$repoRoot = Split-Path -Parent $PSScriptRoot
+$runDir = Join-Path $repoRoot 'build\sim\system_rom'
+$romImage = Join-Path $repoRoot 'build\roms\coco3.mem'
 
-if (-not (Test-Path -LiteralPath 'build/roms/coco3.mem' -PathType Leaf)) {
-    & scripts/prepare_coco3_rom.ps1
+if (-not (Test-Path -LiteralPath $romImage -PathType Leaf)) {
+    & (Join-Path $PSScriptRoot 'prepare_coco3_rom.ps1') `
+        -InputPath (Join-Path $repoRoot 'roms\coco3.rom') `
+        -OutputPath $romImage
 }
+
+New-Item -ItemType Directory -Force -Path (Join-Path $runDir 'build\roms') | Out-Null
+Copy-Item -LiteralPath $romImage -Destination (Join-Path $runDir 'build\roms\coco3.mem') -Force
 
 function Invoke-VivadoTool {
     param([string]$Tool, [string[]]$Arguments)
@@ -20,9 +28,14 @@ function Invoke-VivadoTool {
     }
 }
 
-Invoke-VivadoTool xvlog @(
-    'rtl/core/coco3_system_rom.v',
-    'tb/system_rom_tb.v'
-)
-Invoke-VivadoTool xelab @('system_rom_tb', '-s', 'system_rom_tb_sim')
-Invoke-VivadoTool xsim @('system_rom_tb_sim', '-runall')
+Push-Location $runDir
+try {
+    Invoke-VivadoTool xvlog @(
+        (Join-Path $repoRoot 'rtl\core\coco3_system_rom.v'),
+        (Join-Path $repoRoot 'tb\system_rom_tb.v')
+    )
+    Invoke-VivadoTool xelab @('system_rom_tb', '-s', 'system_rom_tb_sim')
+    Invoke-VivadoTool xsim @('system_rom_tb_sim', '-runall')
+} finally {
+    Pop-Location
+}
