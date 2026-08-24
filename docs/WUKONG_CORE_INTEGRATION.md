@@ -19,14 +19,20 @@ After the real-ROM boot milestone, add hardware interfaces in this order:
 
 1. PS/2 keyboard through PMOD J14, using the existing PS/2 receiver and CoCo
    keyboard-matrix translation logic.
-2. Direct Micro SD storage through the existing SPI controller, adapted to the
-   Wukong slot and verified without DriveWire dependencies.
+2. Disk Extended Color BASIC 1.1 cartridge ROM at `$C000-$DFFF`, followed by
+   direct Micro SD storage through an SPI controller adapted to the Wukong
+   slot and verified without DriveWire dependencies.
 3. Audio through a PMOD I2S DAC or a small external audio interface.
 4. CoCo joystick inputs through an external ADC connected to a PMOD header.
 5. An optional DS3231-compatible real-time clock over I2C.
 6. External SDRAM or DDR3 only for expanded-memory configurations that exceed
    the practical block-RAM capacity.
 7. Optional RS-232 PAK support, kept independent of storage and DriveWire.
+
+The Disk BASIC cartridge milestone is hardware-verified: the Wukong boots to
+`DISK EXTENDED COLOR BASIC 2.1`. A `DIR` command enters the expected disk wait
+because the FDC registers and sector backend are not implemented yet.
+`disks/CASHMAN.DSK` is the first planned read-only controller test image.
 
 Ethernet and Wi-Fi are not initial port milestones. A USB keyboard is also not
 an initial target because the board's Mini-USB connector is a CH340N UART

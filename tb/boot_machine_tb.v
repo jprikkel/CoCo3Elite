@@ -21,6 +21,7 @@ module boot_machine_tb;
     integer copy_byte;
     reg [7:0] copied_value;
     reg saw_reset_target = 0;
+    reg saw_disk_rom = 0;
 
     always #5 clock = ~clock;
     always #16000 video_hsync = ~video_hsync;
@@ -60,6 +61,8 @@ module boot_machine_tb;
             end
             if (vma && read_cycle && address == 16'h8C1B)
                 saw_reset_target = 1;
+            if (vma && read_cycle && address >= 16'hC000 && address <= 16'hDFFF)
+                saw_disk_rom = 1;
             if (ram_write) ram_writes = ram_writes + 1;
             if (io_write) io_writes = io_writes + 1;
             if (vma && read_cycle && address[15:8] == 8'hFF && address[7:4] != 4'hF) begin
@@ -67,12 +70,12 @@ module boot_machine_tb;
                 io_reads = io_reads + 1;
             end
             if (cycles == 5000000) begin
-                if (!saw_reset_target || ram_writes == 0 || io_writes == 0) begin
-                    $display("FAIL: target=%0d RAM writes=%0d IO writes=%0d address=%04h",
-                             saw_reset_target, ram_writes, io_writes, address);
+                if (!saw_reset_target || !saw_disk_rom || ram_writes == 0 || io_writes == 0) begin
+                    $display("FAIL: target=%0d disk=%0d RAM writes=%0d IO writes=%0d address=%04h",
+                             saw_reset_target, saw_disk_rom, ram_writes, io_writes, address);
                     $finish;
                 end
-                $display("PASS: ROM entered; RAM writes=%0d IO writes=%0d vectors=%0d active=%0d address=%04h",
+                $display("PASS: system and Disk BASIC ROMs entered; RAM writes=%0d IO writes=%0d vectors=%0d active=%0d address=%04h",
                          ram_writes, io_writes, vector_reads, active_cycles, address);
                 $write("FINAL ACTIVE history:");
                 for (h=0; h<16; h=h+1) $write(" %04h", history[(history_pos+h)&15]);

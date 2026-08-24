@@ -42,8 +42,15 @@ module coco3_boot_machine (
     wire [7:0] write_data;
     wire [7:0] ram_data;
     wire [7:0] rom_data;
+    wire [7:0] disk_rom_data;
     wire io_select = address[15:8] == 8'hFF && address[7:4] != 4'hF;
     wire vector_select = address[15:4] == 12'hFFF;
+    // GIME INIT0 ROM map 00/01 exposes an internal lower 16K and external
+    // upper 16K. The Disk BASIC cartridge occupies the upper half's first
+    // 8K at $C000-$DFFF. ROM map 10 selects the full internal 32K image.
+    wire disk_rom_select = !all_ram && !io_select &&
+                           address[15:13] == 3'b110 &&
+                           gime_init0[1:0] != 2'b10;
     // The legacy design always services $FFF0-$FFFF from its dedicated fast
     // vector shadow, even after SAM selects all-RAM mode.
     wire rom_select = vector_select ||
@@ -66,7 +73,8 @@ module coco3_boot_machine (
     wire [7:0] keyboard_rows;
     reg [7:0] io_read_data;
     wire [7:0] read_data = io_select ? io_read_data :
-                             (rom_select ? rom_data : ram_data);
+                             (disk_rom_select ? disk_rom_data :
+                             (rom_select ? rom_data : ram_data));
 
     always @* begin
         io_read_data = 8'hFF;
@@ -152,6 +160,10 @@ module coco3_boot_machine (
 
     coco3_system_rom rom_i (
         .clock(clock), .address(address[14:0]), .data(rom_data)
+    );
+
+    coco3_disk_rom disk_rom_i (
+        .clock(clock), .address(address[12:0]), .data(disk_rom_data)
     );
 
     coco3_128k_ram #(.INIT_VALUE(8'h00)) ram_i (

@@ -38,12 +38,17 @@ if {$mode eq "COCO3_BOOT"} {
     if {![file exists $rom_mem]} {
         error "Prepared ROM not found at $rom_mem; run scripts/prepare_coco3_rom.ps1"
     }
+    set disk_rom_mem [file join $repo_dir build roms disk11.mem]
+    if {![file exists $disk_rom_mem]} {
+        error "Prepared Disk BASIC ROM not found at $disk_rom_mem; run scripts/prepare_disk_rom.ps1"
+    }
     lappend sources \
         [file join $repo_dir rtl ps2_keyboard.v] \
         [file join $repo_dir rtl cocokey.v] \
         [file join $repo_dir rtl core coco3_keyboard_matrix.v] \
         [file join $repo_dir rtl core coco3_128k_ram.v] \
         [file join $repo_dir rtl core coco3_system_rom.v] \
+        [file join $repo_dir rtl core coco3_disk_rom.v] \
         [file join $repo_dir rtl core coco3_boot_machine.v] \
         [file join $rtl_dir coco3_boot_system.v]
     set_property verilog_define {COCO3_BOOT NEW_SRAM} [current_fileset]
