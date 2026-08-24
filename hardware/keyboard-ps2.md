@@ -7,8 +7,9 @@ existing RTL receives PS/2 scan codes and converts them into the CoCo keyboard
 matrix, so the Wukong port should retain this interface for its first working
 keyboard implementation.
 
-This interface is implemented in the Wukong `COCO3_BOOT` build and awaits
-physical keyboard acceptance testing.
+This interface is implemented and hardware-verified in the Wukong
+`COCO3_BOOT` build. Typing and editing BASIC programs, `RUN`, `LIST`, and the
+Break key have been tested successfully.
 
 ## Recommended Wukong connection
 
@@ -27,9 +28,9 @@ changing the constraints.
 
 ## Verified 3.3 V keyboard connection
 
-The keyboard selected for this project is confirmed to operate from 3.3 V. It
-can therefore be powered from J14 pin 6 and connected directly to the two
-LVCMOS33 FPGA inputs:
+The hardware-verified keyboard is an **HP KB-0133**, confirmed to operate from
+3.3 V in this configuration. It can therefore be powered from J14 pin 6 and
+connected to the two LVCMOS33 FPGA inputs:
 
 | PS/2 keyboard | Wukong J14 |
 | --- | --- |
@@ -40,6 +41,11 @@ LVCMOS33 FPGA inputs:
 
 Confirm the keyboard is the verified 3.3 V model before connecting it. Its
 clock and data pull-ups must not drive either FPGA input above 3.3 V.
+
+![PS/2 keyboard interface test wiring](ps2-keyboard-interface.png)
+
+*PS/2 interface wiring used during hardware testing with the HP KB-0133. Check
+the connector pinout and voltages independently before reproducing this setup.*
 
 ## Other PS/2 keyboards
 
@@ -101,7 +107,8 @@ device.
 
 ## Initial test procedure
 
-1. Check the level-shifter wiring and confirm 3.3 V and 5 V with a meter.
+1. Check the direct connection or level-shifter wiring, as applicable, and
+   confirm all supply and signal voltages with a meter.
 2. Program a bitstream that includes the PS/2 top-level ports and constraints.
 3. Connect the PS/2 keyboard only after the board supplies are stable.
 4. Confirm that the CoCo BASIC cursor responds to letter, number, Enter,
