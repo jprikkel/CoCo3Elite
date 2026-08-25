@@ -1,9 +1,9 @@
 # Disk images
 
-This directory contains disk images supplied for CoCo disk-controller testing.
-`CASHMAN.DSK` is the first read-only integration target. `512KTEST.DSK` is
-reserved for later memory and disk compatibility testing.
+This directory contains disk images selected for CoCo disk-controller testing.
+`INTRUDERS.DSK` is mounted read-only as drive 0 and `DAGGORAT.DSK` is mounted
+read-only as drive 1.
 
-Both current images are 161,280-byte, 35-track Disk BASIC images. The initial
-controller milestone will expose `CASHMAN.DSK` as drive 0 from FPGA block RAM;
-later milestones will read selectable images from the Wukong Micro SD card.
+The initial controller accepts raw 161,280-byte, 35-track Disk BASIC images and
+exposes them read-only from FPGA block RAM. Later milestones will read
+selectable images from the Wukong Micro SD card.
