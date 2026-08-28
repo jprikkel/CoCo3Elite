@@ -103,6 +103,12 @@ and floppy-controller behavior stays in HDL.
    records, and the common sector-backend transaction.
 2. Provide a reliable SD SPI block device to the management CPU and test card
    insertion, removal, timeout, and sector reads independently of Disk BASIC.
+   The implementation must provide clocks while the card is deselected between
+   command transactions, tolerate a card that remained initialized across an
+   FPGA-only reconfiguration, parse CMD58 to distinguish SDHC block addressing
+   from byte addressing, and use bounded response/data-token timeouts. Because
+   the Digilent Pmod has no card-detect signal, availability must be established
+   by successful command responses rather than a hard-wired presence bit.
 3. Add read-only FAT32 and DOS 8.3 directory support in management firmware,
    followed by a serial/debug listing command.
 4. Build the HDMI overlay and PS/2-controlled file browser; allow a selected

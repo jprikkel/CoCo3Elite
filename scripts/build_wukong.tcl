@@ -10,6 +10,10 @@ set part       [expr {$argc > 0 ? [lindex $argv 0] : "xc7a100tfgg676-2"}]
 set mode       [string toupper [expr {$argc > 1 ? [lindex $argv 1] : "TEST_PATTERN"}]]
 set top        wukong_top
 
+# Allow Vivado implementation phases to use the available host cores. Some
+# synthesis algorithms retain an internal two-thread cap in Vivado 2025.2.
+set_param general.maxThreads 8
+
 if {$mode ni {TEST_PATTERN COCO_VIDEO CPU_DIAGNOSTIC COCO3_BOOT}} {
     error "Unknown video mode '$mode'; use TEST_PATTERN, COCO_VIDEO, CPU_DIAGNOSTIC, or COCO3_BOOT"
 }
