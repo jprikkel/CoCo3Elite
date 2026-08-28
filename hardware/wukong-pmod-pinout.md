@@ -60,9 +60,12 @@ board before attaching a cable or module.
 
 ## Planned assignments
 
-The initial PS/2 keyboard connection uses J14 pin 1 (`P23`) for clock and J14
-pin 2 (`R23`) for data. See `hardware/keyboard-ps2.md` for voltage translation
+The PS/2 keyboard uses the Digilent layout on J14: pin 1 (`P23`) for data and
+pin 3 (`T24`) for clock. See `hardware/keyboard-ps2.md` for voltage translation
 and wiring requirements.
+
+J13 is assigned to the external Digilent Pmod MicroSD: pin 1 chip select,
+pin 2 MOSI, pin 3 MISO, and pin 4 SPI clock.
 
 Reserve connector assignments for audio, joysticks, and I2C only when those
 interfaces are implemented. Record each allocation here to prevent pin

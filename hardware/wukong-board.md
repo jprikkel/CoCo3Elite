@@ -26,7 +26,7 @@ PS/2 keyboard interface connected to PMOD J14.*
 | JTAG header | Used | Volatile FPGA programming and hardware testing |
 | Artix-7 block RAM | Used | 128 KiB CoCo main memory, system ROM, character ROM, and supporting buffers |
 | PMOD J14 | Implemented and verified | Direct clock, data, and power for the HP KB-0133 PS/2 keyboard |
-| Micro SD slot | Planned | Direct local disk-image storage over SPI; DriveWire is not planned |
+| PMOD J13 | In progress | External Digilent Pmod MicroSD over SPI |
 | Remaining PMOD connectors | Planned | External audio, joystick ADC, and optional I2C RTC modules |
 | CH340N USB-to-UART | Optional | Diagnostic console or independent RS-232 PAK; not storage and not a USB keyboard host |
 | User keys | Unassigned | Candidate reset, cold-start, or maintenance controls |
@@ -70,8 +70,8 @@ The hardware-verified HP KB-0133 keyboard uses PMOD J14:
 
 | Function | J14 pin | FPGA pin |
 | --- | ---: | --- |
-| PS/2 clock | 1 | P23 |
-| PS/2 data | 2 | R23 |
+| PS/2 data | 1 | P23 |
+| PS/2 clock | 3 | T24 |
 | Ground | 5 | GND |
 | Keyboard power | 6 | 3.3 V |
 
@@ -80,11 +80,20 @@ can connect directly. Other PS/2 keyboards may require 5 V and a suitable
 open-drain-compatible level shifter because the Artix-7 pins are not 5 V
 tolerant. See `keyboard-ps2.md` for the complete wiring and constraint guidance.
 
-### Direct Micro SD storage
+### External MicroSD storage
 
-The onboard Micro SD slot is the planned mass-storage interface. It will use
-the existing CoCo3FPGA SPI-controller concepts adapted to the Wukong pinout.
-Disk images will be read locally from the card; DriveWire will not be ported.
+The Wukong board does not include a MicroSD slot. A Digilent Pmod MicroSD is
+connected to PMOD J13 and uses the standard SPI assignment below. Disk images
+will be read locally from the card; DriveWire will not be ported.
+
+| Function | J13 pin | FPGA pin |
+| --- | ---: | --- |
+| Chip select (active low) | 1 | N22 |
+| MOSI | 2 | N21 |
+| MISO | 3 | R20 |
+| SPI clock | 4 | T22 |
+| Ground | 5 | GND |
+| 3.3 V | 6 | 3.3 V |
 
 ### Audio
 

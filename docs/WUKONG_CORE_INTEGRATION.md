@@ -10,8 +10,8 @@ joysticks, serial ports, and DDR3.
 ## Wukong peripheral direction
 
 The Wukong port will use locally attached hardware and will not implement
-DriveWire. Disk-image storage will use the board's onboard Micro SD slot rather
-than a serial connection to a host computer. The onboard CH340N USB-to-UART
+DriveWire. Disk-image storage will use an external Digilent Pmod MicroSD on
+J13 rather than a serial connection to a host computer. The onboard CH340N USB-to-UART
 bridge is not part of the storage design; it may remain unused or be enabled
 later as an optional diagnostic console or RS-232 PAK connection.
 
@@ -20,7 +20,7 @@ After the real-ROM boot milestone, add hardware interfaces in this order:
 1. PS/2 keyboard through PMOD J14, using the existing PS/2 receiver and CoCo
    keyboard-matrix translation logic.
 2. Disk Extended Color BASIC 1.1 cartridge ROM at `$C000-$DFFF`, followed by
-   direct Micro SD storage through an SPI controller adapted to the Wukong
+   direct Micro SD storage through an SPI controller on an external J13 Pmod
    slot and verified without DriveWire dependencies.
 3. Audio through a PMOD I2S DAC or a small external audio interface.
 4. CoCo joystick inputs through an external ADC connected to a PMOD header.
@@ -204,7 +204,7 @@ expanded-memory configuration.
 Add one subsystem per checkpoint in the following order:
 
 1. PS/2 keyboard through PMOD J14.
-2. Direct storage using the onboard Micro SD slot and SPI.
+2. Direct storage using an external Digilent Pmod MicroSD on J13 over SPI.
 3. Audio using an external PMOD-compatible interface.
 4. Joysticks using an external ADC.
 5. Optional I2C RTC and RS-232 PAK interfaces.

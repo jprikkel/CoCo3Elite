@@ -9,8 +9,6 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $buildDir = Join-Path $repoRoot 'build\wukong'
 $buildTcl = Join-Path $PSScriptRoot 'build_wukong.tcl'
-$drive0Image = Join-Path $repoRoot 'build\disks\intruders.mem'
-$drive1Image = Join-Path $repoRoot 'build\disks\daggorat.mem'
 
 if (-not (Test-Path -LiteralPath $Vivado)) {
     throw "Vivado was not found at: $Vivado"
@@ -18,20 +16,12 @@ if (-not (Test-Path -LiteralPath $Vivado)) {
 
 New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 
-& (Join-Path $PSScriptRoot 'prepare_disk_image.ps1') `
-    -InputPath (Join-Path $repoRoot 'disks\INTRUDERS.DSK') `
-    -OutputPath $drive0Image
-& (Join-Path $PSScriptRoot 'prepare_disk_image.ps1') `
-    -InputPath (Join-Path $repoRoot 'disks\DAGGORAT.DSK') `
-    -OutputPath $drive1Image
-
 # Vivado resolves $readmemh paths from its process working directory. Mirror
 # the small initialization inputs needed by the selectable build modes so the
 # process can run entirely inside build/wukong instead of polluting repo root.
 $stagedCoreDir = Join-Path $buildDir 'rtl\core'
 $stagedRomDir = Join-Path $buildDir 'build\roms'
-$stagedDiskDir = Join-Path $buildDir 'build\disks'
-New-Item -ItemType Directory -Force -Path $stagedCoreDir, $stagedRomDir, $stagedDiskDir | Out-Null
+New-Item -ItemType Directory -Force -Path $stagedCoreDir, $stagedRomDir | Out-Null
 foreach ($name in @('coco3gen.mem', 'coco3_diagnostic.mem')) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "rtl\core\$name") `
         -Destination (Join-Path $stagedCoreDir $name) -Force
@@ -42,9 +32,6 @@ foreach ($name in @('coco3.mem', 'disk11.mem')) {
         Copy-Item -LiteralPath $source -Destination (Join-Path $stagedRomDir $name) -Force
     }
 }
-Copy-Item -LiteralPath $drive0Image -Destination (Join-Path $stagedDiskDir 'intruders.mem') -Force
-Copy-Item -LiteralPath $drive1Image -Destination (Join-Path $stagedDiskDir 'daggorat.mem') -Force
-
 # This installation's per-user Tcl Store catalog is corrupt. Use the bundled
 # store directly and disable the per-user cache for a reproducible batch run.
 $vivadoRoot = Split-Path -Parent (Split-Path -Parent $Vivado)

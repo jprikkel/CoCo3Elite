@@ -4,6 +4,10 @@ module wukong_top (
     input  wire       clk_50mhz,
     input  wire       ps2_clk,
     input  wire       ps2_data,
+    output wire       sd_cs_n,
+    output wire       sd_sck,
+    output wire       sd_mosi,
+    input  wire       sd_miso,
     output wire [2:0] hdmi_tx_p,
     output wire [2:0] hdmi_tx_n,
     output wire       hdmi_clk_p,
@@ -41,6 +45,8 @@ module wukong_top (
     coco3_boot_system source_i (
         .pixel_clk(pixel_clk), .reset(video_reset), .hsync(hsync),
         .ps2_clk(ps2_clk), .ps2_data(ps2_data),
+        .sd_cs_n(sd_cs_n), .sd_sck(sd_sck),
+        .sd_mosi(sd_mosi), .sd_miso(sd_miso),
         .vsync(vsync), .video_enable(video_enable),
         .red(red), .green(green), .blue(blue)
     );
@@ -67,6 +73,9 @@ module wukong_top (
         .blue         (blue)
     );
 `else
+    assign sd_cs_n = 1'b1;
+    assign sd_sck = 1'b0;
+    assign sd_mosi = 1'b1;
     video_timing timing_i (
         .pixel_clk    (pixel_clk),
         .reset        (video_reset),

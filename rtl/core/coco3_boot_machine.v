@@ -15,6 +15,8 @@ module coco3_boot_machine (
     input  wire [55:0] keyboard_keys,
     input  wire        keyboard_shift,
     input  wire        keyboard_shift_override,
+    input  wire [7:0]  sd_status,
+    input  wire [7:0]  sd_detail,
     input  wire        video_hsync,
     input  wire        video_vsync,
     input  wire [19:0] video_address,
@@ -89,6 +91,8 @@ module coco3_boot_machine (
             16'hFF02: io_read_data = pia0_crb[2]
                 ? ((pia0_outb & pia0_ddrb) | (~pia0_ddrb)) : pia0_ddrb;
             16'hFF03: io_read_data = {pia0_vsync_event, 3'b011, pia0_crb[3:0]};
+            16'hFF60: io_read_data = sd_status;
+            16'hFF61: io_read_data = sd_detail;
             16'hFF90: io_read_data = gime_init0;
             16'hFF91: io_read_data = gime_init1;
             default: begin

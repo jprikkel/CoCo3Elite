@@ -4,6 +4,8 @@
 module coco3_boot_system (
     input wire pixel_clk, input wire reset,
     input wire ps2_clk, input wire ps2_data,
+    output wire sd_cs_n, output wire sd_sck, output wire sd_mosi,
+    input wire sd_miso,
     output wire hsync, output wire vsync, output wire video_enable,
     output reg [7:0] red, output reg [7:0] green, output reg [7:0] blue
 );
@@ -36,6 +38,32 @@ module coco3_boot_system (
     wire keyboard_shift;
     wire keyboard_shift_override;
     wire keyboard_reset;
+    wire [7:0] sd_init_status;
+    wire [7:0] sd_init_detail;
+    wire [7:0] sd_read_status;
+    wire [7:0] sd_read_detail;
+    wire sd_init_cs_n, sd_init_sck, sd_init_mosi;
+    wire sd_read_cs_n, sd_read_sck, sd_read_mosi;
+    wire sd_initialized = sd_init_status == 8'h80;
+    wire [7:0] sd_status = sd_initialized ? sd_read_status : sd_init_status;
+    wire [7:0] sd_detail = sd_initialized ? sd_read_detail : sd_init_detail;
+
+    assign sd_cs_n = sd_initialized ? sd_read_cs_n : sd_init_cs_n;
+    assign sd_sck  = sd_initialized ? sd_read_sck  : sd_init_sck;
+    assign sd_mosi = sd_initialized ? sd_read_mosi : sd_init_mosi;
+
+    sd_spi_init sd_i (
+        .clock(pixel_clk), .reset(reset), .miso(sd_miso),
+        .cs_n(sd_init_cs_n), .sck(sd_init_sck), .mosi(sd_init_mosi),
+        .status(sd_init_status), .detail(sd_init_detail)
+    );
+
+    sd_spi_read_sector0 sd_sector0_i (
+        .clock(pixel_clk), .reset(reset), .enable(sd_initialized),
+        .miso(sd_miso), .cs_n(sd_read_cs_n), .sck(sd_read_sck),
+        .mosi(sd_read_mosi), .status(sd_read_status),
+        .detail(sd_read_detail)
+    );
 
     COCOKEY keyboard_i (
         .RESET_N(~reset),
@@ -56,6 +84,7 @@ module coco3_boot_system (
         .keyboard_keys(keyboard_keys),
         .keyboard_shift(keyboard_shift),
         .keyboard_shift_override(keyboard_shift_override),
+        .sd_status(sd_status), .sd_detail(sd_detail),
         .video_hsync(hsync), .video_vsync(vsync),
         .video_address(video_address), .video_read_data(video_data)
     );
