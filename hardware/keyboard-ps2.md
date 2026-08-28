@@ -17,13 +17,13 @@ Use PMOD connector J14 for the two PS/2 signals:
 
 | Function | J14 pin | FPGA pin | I/O standard |
 | --- | ---: | --- | --- |
-| PS/2 clock | 1 | P23 | LVCMOS33 |
-| PS/2 data | 2 | R23 | LVCMOS33 |
+| PS/2 data | 1 | P23 | LVCMOS33 |
+| PS/2 clock | 3 | T24 | LVCMOS33 |
 | Ground | 5 | GND | — |
 | Keyboard power | 6 | 3.3 V | — |
 
-J14 pins 1 and 2 were selected to keep the connection together on one side of
-the PMOD connector. Other unused PMOD signal pins can be substituted by
+J14 pins 1 and 3 match the standard Digilent PS/2 Pmod signal layout. Other
+unused PMOD signal pins can be substituted by
 changing the constraints.
 
 ## Verified 3.3 V keyboard connection
@@ -96,8 +96,8 @@ module is suitable for PS/2 clock and data:
 
 | PS/2 side | Level shifter | Wukong side |
 | --- | --- | --- |
-| Clock | HV channel 1 to LV channel 1 | J14 pin 1 |
-| Data | HV channel 2 to LV channel 2 | J14 pin 2 |
+| Data | HV channel 1 to LV channel 1 | J14 pin 1 |
+| Clock | HV channel 2 to LV channel 2 | J14 pin 3 |
 | +5 V | HV supply | Regulated 5 V supply |
 | Ground | GND | J14 pin 5 and 5 V supply ground |
 | — | LV supply | J14 pin 6 (3.3 V) |

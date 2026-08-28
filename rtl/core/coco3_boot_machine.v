@@ -15,6 +15,8 @@ module coco3_boot_machine (
     input  wire [55:0] keyboard_keys,
     input  wire        keyboard_shift,
     input  wire        keyboard_shift_override,
+    input  wire [7:0]  sd_status,
+    input  wire [7:0]  sd_detail,
     input  wire        video_hsync,
     input  wire        video_vsync,
     input  wire [19:0] video_address,
@@ -42,8 +44,17 @@ module coco3_boot_machine (
     wire [7:0] write_data;
     wire [7:0] ram_data;
     wire [7:0] rom_data;
+    wire [7:0] disk_rom_data;
+    wire [7:0] fdc_read_data;
+    wire fdc_nmi;
     wire io_select = address[15:8] == 8'hFF && address[7:4] != 4'hF;
     wire vector_select = address[15:4] == 12'hFFF;
+    // GIME INIT0 ROM map 00/01 exposes an internal lower 16K and external
+    // upper 16K. The Disk BASIC cartridge occupies the upper half's first
+    // 8K at $C000-$DFFF. ROM map 10 selects the full internal 32K image.
+    wire disk_rom_select = !all_ram && !io_select &&
+                           address[15:13] == 3'b110 &&
+                           gime_init0[1:0] != 2'b10;
     // The legacy design always services $FFF0-$FFFF from its dedicated fast
     // vector shadow, even after SAM selects all-RAM mode.
     wire rom_select = vector_select ||
@@ -55,6 +66,7 @@ module coco3_boot_machine (
     // numbers alias modulo 16, matching absent physical address pins.
     wire [16:0] physical_address = {mapped_page[3:0], address[12:0]};
     wire active = !hold && vma;
+    wire io_read = active && read_cycle && io_select;
     wire pia0_hsync_event = (~video_hsync) ^ pia0_cra[1];
     wire pia0_vsync_event = (~video_vsync) ^ pia0_crb[1];
     wire cpu_irq = (pia0_cra[0] && pia0_hsync_event) ||
@@ -66,7 +78,8 @@ module coco3_boot_machine (
     wire [7:0] keyboard_rows;
     reg [7:0] io_read_data;
     wire [7:0] read_data = io_select ? io_read_data :
-                             (rom_select ? rom_data : ram_data);
+                             (disk_rom_select ? disk_rom_data :
+                             (rom_select ? rom_data : ram_data));
 
     always @* begin
         io_read_data = 8'hFF;
@@ -78,10 +91,17 @@ module coco3_boot_machine (
             16'hFF02: io_read_data = pia0_crb[2]
                 ? ((pia0_outb & pia0_ddrb) | (~pia0_ddrb)) : pia0_ddrb;
             16'hFF03: io_read_data = {pia0_vsync_event, 3'b011, pia0_crb[3:0]};
+            16'hFF60: io_read_data = sd_status;
+            16'hFF61: io_read_data = sd_detail;
             16'hFF90: io_read_data = gime_init0;
             16'hFF91: io_read_data = gime_init1;
-            default: if (address >= 16'hFFA0 && address <= 16'hFFAF)
-                io_read_data = mmu[address[3:0]];
+            default: begin
+                if (address == 16'hFF40 ||
+                    (address >= 16'hFF48 && address <= 16'hFF4B))
+                    io_read_data = fdc_read_data;
+                else if (address >= 16'hFFA0 && address <= 16'hFFAF)
+                    io_read_data = mmu[address[3:0]];
+            end
         endcase
     end
 
@@ -147,11 +167,21 @@ module coco3_boot_machine (
         .clk(clock), .rst(reset), .vma(vma), .lic_out(), .ifetch(),
         .opfetch(), .ba(), .bs(), .addr(address), .rw(read_cycle),
         .data_out(write_data), .data_in(read_data), .irq(cpu_irq),
-        .firq(1'b0), .nmi(1'b0), .halt(1'b0), .hold(hold)
+        .firq(1'b0), .nmi(fdc_nmi), .halt(1'b0), .hold(hold)
     );
 
     coco3_system_rom rom_i (
         .clock(clock), .address(address[14:0]), .data(rom_data)
+    );
+
+    coco3_disk_rom disk_rom_i (
+        .clock(clock), .address(address[12:0]), .data(disk_rom_data)
+    );
+
+    coco3_fdc fdc_i (
+        .clock(clock), .reset(reset), .io_read(io_read), .io_write(io_write),
+        .address(address), .write_data(write_data),
+        .read_data(fdc_read_data), .nmi(fdc_nmi)
     );
 
     coco3_128k_ram #(.INIT_VALUE(8'h00)) ram_i (

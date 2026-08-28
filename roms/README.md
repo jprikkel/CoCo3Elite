@@ -20,3 +20,17 @@ pass it explicitly:
 ```powershell
 & scripts/prepare_coco3_rom.ps1 -ExpectedSha256 '<64 hex digits>'
 ```
+
+## Disk Extended Color BASIC ROM
+
+Place the standard 8 KiB Disk Extended Color BASIC 1.1 cartridge ROM here as
+`disk11.rom`, then prepare it with:
+
+```powershell
+& scripts/prepare_disk_rom.ps1
+```
+
+The importer requires the canonical image with SHA-1
+`10BDC5AA2D7D7F205F67B47B19003A4BD89DEFD1` and writes
+`build/roms/disk11.mem`. The ROM is mapped as an external cartridge at
+`$C000-$DFFF`; the binary and generated memory file remain uncommitted.

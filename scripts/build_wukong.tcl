@@ -10,6 +10,10 @@ set part       [expr {$argc > 0 ? [lindex $argv 0] : "xc7a100tfgg676-2"}]
 set mode       [string toupper [expr {$argc > 1 ? [lindex $argv 1] : "TEST_PATTERN"}]]
 set top        wukong_top
 
+# Allow Vivado implementation phases to use the available host cores. Some
+# synthesis algorithms retain an internal two-thread cap in Vivado 2025.2.
+set_param general.maxThreads 8
+
 if {$mode ni {TEST_PATTERN COCO_VIDEO CPU_DIAGNOSTIC COCO3_BOOT}} {
     error "Unknown video mode '$mode'; use TEST_PATTERN, COCO_VIDEO, CPU_DIAGNOSTIC, or COCO3_BOOT"
 }
@@ -38,12 +42,20 @@ if {$mode eq "COCO3_BOOT"} {
     if {![file exists $rom_mem]} {
         error "Prepared ROM not found at $rom_mem; run scripts/prepare_coco3_rom.ps1"
     }
+    set disk_rom_mem [file join $repo_dir build roms disk11.mem]
+    if {![file exists $disk_rom_mem]} {
+        error "Prepared Disk BASIC ROM not found at $disk_rom_mem; run scripts/prepare_disk_rom.ps1"
+    }
     lappend sources \
         [file join $repo_dir rtl ps2_keyboard.v] \
         [file join $repo_dir rtl cocokey.v] \
         [file join $repo_dir rtl core coco3_keyboard_matrix.v] \
         [file join $repo_dir rtl core coco3_128k_ram.v] \
         [file join $repo_dir rtl core coco3_system_rom.v] \
+        [file join $repo_dir rtl core coco3_disk_rom.v] \
+        [file join $repo_dir rtl core sd_spi_init.v] \
+        [file join $repo_dir rtl core sd_spi_read_sector0.v] \
+        [file join $repo_dir rtl core coco3_fdc.v] \
         [file join $repo_dir rtl core coco3_boot_machine.v] \
         [file join $rtl_dir coco3_boot_system.v]
     set_property verilog_define {COCO3_BOOT NEW_SRAM} [current_fileset]

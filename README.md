@@ -68,16 +68,21 @@ CoCo ROM images may be obtained from the vetted
 [RetroBIOS Tandy CoCo collection](https://github.com/Abdess/retrobios/tree/main/bios/Tandy/CoCo).
 ROM binaries are inputs to the build and must remain uncommitted.
 
-For the CoCo 3 build, place a compatible image at `roms/coco3.rom`, then run
-from the repository root:
+For the CoCo 3 build, place a compatible system image at `roms/coco3.rom` and
+the standard 8 KiB Disk Extended Color BASIC 1.1 cartridge image at
+`roms/disk11.rom`, then run from the repository root:
 
 ```powershell
 & .\scripts\prepare_coco3_rom.ps1
+& .\scripts\prepare_disk_rom.ps1
 ```
 
 The importer accepts either a raw 32 KiB CoCo 3 image or the historical
 32,258-byte CoCo3FPGA flash format. It validates the reset vector, prints the
 source SHA-256 digest, and writes `build/roms/coco3.mem` for Vivado.
+The disk importer validates the canonical Disk BASIC 1.1 SHA-1 and writes
+`build/roms/disk11.mem`. ROM binaries and generated memory files are ignored
+by Git.
 
 ## Building a bitstream
 

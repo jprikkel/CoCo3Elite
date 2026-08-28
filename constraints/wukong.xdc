@@ -5,10 +5,18 @@
 set_property -dict { PACKAGE_PIN M21 IOSTANDARD LVCMOS33 } [get_ports clk_50mhz]
 create_clock -name clk_50mhz -period 20.000 [get_ports clk_50mhz]
 
-# PS/2 keyboard on PMOD J14. Both signals are open-drain and idle high.
-set_property -dict { PACKAGE_PIN P23 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports ps2_clk]
-set_property -dict { PACKAGE_PIN R23 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports ps2_data]
+# PS/2 keyboard on PMOD J14 using the Digilent Pmod PS/2 signal layout.
+# Both signals are open-drain and idle high.
+set_property -dict { PACKAGE_PIN P23 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports ps2_data]
+set_property -dict { PACKAGE_PIN T24 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports ps2_clk]
 set_false_path -from [get_ports {ps2_clk ps2_data}]
+
+# Digilent Pmod MicroSD on J13 (standard Type-2 SPI layout).
+set_property -dict { PACKAGE_PIN N22 IOSTANDARD LVCMOS33 } [get_ports sd_cs_n]
+set_property -dict { PACKAGE_PIN N21 IOSTANDARD LVCMOS33 } [get_ports sd_mosi]
+set_property -dict { PACKAGE_PIN R20 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports sd_miso]
+set_property -dict { PACKAGE_PIN T22 IOSTANDARD LVCMOS33 } [get_ports sd_sck]
+set_false_path -from [get_ports sd_miso]
 
 set_property -dict { PACKAGE_PIN E1 IOSTANDARD TMDS_33 } [get_ports {hdmi_tx_p[0]}]
 set_property -dict { PACKAGE_PIN D1 IOSTANDARD TMDS_33 } [get_ports {hdmi_tx_n[0]}]

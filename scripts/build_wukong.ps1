@@ -26,13 +26,12 @@ foreach ($name in @('coco3gen.mem', 'coco3_diagnostic.mem')) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "rtl\core\$name") `
         -Destination (Join-Path $stagedCoreDir $name) -Force
 }
-foreach ($name in @('coco3.mem')) {
+foreach ($name in @('coco3.mem', 'disk11.mem')) {
     $source = Join-Path $repoRoot "build\roms\$name"
     if (Test-Path -LiteralPath $source -PathType Leaf) {
         Copy-Item -LiteralPath $source -Destination (Join-Path $stagedRomDir $name) -Force
     }
 }
-
 # This installation's per-user Tcl Store catalog is corrupt. Use the bundled
 # store directly and disable the per-user cache for a reproducible batch run.
 $vivadoRoot = Split-Path -Parent (Split-Path -Parent $Vivado)

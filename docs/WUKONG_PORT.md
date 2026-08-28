@@ -66,4 +66,5 @@ speed grade can be passed as the first Tcl argument without changing the board
 pin assignments.
 
 The four V3 PMOD connector pinouts are recorded in
-`hardware/wukong-pmod-pinout.md`.
+`hardware/wukong-pmod-pinout.md`. J13 is assigned to the external Digilent
+Pmod MicroSD and J14 to the PS/2 keyboard.
