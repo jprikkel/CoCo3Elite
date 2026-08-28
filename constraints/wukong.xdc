@@ -5,9 +5,10 @@
 set_property -dict { PACKAGE_PIN M21 IOSTANDARD LVCMOS33 } [get_ports clk_50mhz]
 create_clock -name clk_50mhz -period 20.000 [get_ports clk_50mhz]
 
-# PS/2 keyboard on PMOD J14. Both signals are open-drain and idle high.
-set_property -dict { PACKAGE_PIN P23 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports ps2_clk]
-set_property -dict { PACKAGE_PIN R23 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports ps2_data]
+# PS/2 keyboard on PMOD J14 using the Digilent Pmod PS/2 signal layout.
+# Both signals are open-drain and idle high.
+set_property -dict { PACKAGE_PIN P23 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports ps2_data]
+set_property -dict { PACKAGE_PIN T24 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports ps2_clk]
 set_false_path -from [get_ports {ps2_clk ps2_data}]
 
 set_property -dict { PACKAGE_PIN E1 IOSTANDARD TMDS_33 } [get_ports {hdmi_tx_p[0]}]
