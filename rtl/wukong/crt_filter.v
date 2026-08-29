@@ -21,17 +21,21 @@ module crt_filter (
     reg [9:0] y;
     reg previous_hsync, previous_vsync, line_had_active;
     reg [7:0] previous_red, previous_green, previous_blue;
+    reg [7:0] previous2_red, previous2_green, previous2_blue;
     reg [1:0] mask_level;
     reg [9:0] edge_x, edge_y, edge_distance;
     reg corner_blank;
     reg [8:0] corrected_red, corrected_green, corrected_blue;
-    reg [8:0] bloom_red, bloom_green, bloom_blue;
+    reg [9:0] bloom_red, bloom_green, bloom_blue;
     reg [7:0] mask_drop, mask_gain, vignette_gain;
     reg [15:0] scaled_red, scaled_green, scaled_blue;
     reg [15:0] vignette_drop;
     wire previous_bright = previous_red >= bloom_threshold ||
                            previous_green >= bloom_threshold ||
                            previous_blue >= bloom_threshold;
+    wire previous2_bright = previous2_red >= bloom_threshold ||
+                            previous2_green >= bloom_threshold ||
+                            previous2_blue >= bloom_threshold;
 
     function [1:0] phosphor_level;
         input [4:0] layout;
@@ -71,7 +75,8 @@ module crt_filter (
         if (reset) begin
             x <= 0; y <= 0; previous_hsync <= 1; previous_vsync <= 1;
             line_had_active <= 0; previous_red <= 0; previous_green <= 0;
-            previous_blue <= 0; out_hsync <= 1; out_vsync <= 1;
+            previous_blue <= 0; previous2_red <= 0; previous2_green <= 0;
+            previous2_blue <= 0; out_hsync <= 1; out_vsync <= 1;
             out_video_enable <= 0; out_red <= 0; out_green <= 0; out_blue <= 0;
         end else begin
             previous_hsync <= in_hsync;
@@ -86,9 +91,12 @@ module crt_filter (
                 x <= x + 1'b1;
             end else x <= 0;
 
-            previous_red <= in_red;
-            previous_green <= in_green;
-            previous_blue <= in_blue;
+            previous2_red <= previous_red;
+            previous2_green <= previous_green;
+            previous2_blue <= previous_blue;
+            previous_red <= in_video_enable ? in_red : 8'd0;
+            previous_green <= in_video_enable ? in_green : 8'd0;
+            previous_blue <= in_video_enable ? in_blue : 8'd0;
             out_hsync <= in_hsync;
             out_vsync <= in_vsync;
             out_video_enable <= in_video_enable;
@@ -138,10 +146,21 @@ module crt_filter (
                     bloom_green = corrected_green + (previous_green >> 1);
                     bloom_blue = corrected_blue + (previous_blue >> 1);
                 end
-                default: begin
+                3'd4: begin
                     bloom_red = corrected_red + previous_red;
                     bloom_green = corrected_green + previous_green;
                     bloom_blue = corrected_blue + previous_blue;
+                end
+                default: begin
+                    // Strong two-pixel halo used by the tuned preset. The
+                    // second tap softens adjacent phosphor columns rather
+                    // than merely brightening the immediately prior pixel.
+                    bloom_red = corrected_red + previous_red +
+                                (previous2_bright ? (previous2_red >> 1) : 0);
+                    bloom_green = corrected_green + previous_green +
+                                  (previous2_bright ? (previous2_green >> 1) : 0);
+                    bloom_blue = corrected_blue + previous_blue +
+                                 (previous2_bright ? (previous2_blue >> 1) : 0);
                 end
             endcase
         end

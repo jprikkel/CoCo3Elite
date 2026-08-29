@@ -5,8 +5,8 @@ filter after NTSC artifact-color generation. F10 toggles the entire filter;
 it is disabled after FPGA reset, and bypass mode preserves the incoming RGB
 and video timing exactly apart from the filter's registered pipeline stage.
 
-The tuned hardware preset uses mask layout 4, mask intensity 72, bloom size 4,
-bloom threshold 180, no corner mask, no vignette, black level 0, and white
+The tuned hardware preset uses vertical-slot mask layout 1, mask intensity 72,
+bloom size 5, bloom threshold 140, no corner mask, no vignette, black level 0, and white
 level 255. These are RTL control ports rather
 than constants inside the filter so the planned management GUI can adjust them
 at runtime.
@@ -23,7 +23,8 @@ the image.
 ## Other controls
 
 - `bloom_size` and `bloom_threshold` control thresholded horizontal phosphor
-  bloom. The streaming implementation uses nearby completed pixels and does not
+  bloom. Level 5 blends two completed neighboring pixels for a stronger,
+  softer glow. The streaming implementation uses nearby completed pixels and does not
   require a framebuffer.
 - `corner_radius` applies a rounded-bezel corner mask.
 - `vignette_size` and `vignette_strength` darken the image near its edges.
