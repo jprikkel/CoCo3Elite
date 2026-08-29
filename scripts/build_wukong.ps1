@@ -2,7 +2,8 @@ param(
     [string]$Vivado = 'C:\AMD\2025.2\Vivado\bin\vivado.bat',
     [string]$Part = 'xc7a100tfgg676-2',
     [ValidateSet('TEST_PATTERN', 'COCO_VIDEO', 'CPU_DIAGNOSTIC', 'COCO3_BOOT')]
-    [string]$Mode = 'TEST_PATTERN'
+    [string]$Mode = 'TEST_PATTERN',
+    [switch]$EmbeddedTestDisks
 )
 
 $ErrorActionPreference = 'Stop'
@@ -21,7 +22,8 @@ New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 # process can run entirely inside build/wukong instead of polluting repo root.
 $stagedCoreDir = Join-Path $buildDir 'rtl\core'
 $stagedRomDir = Join-Path $buildDir 'build\roms'
-New-Item -ItemType Directory -Force -Path $stagedCoreDir, $stagedRomDir | Out-Null
+$stagedDiskDir = Join-Path $buildDir 'build\disks'
+New-Item -ItemType Directory -Force -Path $stagedCoreDir, $stagedRomDir, $stagedDiskDir | Out-Null
 foreach ($name in @('coco3gen.mem', 'coco3_diagnostic.mem')) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "rtl\core\$name") `
         -Destination (Join-Path $stagedCoreDir $name) -Force
@@ -30,6 +32,19 @@ foreach ($name in @('coco3.mem', 'disk11.mem')) {
     $source = Join-Path $repoRoot "build\roms\$name"
     if (Test-Path -LiteralPath $source -PathType Leaf) {
         Copy-Item -LiteralPath $source -Destination (Join-Path $stagedRomDir $name) -Force
+    }
+}
+if ($EmbeddedTestDisks) {
+    foreach ($disk in @(
+        @{ Input = 'disks\CASHMAN.DSK'; Output = 'cashman.mem' },
+        @{ Input = 'disks\MUDPIES.DSK'; Output = 'mudpies.mem' }
+    )) {
+        $inputPath = Join-Path $repoRoot $disk.Input
+        $preparedPath = Join-Path $repoRoot "build\disks\$($disk.Output)"
+        & (Join-Path $PSScriptRoot 'prepare_disk_image.ps1') `
+            -InputPath $inputPath -OutputPath $preparedPath
+        Copy-Item -LiteralPath $preparedPath `
+            -Destination (Join-Path $stagedDiskDir $disk.Output) -Force
     }
 }
 # This installation's per-user Tcl Store catalog is corrupt. Use the bundled
@@ -41,7 +56,7 @@ $env:XILINX_LOCAL_USER_DATA = 'NO'
 Push-Location $buildDir
 try {
     & $Vivado -mode batch -nojournal -nolog `
-        -source $buildTcl -tclargs $Part $Mode
+        -source $buildTcl -tclargs $Part $Mode ([int]$EmbeddedTestDisks.IsPresent)
     $vivadoExitCode = $LASTEXITCODE
 } finally {
     Pop-Location

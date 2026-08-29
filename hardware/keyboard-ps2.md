@@ -57,7 +57,8 @@ have special CoCo meanings:
 | --- | --- | --- |
 | Esc | Break | Hardware-verified with Extended Color BASIC |
 | Backspace | Left Arrow | The CoCo uses Left Arrow as its destructive backspace key |
-| F12 | `@` | Provides the CoCo's dedicated at-sign key |
+| F11 | NTSC artifact color | Toggles HDMI artifact-color processing on or off; enabled after reset |
+| F12 | `@` currently; management GUI planned | Will be reserved to open or close the HDMI management overlay when that subsystem is implemented |
 | Caps Lock | Clear | Generates the CoCo `Shift+0` Clear combination; it does not latch alphabetic case |
 | Scroll Lock | `Ctrl+W` | Generates the CoCo control-key combination while held |
 
@@ -80,10 +81,17 @@ where the CoCo has no matching physical key:
 | `{` / `}` | `Ctrl+,` / `Ctrl+.` |
 | `'` / `"` | `Shift+7` / `Shift+2` |
 
-F3 through F11 and the Insert, Home, End, Page Up, Page Down, Print Screen,
+F3 through F10 and the Insert, Home, End, Page Up, Page Down, Print Screen,
 Pause, and numeric-keypad navigation keys are not currently mapped. The
 decoder recognizes Ctrl+Alt+Delete as a reset request, but that request is not
 connected to system reset in the current Wukong build.
+
+The planned management keyboard arbiter will consume the four arrow keys,
+Enter, Esc, and F12 while its GUI is open. Up and Down will change the
+highlighted item, Left and Right will change a value or navigate between panes,
+Enter will select, Esc will return to the previous screen, and F12 will close
+the GUI. Once F12 is reserved, the CoCo `@` character will remain available
+with Shift+2.
 
 ## Other PS/2 keyboards
 

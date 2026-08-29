@@ -76,8 +76,13 @@ implemented specifically for CoCo3FPGA:
 
 - A small soft CPU and firmware own SD initialization, FAT32, directory
   browsing, configuration, and `.DSK` file metadata.
-- An FPGA overlay engine presents a setup/file-browser GUI over HDMI. A PS/2
-  hotkey opens it without changing the CoCo display mode.
+- An FPGA overlay engine presents a setup/file-browser GUI over HDMI. F12
+  opens and closes it without changing the CoCo display mode.
+- A keyboard arbiter sends PS/2 events either to the CoCo matrix or to the
+  management subsystem. While the GUI is open, arrow keys move the selection,
+  Enter activates the selected item, and Esc returns to the preceding screen.
+  These navigation keystrokes are consumed by the GUI rather than leaking into
+  the running CoCo program.
 - A mailbox connects the management CPU to the CoCo-facing hardware. Mount
   table changes are atomic so the emulated machine never observes a partially
   mounted image.
@@ -100,8 +105,13 @@ and floppy-controller behavior stays in HDL.
 ## Implementation plan
 
 1. Specify the management CPU, BRAM budget, mailbox registers, mount-table
-   records, and the common sector-backend transaction.
-2. Provide a reliable SD SPI block device to the management CPU and test card
+   records, keyboard-event interface, and the common sector-backend transaction.
+2. Implement the first visible GUI shell: F12 toggles the HDMI overlay; Up,
+   Down, Left, and Right navigate; Enter selects; and Esc backs out. Verify that
+   the CoCo receives normal keyboard input with the GUI closed and receives none
+   of the GUI navigation events while it is open. The initial menu may contain
+   placeholder System, Drives, and About entries.
+3. Provide a reliable SD SPI block device to the management CPU and test card
    insertion, removal, timeout, and sector reads independently of Disk BASIC.
    The implementation must provide clocks while the card is deselected between
    command transactions, tolerate a card that remained initialized across an
@@ -109,15 +119,15 @@ and floppy-controller behavior stays in HDL.
    from byte addressing, and use bounded response/data-token timeouts. Because
    the Digilent Pmod has no card-detect signal, availability must be established
    by successful command responses rather than a hard-wired presence bit.
-3. Add read-only FAT32 and DOS 8.3 directory support in management firmware,
+4. Add read-only FAT32 and DOS 8.3 directory support in management firmware,
    followed by a serial/debug listing command.
-4. Build the HDMI overlay and PS/2-controlled file browser; allow a selected
+5. Extend the GUI shell into a file browser; allow a selected
    `.DSK` file to be assigned to drives 0 through 3.
-5. Connect the mount table to the WD1773-compatible controller and verify
+6. Connect the mount table to the WD1773-compatible controller and verify
    `DIR`, `LOAD`, `LOADM`, direct sector access, and multi-drive operation.
-6. Add safe writes to already allocated image sectors, then long filenames,
+7. Add safe writes to already allocated image sectors, then long filenames,
    subdirectories, and additional image formats.
-7. Implement the protected PMOD physical-floppy adapter and backend, allowing
+8. Implement the protected PMOD physical-floppy adapter and backend, allowing
    each logical drive to select either an SD image or the physical mechanism.
 
 USB mass storage is a later hardware option. The Wukong board's onboard USB

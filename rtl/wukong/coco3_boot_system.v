@@ -7,7 +7,7 @@ module coco3_boot_system (
     output wire sd_cs_n, output wire sd_sck, output wire sd_mosi,
     input wire sd_miso,
     output wire hsync, output wire vsync, output wire video_enable,
-    output reg [7:0] red, output reg [7:0] green, output reg [7:0] blue
+    output wire [7:0] red, output wire [7:0] green, output wire [7:0] blue
 );
     wire [15:0] cpu_address;
     wire io_write;
@@ -15,6 +15,8 @@ module coco3_boot_system (
     wire [19:0] video_address;
     wire [15:0] video_data;
     wire [8:0] color;
+    wire raw_hsync, raw_vsync, raw_video_enable;
+    reg [7:0] raw_red, raw_green, raw_blue;
     wire hblank, vblank, sync_flag;
     reg coco;
     reg [2:0] v;
@@ -38,6 +40,10 @@ module coco3_boot_system (
     wire keyboard_shift;
     wire keyboard_shift_override;
     wire keyboard_reset;
+    wire keyboard_f11;
+    reg [1:0] keyboard_f11_sync;
+    reg keyboard_f11_previous;
+    reg artifact_enabled;
     wire [7:0] sd_init_status;
     wire [7:0] sd_init_detail;
     wire [7:0] sd_read_status;
@@ -74,8 +80,24 @@ module coco3_boot_system (
         .KEY(keyboard_keys),
         .SHIFT(keyboard_shift),
         .SHIFT_OVERRIDE(keyboard_shift_override),
+        .F11(keyboard_f11),
         .RESET(keyboard_reset)
     );
+
+    // F11 is decoded in the divided keyboard clock domain. Synchronize its
+    // level and toggle artifact color once on each make-code edge.
+    always @(posedge pixel_clk) begin
+        if (reset) begin
+            keyboard_f11_sync <= 2'b00;
+            keyboard_f11_previous <= 1'b0;
+            artifact_enabled <= 1'b1;
+        end else begin
+            keyboard_f11_sync <= {keyboard_f11_sync[0], keyboard_f11};
+            keyboard_f11_previous <= keyboard_f11_sync[1];
+            if (keyboard_f11_sync[1] && !keyboard_f11_previous)
+                artifact_enabled <= ~artifact_enabled;
+        end
+    end
 
     coco3_boot_machine machine_i (
         .clock(pixel_clk), .reset(reset), .debug_address(cpu_address),
@@ -85,7 +107,7 @@ module coco3_boot_system (
         .keyboard_shift(keyboard_shift),
         .keyboard_shift_override(keyboard_shift_override),
         .sd_status(sd_status), .sd_detail(sd_detail),
-        .video_hsync(hsync), .video_vsync(vsync),
+        .video_hsync(raw_hsync), .video_vsync(raw_vsync),
         .video_address(video_address), .video_read_data(video_data)
     );
 
@@ -139,10 +161,10 @@ module coco3_boot_system (
     end
 
     COCO3VIDEO video_i (
-        .PIX_CLK(pixel_clk), .RESET_N(~reset), .COLOR(color), .HSYNC(hsync),
-        .SYNC_FLAG(sync_flag), .VSYNC(vsync), .HBLANKING(hblank),
+        .PIX_CLK(pixel_clk), .RESET_N(~reset), .COLOR(color), .HSYNC(raw_hsync),
+        .SYNC_FLAG(sync_flag), .VSYNC(raw_vsync), .HBLANKING(hblank),
         .VBLANKING(vblank), .RAM_ADDRESS(video_address), .RAM_DATA(video_data),
-        .VIDEO_ACTIVE(video_enable),
+        .VIDEO_ACTIVE(raw_video_enable),
         .COCO(coco), .V(v), .BP(bp), .VERT(vert), .VID_CONT(vid_cont), .CSS(css),
         .LPF(lpf), .VERT_FIN_SCRL(scroll), .HLPR(hlpr), .LPR(lpr), .HRES(hres),
         .CRES(cres), .HVEN(hven), .HOR_OFFSET(hor_offset),
@@ -175,19 +197,33 @@ module coco3_boot_system (
                     direct_blue  = {color[3], color[0], color[3], color[0]};
                 end
             endcase
-            red   = {direct_red, direct_red};
-            green = {direct_green, direct_green};
-            blue  = {direct_blue, direct_blue};
+            raw_red   = {direct_red, direct_red};
+            raw_green = {direct_green, direct_green};
+            raw_blue  = {direct_blue, direct_blue};
         end else begin
             // GIME palette encoding is R2 G2 B2 R1 G1 B1, not RR GG BB.
-            red={palette[color[3:0]][5],palette[color[3:0]][2],palette[color[3:0]][5],palette[color[3:0]][2],
+            raw_red={palette[color[3:0]][5],palette[color[3:0]][2],palette[color[3:0]][5],palette[color[3:0]][2],
                  palette[color[3:0]][5],palette[color[3:0]][2],palette[color[3:0]][5],palette[color[3:0]][2]};
-            green={palette[color[3:0]][4],palette[color[3:0]][1],palette[color[3:0]][4],palette[color[3:0]][1],
+            raw_green={palette[color[3:0]][4],palette[color[3:0]][1],palette[color[3:0]][4],palette[color[3:0]][1],
                    palette[color[3:0]][4],palette[color[3:0]][1],palette[color[3:0]][4],palette[color[3:0]][1]};
-            blue={palette[color[3:0]][3],palette[color[3:0]][0],palette[color[3:0]][3],palette[color[3:0]][0],
+            raw_blue={palette[color[3:0]][3],palette[color[3:0]][0],palette[color[3:0]][3],palette[color[3:0]][0],
                   palette[color[3:0]][3],palette[color[3:0]][0],palette[color[3:0]][3],palette[color[3:0]][0]};
         end
     end
+
+    // Software reaches artifact-capable 256-pixel modes through several
+    // SAM/VDG configurations, so F11 controls the effect directly.
+    wire artifact_on_pixel = raw_red[7] && raw_green[7] && raw_blue[7];
+    ntsc_artifact_filter artifact_i (
+        .pixel_clk(pixel_clk), .reset(reset), .enable(artifact_enabled),
+        .phase_reverse(1'b0), .in_hsync(raw_hsync), .in_vsync(raw_vsync),
+        .in_video_enable(raw_video_enable),
+        .in_on_pixel(artifact_on_pixel),
+        .in_red(raw_red), .in_green(raw_green), .in_blue(raw_blue),
+        .out_hsync(hsync), .out_vsync(vsync),
+        .out_video_enable(video_enable),
+        .out_red(red), .out_green(green), .out_blue(blue)
+    );
     wire _unused = sync_flag ^ keyboard_reset;
 endmodule
 `default_nettype wire
