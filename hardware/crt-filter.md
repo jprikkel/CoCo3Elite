@@ -1,12 +1,13 @@
 # HDMI CRT Filter
 
 The Wukong HDMI pipeline includes an optional streaming CRT presentation
-filter after NTSC artifact-color generation. F10 toggles the entire filter;
-it is disabled after FPGA reset, and bypass mode preserves the incoming RGB
+filter after NTSC artifact-color generation. F9 toggles horizontal scanlines,
+and F10 independently toggles phosphor bloom/glow. Both are disabled after
+FPGA reset, and full bypass mode preserves the incoming RGB
 and video timing exactly apart from the filter's registered pipeline stage.
 
-The tuned hardware preset uses horizontal-scanline mask layout 2, mask intensity 72,
-bloom size 5, bloom threshold 140, no corner mask, no vignette, black level 0, and white
+The tuned hardware preset uses horizontal-scanline mask layout 7, mask intensity
+72, bloom size 6, bloom threshold 100, no corner mask, no vignette, black level 0, and white
 level 255. These are RTL control ports rather
 than constants inside the filter so the planned management GUI can adjust them
 at runtime.
@@ -23,7 +24,7 @@ the image.
 ## Other controls
 
 - `bloom_size` and `bloom_threshold` control thresholded horizontal phosphor
-  bloom. Level 5 blends two completed neighboring pixels for a stronger,
+  bloom. Level 6 blends four completed neighboring pixels for a stronger,
   softer glow. The streaming implementation uses nearby completed pixels and does not
   require a framebuffer.
 - `corner_radius` applies a rounded-bezel corner mask.

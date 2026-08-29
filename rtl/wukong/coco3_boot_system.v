@@ -43,10 +43,12 @@ module coco3_boot_system (
     wire keyboard_shift_override;
     wire keyboard_reset;
     wire keyboard_f8;
+    wire keyboard_f9;
     wire keyboard_f11;
     wire keyboard_f10;
     reg [1:0] keyboard_f10_sync;
     reg [1:0] keyboard_f8_sync;
+    reg [1:0] keyboard_f9_sync;
     reg [1:0] keyboard_f11_sync;
     reg [1:0] keyboard_reset_sync;
     reg keyboard_f11_previous;
@@ -54,7 +56,9 @@ module coco3_boot_system (
     reg crt_enabled;
     reg keyboard_f10_previous;
     reg keyboard_f8_previous;
+    reg keyboard_f9_previous;
     reg keyboard_joystick_enabled;
+    reg scanlines_enabled;
     reg soft_reset_active;
     reg [21:0] soft_reset_release_count;
     wire soft_reset_keys_held = keyboard_reset_sync[1] ||
@@ -115,6 +119,7 @@ module coco3_boot_system (
         .SHIFT(keyboard_shift),
         .SHIFT_OVERRIDE(keyboard_shift_override),
         .F8(keyboard_f8),
+        .F9(keyboard_f9),
         .F10(keyboard_f10),
         .F11(keyboard_f11),
         .RESET(keyboard_reset)
@@ -127,21 +132,26 @@ module coco3_boot_system (
             keyboard_f11_sync <= 2'b00;
             keyboard_f10_sync <= 2'b00;
             keyboard_f8_sync <= 2'b00;
+            keyboard_f9_sync <= 2'b00;
             keyboard_reset_sync <= 2'b00;
             keyboard_f11_previous <= 1'b0;
             artifact_enabled <= 1'b1;
             keyboard_f10_previous <= 1'b0;
             keyboard_f8_previous <= 1'b0;
+            keyboard_f9_previous <= 1'b0;
             keyboard_joystick_enabled <= 1'b0;
+            scanlines_enabled <= 1'b0;
             crt_enabled <= 1'b0;
         end else begin
             keyboard_f11_sync <= {keyboard_f11_sync[0], keyboard_f11};
             keyboard_f10_sync <= {keyboard_f10_sync[0], keyboard_f10};
             keyboard_f8_sync <= {keyboard_f8_sync[0], keyboard_f8};
+            keyboard_f9_sync <= {keyboard_f9_sync[0], keyboard_f9};
             keyboard_reset_sync <= {keyboard_reset_sync[0], keyboard_reset};
             keyboard_f11_previous <= keyboard_f11_sync[1];
             keyboard_f10_previous <= keyboard_f10_sync[1];
             keyboard_f8_previous <= keyboard_f8_sync[1];
+            keyboard_f9_previous <= keyboard_f9_sync[1];
             if (keyboard_reset_sync[1])
                 artifact_enabled <= 1'b1;
             else if (keyboard_f11_sync[1] && !keyboard_f11_previous)
@@ -150,6 +160,8 @@ module coco3_boot_system (
                 crt_enabled <= ~crt_enabled;
             if (keyboard_f8_sync[1] && !keyboard_f8_previous)
                 keyboard_joystick_enabled <= ~keyboard_joystick_enabled;
+            if (keyboard_f9_sync[1] && !keyboard_f9_previous)
+                scanlines_enabled <= ~scanlines_enabled;
         end
     end
 
@@ -305,12 +317,14 @@ module coco3_boot_system (
     );
 
     crt_filter crt_i (
-        .pixel_clk(pixel_clk), .reset(system_reset), .enable(crt_enabled),
+        .pixel_clk(pixel_clk), .reset(system_reset),
+        .enable(crt_enabled | scanlines_enabled),
         .in_hsync(artifact_hsync), .in_vsync(artifact_vsync),
         .in_video_enable(artifact_video_enable),
         .in_red(artifact_red), .in_green(artifact_green), .in_blue(artifact_blue),
-        .mask_layout(5'd2), .mask_intensity(8'd72),
-        .bloom_size(3'd5), .bloom_threshold(8'd140),
+        .mask_layout(scanlines_enabled ? 5'd7 : 5'd0),
+        .mask_intensity(8'd72),
+        .bloom_size(crt_enabled ? 3'd6 : 3'd0), .bloom_threshold(8'd100),
         .corner_radius(7'd0), .vignette_size(7'd0),
         .vignette_strength(8'd0), .black_level(8'd0), .white_level(8'd255),
         .out_hsync(hsync), .out_vsync(vsync), .out_video_enable(video_enable),

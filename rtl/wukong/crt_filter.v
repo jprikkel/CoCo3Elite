@@ -22,6 +22,8 @@ module crt_filter (
     reg previous_hsync, previous_vsync, line_had_active;
     reg [7:0] previous_red, previous_green, previous_blue;
     reg [7:0] previous2_red, previous2_green, previous2_blue;
+    reg [7:0] previous3_red, previous3_green, previous3_blue;
+    reg [7:0] previous4_red, previous4_green, previous4_blue;
     reg [1:0] mask_level;
     reg [9:0] edge_x, edge_y, edge_distance;
     reg corner_blank;
@@ -50,7 +52,8 @@ module crt_filter (
                 4:  phosphor_level = (px % 3 == 0) ? 2'd3 : 2'd1;
                 5:  phosphor_level = (px % 3 == 1) ? 2'd3 : 2'd1;
                 6:  phosphor_level = (px % 3 == 2) ? 2'd3 : 2'd1;
-                7:  phosphor_level = (py % 3 == 0) ? 2'd3 : 2'd1;
+                // Two illuminated rows followed by one darker scanline.
+                7:  phosphor_level = (py % 3 == 2) ? 2'd1 : 2'd3;
                 8:  phosphor_level = ((px + py) % 3 == 0) ? 2'd3 : 2'd1;
                 9:  phosphor_level = ((px + (py << 1)) % 3 == 0) ? 2'd3 : 2'd1;
                 10: phosphor_level = px[1:0] == 0 ? 2'd3 : 2'd1;
@@ -76,7 +79,9 @@ module crt_filter (
             x <= 0; y <= 0; previous_hsync <= 1; previous_vsync <= 1;
             line_had_active <= 0; previous_red <= 0; previous_green <= 0;
             previous_blue <= 0; previous2_red <= 0; previous2_green <= 0;
-            previous2_blue <= 0; out_hsync <= 1; out_vsync <= 1;
+            previous2_blue <= 0; previous3_red <= 0; previous3_green <= 0;
+            previous3_blue <= 0; previous4_red <= 0; previous4_green <= 0;
+            previous4_blue <= 0; out_hsync <= 1; out_vsync <= 1;
             out_video_enable <= 0; out_red <= 0; out_green <= 0; out_blue <= 0;
         end else begin
             previous_hsync <= in_hsync;
@@ -91,6 +96,12 @@ module crt_filter (
                 x <= x + 1'b1;
             end else x <= 0;
 
+            previous4_red <= previous3_red;
+            previous4_green <= previous3_green;
+            previous4_blue <= previous3_blue;
+            previous3_red <= previous2_red;
+            previous3_green <= previous2_green;
+            previous3_blue <= previous2_blue;
             previous2_red <= previous_red;
             previous2_green <= previous_green;
             previous2_blue <= previous_blue;
@@ -151,7 +162,7 @@ module crt_filter (
                     bloom_green = corrected_green + previous_green;
                     bloom_blue = corrected_blue + previous_blue;
                 end
-                default: begin
+                3'd5: begin
                     // Strong two-pixel halo used by the tuned preset. The
                     // second tap softens adjacent phosphor columns rather
                     // than merely brightening the immediately prior pixel.
@@ -161,6 +172,19 @@ module crt_filter (
                                   (previous2_bright ? (previous2_green >> 1) : 0);
                     bloom_blue = corrected_blue + previous_blue +
                                  (previous2_bright ? (previous2_blue >> 1) : 0);
+                end
+                default: begin
+                    // Extra-soft four-pixel halo. This is intentionally
+                    // asymmetric because the filter is a streaming pipeline.
+                    bloom_red = corrected_red + previous_red +
+                                (previous2_red >> 1) + (previous2_red >> 2) +
+                                (previous3_red >> 1) + (previous4_red >> 2);
+                    bloom_green = corrected_green + previous_green +
+                                  (previous2_green >> 1) + (previous2_green >> 2) +
+                                  (previous3_green >> 1) + (previous4_green >> 2);
+                    bloom_blue = corrected_blue + previous_blue +
+                                 (previous2_blue >> 1) + (previous2_blue >> 2) +
+                                 (previous3_blue >> 1) + (previous4_blue >> 2);
                 end
             endcase
         end

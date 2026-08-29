@@ -58,7 +58,8 @@ have special CoCo meanings:
 | Esc | Break | Hardware-verified with Extended Color BASIC |
 | Backspace | Left Arrow | The CoCo uses Left Arrow as its destructive backspace key |
 | F8 | Keyboard left joystick | Toggles arrow-key and Space control of the emulated left joystick; disabled after reset |
-| F10 | CRT filter | Toggles the HDMI CRT presentation filter on or off; disabled after reset |
+| F9 | Horizontal scanlines | Toggles horizontal CRT scanlines on or off; disabled after reset |
+| F10 | Phosphor glow | Toggles HDMI phosphor bloom/glow on or off independently of scanlines; disabled after reset |
 | F11 | NTSC artifact color | Toggles HDMI artifact-color processing on or off; enabled after reset |
 | F12 | `@` currently; management GUI planned | Will be reserved to open or close the HDMI management overlay when that subsystem is implemented |
 | Caps Lock | Clear | Generates the CoCo `Shift+0` Clear combination; it does not latch alphabetic case |
@@ -89,7 +90,7 @@ primary fire button. Opposing directions return that axis to center. These five
 keys are consumed by the joystick while the mode is active and return to their
 normal CoCo keyboard meanings when F8 disables it.
 
-F3 through F7, F9, and the Insert, Home, End, Page Up, Page Down, Print Screen,
+F3 through F7 and the Insert, Home, End, Page Up, Page Down, Print Screen,
 Pause, and numeric-keypad navigation keys are not currently mapped. The
 Ctrl+Alt+Delete combination performs a synchronized CoCo soft reset. It resets
 the emulated CPU and video/control state without reconfiguring the FPGA or
