@@ -309,7 +309,7 @@ module coco3_boot_system (
         .in_hsync(artifact_hsync), .in_vsync(artifact_vsync),
         .in_video_enable(artifact_video_enable),
         .in_red(artifact_red), .in_green(artifact_green), .in_blue(artifact_blue),
-        .mask_layout(5'd1), .mask_intensity(8'd72),
+        .mask_layout(5'd2), .mask_intensity(8'd72),
         .bloom_size(3'd5), .bloom_threshold(8'd140),
         .corner_radius(7'd0), .vignette_size(7'd0),
         .vignette_strength(8'd0), .black_level(8'd0), .white_level(8'd255),

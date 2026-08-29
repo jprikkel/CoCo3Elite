@@ -5,7 +5,7 @@ filter after NTSC artifact-color generation. F10 toggles the entire filter;
 it is disabled after FPGA reset, and bypass mode preserves the incoming RGB
 and video timing exactly apart from the filter's registered pipeline stage.
 
-The tuned hardware preset uses vertical-slot mask layout 1, mask intensity 72,
+The tuned hardware preset uses horizontal-scanline mask layout 2, mask intensity 72,
 bloom size 5, bloom threshold 140, no corner mask, no vignette, black level 0, and white
 level 255. These are RTL control ports rather
 than constants inside the filter so the planned management GUI can adjust them
