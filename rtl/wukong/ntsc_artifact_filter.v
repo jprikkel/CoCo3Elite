@@ -3,9 +3,9 @@
 
 // Digital approximation of the NTSC color artifacts produced by the CoCo's
 // 256-pixel, one-bit graphics modes. The source presents each logical pixel
-// for two 25 MHz clocks. A five-sample window distinguishes narrow detail
-// from solid white areas; narrow white detail is colored according to its
-// half-resolution subcarrier phase while broad areas retain their source RGB.
+// for two 25 MHz clocks. Two adjacent logical pixels form an artifact cell:
+// 00 is black, 11 is white, 01 is color A, and 10 is color B. The decoded
+// value is displayed over both logical pixels in the cell.
 //
 // All video/control outputs are delayed by two pixel clocks so the center of
 // the neighborhood and the HDMI control signals remain aligned.
@@ -41,8 +41,11 @@ module ntsc_artifact_filter (
     reg [7:0] blue_pipe [0:4];
     integer i;
 
-    wire window_is_solid = &on_pipe;
-    wire artifact_phase = x_pipe[2][1] ^ phase_reverse;
+    // x[1] selects the second logical pixel of each four-clock artifact cell.
+    // Samples two clocks apart are adjacent 256-pixel source pixels.
+    wire pair_left  = x_pipe[2][1] ? on_pipe[4] : on_pipe[2];
+    wire pair_right = x_pipe[2][1] ? on_pipe[2] : on_pipe[0];
+    wire [1:0] artifact_pair = {pair_left, pair_right};
 
     always @(posedge pixel_clk) begin
         if (reset) begin
@@ -94,19 +97,50 @@ module ntsc_artifact_filter (
         out_green = green_pipe[2];
         out_blue = blue_pipe[2];
 
-        if (enable_pipe[2] && active_pipe[2] && on_pipe[2] &&
-            !window_is_solid) begin
-            if (artifact_phase) begin
-                // Blue artifact phase.
+        if (enable_pipe[2] && active_pipe[2]) begin
+            case (artifact_pair)
+              2'b00: begin
+                // Preserve the source RGB so enabling artifact processing does
+                // not black out non-monochrome CoCo 3 video modes.
+                out_red = red_pipe[2];
+                out_green = green_pipe[2];
+                out_blue = blue_pipe[2];
+              end
+              2'b11: begin
+                out_red = 8'hff;
+                out_green = 8'hff;
+                out_blue = 8'hff;
+              end
+              2'b01: begin
+                // Artifact color A (phase reversal exchanges A and B).
+                if (phase_reverse) begin
+                    out_red = 8'hd8;
+                    out_green = 8'h68;
+                    out_blue = 8'h20;
+                end else begin
+                    out_red = 8'h28;
+                    out_green = 8'h58;
+                    out_blue = 8'hd8;
+                end
+              end
+              2'b10: begin
+                // Artifact color B.
+                if (phase_reverse) begin
+                    out_red = 8'h28;
+                    out_green = 8'h58;
+                    out_blue = 8'hd8;
+                end else begin
+                    out_red = 8'hd8;
+                    out_green = 8'h68;
+                    out_blue = 8'h20;
+                end
+              end
+              default: begin
                 out_red = 8'h28;
                 out_green = 8'h58;
                 out_blue = 8'hd8;
-            end else begin
-                // Orange/red artifact phase.
-                out_red = 8'hd8;
-                out_green = 8'h68;
-                out_blue = 8'h20;
-            end
+              end
+            endcase
         end
     end
 

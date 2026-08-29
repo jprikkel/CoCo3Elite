@@ -17,6 +17,9 @@ module ntsc_artifact_filter_tb;
     wire [7:0] out_red, out_green, out_blue;
     integer colored_count = 0;
     integer white_count = 0;
+    integer black_count = 0;
+    integer blue_count = 0;
+    integer orange_count = 0;
 
     ntsc_artifact_filter dut (
         .pixel_clk(clock), .reset(reset), .enable(enable),
@@ -42,6 +45,25 @@ module ntsc_artifact_filter_tb;
                 colored_count = colored_count + 1;
             if (out_active && {out_red,out_green,out_blue} == 24'hffffff)
                 white_count = white_count + 1;
+            if (out_active && {out_red,out_green,out_blue} == 24'h000000)
+                black_count = black_count + 1;
+            if (out_active && {out_red,out_green,out_blue} == 24'h2858d8)
+                blue_count = blue_count + 1;
+            if (out_active && {out_red,out_green,out_blue} == 24'hd86820)
+                orange_count = orange_count + 1;
+        end
+    endtask
+
+    task start_line;
+        begin
+            active = 0;
+            repeat (6) drive_pixel(0);
+            active = 1;
+            colored_count = 0;
+            white_count = 0;
+            black_count = 0;
+            blue_count = 0;
+            orange_count = 0;
         end
     endtask
 
@@ -49,33 +71,62 @@ module ntsc_artifact_filter_tb;
     initial begin
         repeat (3) @(posedge clock);
         reset = 0;
-        active = 1;
         enable = 1;
 
-        // Alternating logical pixels, each repeated for two 25 MHz clocks,
-        // must produce artifact colors.
-        for (i = 0; i < 8; i = i + 1) begin
-            drive_pixel(i[0]);
-            drive_pixel(i[0]);
-        end
-        repeat (5) drive_pixel(0);
-        if (colored_count == 0) begin
-            $display("FAIL: alternating detail did not produce artifact color");
+        // 00 -> black.
+        start_line();
+        repeat (12) drive_pixel(0);
+        if (black_count == 0) begin
+            $display("FAIL: 00 pair did not decode to black");
             $fatal(1);
         end
 
-        // A broad white run must retain a white interior.
-        colored_count = 0;
-        white_count = 0;
-        repeat (8) drive_pixel(1);
-        repeat (5) drive_pixel(0);
+        // 11 -> white.
+        start_line();
+        repeat (12) drive_pixel(1);
         if (white_count == 0) begin
-            $display("FAIL: solid white area had no preserved white interior");
+            $display("FAIL: 11 pair did not decode to white");
             $fatal(1);
         end
+
+        // 01 -> artifact color A (blue). Each logical pixel is driven twice.
+        start_line();
+        for (i = 0; i < 4; i = i + 1) begin
+            repeat (2) drive_pixel(0);
+            repeat (2) drive_pixel(1);
+        end
+        if (blue_count == 0) begin
+            $display("FAIL: 01 pair did not decode to artifact color A");
+            $fatal(1);
+        end
+
+        // 10 -> artifact color B (orange/red).
+        start_line();
+        for (i = 0; i < 4; i = i + 1) begin
+            repeat (2) drive_pixel(1);
+            repeat (2) drive_pixel(0);
+        end
+        if (orange_count == 0) begin
+            $display("FAIL: 10 pair did not decode to artifact color B");
+            $fatal(1);
+        end
+
+        // Phase reversal exchanges A and B.
+        phase_reverse = 1;
+        start_line();
+        for (i = 0; i < 4; i = i + 1) begin
+            repeat (2) drive_pixel(0);
+            repeat (2) drive_pixel(1);
+        end
+        if (orange_count == 0) begin
+            $display("FAIL: phase reversal did not exchange A and B");
+            $fatal(1);
+        end
+        phase_reverse = 0;
 
         // With the filter disabled, source RGB passes through unchanged.
         enable = 0;
+        active = 1;
         red = 8'h12; green = 8'h34; blue = 8'h56; on_pixel = 1;
         repeat (7) @(posedge clock);
         #1;
