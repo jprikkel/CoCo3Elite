@@ -22,12 +22,19 @@ if {$mode ni {TEST_PATTERN COCO_VIDEO CPU_DIAGNOSTIC COCO3_BOOT}} {
 file mkdir $output_dir
 
 set sources [list \
-    [file join $rtl_dir wukong_top.v] \
     [file join $rtl_dir clocking.v] \
     [file join $rtl_dir hdmi video_timing.v] \
     [file join $rtl_dir hdmi test_pattern.v] \
-    [file join $rtl_dir hdmi tmds_encoder.v] \
     [file join $rtl_dir hdmi tmds_serializer.v]]
+set systemverilog_sources [list \
+    [file join $rtl_dir wukong_top.v] \
+    [file join $rtl_dir wukong_hdmi_tx.sv]]
+
+set hdmi_library_dir [file join $repo_dir rtl third_party hdl-util-hdmi src]
+set hdmi_sources [glob -nocomplain [file join $hdmi_library_dir *.sv]]
+if {[llength $hdmi_sources] == 0} {
+    error "hdl-util/hdmi sources not found at $hdmi_library_dir"
+}
 
 if {$mode in {COCO_VIDEO CPU_DIAGNOSTIC COCO3_BOOT}} {
     lappend sources \
@@ -80,6 +87,7 @@ if {$mode eq "CPU_DIAGNOSTIC"} {
 }
 
 read_verilog $sources
+read_verilog -sv [concat $systemverilog_sources $hdmi_sources]
 read_xdc [file join $repo_dir constraints wukong.xdc]
 
 synth_design -top $top -part $part

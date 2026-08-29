@@ -23,7 +23,8 @@ module coco3_boot_machine (
     input  wire        video_hsync,
     input  wire        video_vsync,
     input  wire [19:0] video_address,
-    output wire [15:0] video_read_data
+    output wire [15:0] video_read_data,
+    output wire [5:0]  audio_dac
 );
     reg [3:0] divider;
     reg hold;
@@ -249,6 +250,7 @@ module coco3_boot_machine (
     assign debug_ram_write = ram_write;
     assign debug_io_write = io_write;
     assign debug_write_data = write_data;
+    assign audio_dac = pia1_outa[7:2];
 endmodule
 
 `default_nettype wire

@@ -6,7 +6,7 @@ CoCo 3 video generator. The processing order is:
 1. CoCo 3 RGB video generation
 2. NTSC artifact-color decoding
 3. CRT phosphor glow and scanline filtering
-4. HDMI TMDS encoding and serialization
+4. HDMI timing, TMDS encoding, and Artix-7 serialization
 
 All stages operate as pipelines and delay their synchronization and active-video
 signals along with the pixels. They do not use a framebuffer.
@@ -59,3 +59,28 @@ would require line storage or a framebuffer.
 
 See [HDMI CRT Filter](crt-filter.md) for the current preset and the detailed
 phosphor-mask options.
+
+## HDMI output library
+
+TMDS channel encoding uses the vendored
+[hdl-util/hdmi](../rtl/third_party/hdl-util-hdmi/README.md) SystemVerilog
+library. The initial hardware checkpoint combines its unmodified channel
+encoder with the existing Wukong raster timing and proven Artix-7 OSERDES
+physical layer. This sends DVI-compatible video without HDMI auxiliary data
+islands. The project-owned `wukong_hdmi_tx` integration wrapper composes the
+unmodified upstream packet modules with that Wukong physical layer for true
+HDMI output, but remains experimental and is included only when `HDMI_AUDIO`
+is defined.
+
+## HDMI audio
+
+The boot machine exports the six-bit DAC value held in PIA1 port A. The HDMI
+wrapper subtracts the midpoint, attenuates the result to one-quarter of the
+16-bit PCM range, and duplicates the mono signal into the left and right HDMI
+channels. A fractional accumulator resamples the held DAC level at an average
+rate of exactly 48 kHz from the 25 MHz pixel clock. The upstream audio sample,
+audio clock regeneration, Audio InfoFrame, packet selection, and packet ECC
+modules generate the HDMI data islands. Initial volume is deliberately
+conservative because hand-generated CoCo DAC waveforms can otherwise be loud.
+This path is disabled in the default bitstream until its packet timing is
+validated in simulation and accepted by the target HDMI sink.

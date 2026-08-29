@@ -7,6 +7,7 @@ module coco3_boot_system (
     output wire sd_cs_n, output wire sd_sck, output wire sd_mosi,
     input wire sd_miso,
     output wire hsync, output wire vsync, output wire video_enable,
+    output wire [5:0] audio_dac,
     output wire [7:0] red, output wire [7:0] green, output wire [7:0] blue
 );
     wire [15:0] cpu_address;
@@ -199,7 +200,8 @@ module coco3_boot_system (
         .joystick_left_fire(joystick_left_fire),
         .sd_status(sd_status), .sd_detail(sd_detail),
         .video_hsync(raw_hsync), .video_vsync(raw_vsync),
-        .video_address(video_address), .video_read_data(video_data)
+        .video_address(video_address), .video_read_data(video_data),
+        .audio_dac(audio_dac)
     );
 
     always @(posedge pixel_clk) begin
