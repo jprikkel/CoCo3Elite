@@ -8,6 +8,7 @@ set rtl_dir    [file join $repo_dir rtl wukong]
 set output_dir [file join $repo_dir build wukong]
 set part       [expr {$argc > 0 ? [lindex $argv 0] : "xc7a100tfgg676-2"}]
 set mode       [string toupper [expr {$argc > 1 ? [lindex $argv 1] : "TEST_PATTERN"}]]
+set embedded_test_disks [expr {$argc > 2 ? [lindex $argv 2] : 0}]
 set top        wukong_top
 
 # Allow Vivado implementation phases to use the available host cores. Some
@@ -53,12 +54,19 @@ if {$mode eq "COCO3_BOOT"} {
         [file join $repo_dir rtl core coco3_128k_ram.v] \
         [file join $repo_dir rtl core coco3_system_rom.v] \
         [file join $repo_dir rtl core coco3_disk_rom.v] \
+        [file join $repo_dir rtl core coco3_disk_image.v] \
         [file join $repo_dir rtl core sd_spi_init.v] \
         [file join $repo_dir rtl core sd_spi_read_sector0.v] \
         [file join $repo_dir rtl core coco3_fdc.v] \
         [file join $repo_dir rtl core coco3_boot_machine.v] \
+        [file join $rtl_dir ntsc_artifact_filter.v] \
+        [file join $rtl_dir crt_filter.v] \
         [file join $rtl_dir coco3_boot_system.v]
-    set_property verilog_define {COCO3_BOOT NEW_SRAM} [current_fileset]
+    set coco3_defines {COCO3_BOOT NEW_SRAM}
+    if {$embedded_test_disks} {
+        lappend coco3_defines EMBEDDED_TEST_DISKS
+    }
+    set_property verilog_define $coco3_defines [current_fileset]
     read_vhdl [file join $repo_dir rtl cpu09l_128.vhd]
 }
 

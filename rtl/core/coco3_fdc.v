@@ -25,6 +25,23 @@ module coco3_fdc (
     reg       first_data_access;
     reg       nmi_pending;
 
+`ifdef EMBEDDED_TEST_DISKS
+    wire drive0_selected = drive_latch[0];
+    wire drive_selected = drive0_selected;
+    wire valid_position = track < 8'd35 && sector >= 8'd1 && sector <= 8'd18;
+    wire [9:0] linear_sector = ({2'b00, track} << 4) +
+                               ({2'b00, track} << 1) +
+                               {2'b00, sector} - 10'd1;
+    wire [17:0] image_address = {linear_sector, 8'b0} + byte_index;
+    wire [7:0] drive0_data;
+    wire [7:0] image_data = drive0_data;
+
+    (* dont_touch = "yes" *)
+    coco3_disk_image #(.IMAGE_FILE("build/disks/cashman.mem")) drive0_image_i (
+        .clock(clock), .address(image_address), .data(drive0_data)
+    );
+`endif
+
     wire data_read = io_read && address == 16'hFF4B;
     wire status_read = io_read && address == 16'hFF48;
 
@@ -34,7 +51,11 @@ module coco3_fdc (
             16'hFF48: read_data = status;
             16'hFF49: read_data = track;
             16'hFF4A: read_data = sector;
+`ifdef EMBEDDED_TEST_DISKS
+            16'hFF4B: read_data = read_active ? image_data : data_register;
+`else
             16'hFF4B: read_data = data_register;
+`endif
             default:  read_data = 8'hFF;
         endcase
     end
@@ -94,9 +115,24 @@ module coco3_fdc (
                             4'h8, 4'h9: begin // read single sector
                                 byte_index <= 8'h00;
                                 first_data_access <= 1'b1;
+`ifdef EMBEDDED_TEST_DISKS
+                                if (!drive_selected) begin
+                                    status <= 8'h80;
+                                    read_active <= 1'b0;
+                                    nmi_pending <= 1'b1;
+                                end else if (!valid_position) begin
+                                    status <= 8'h10;
+                                    read_active <= 1'b0;
+                                    nmi_pending <= 1'b1;
+                                end else begin
+                                    status <= 8'h03;
+                                    read_active <= 1'b1;
+                                end
+`else
                                 status <= 8'h80; // SD backend not yet connected
                                 read_active <= 1'b0;
                                 nmi_pending <= 1'b1;
+`endif
                             end
                             4'hA, 4'hB: begin // write sector: read-only media
                                 status <= 8'h40;

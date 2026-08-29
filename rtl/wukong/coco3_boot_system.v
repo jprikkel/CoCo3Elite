@@ -7,7 +7,7 @@ module coco3_boot_system (
     output wire sd_cs_n, output wire sd_sck, output wire sd_mosi,
     input wire sd_miso,
     output wire hsync, output wire vsync, output wire video_enable,
-    output reg [7:0] red, output reg [7:0] green, output reg [7:0] blue
+    output wire [7:0] red, output wire [7:0] green, output wire [7:0] blue
 );
     wire [15:0] cpu_address;
     wire io_write;
@@ -15,6 +15,10 @@ module coco3_boot_system (
     wire [19:0] video_address;
     wire [15:0] video_data;
     wire [8:0] color;
+    wire raw_hsync, raw_vsync, raw_video_enable;
+    wire artifact_hsync, artifact_vsync, artifact_video_enable;
+    wire [7:0] artifact_red, artifact_green, artifact_blue;
+    reg [7:0] raw_red, raw_green, raw_blue;
     wire hblank, vblank, sync_flag;
     reg coco;
     reg [2:0] v;
@@ -38,6 +42,46 @@ module coco3_boot_system (
     wire keyboard_shift;
     wire keyboard_shift_override;
     wire keyboard_reset;
+    wire keyboard_f8;
+    wire keyboard_f9;
+    wire keyboard_f11;
+    wire keyboard_f10;
+    reg [1:0] keyboard_f10_sync;
+    reg [1:0] keyboard_f8_sync;
+    reg [1:0] keyboard_f9_sync;
+    reg [1:0] keyboard_f11_sync;
+    reg [1:0] keyboard_reset_sync;
+    reg keyboard_f11_previous;
+    reg artifact_enabled;
+    reg crt_enabled;
+    reg keyboard_f10_previous;
+    reg keyboard_f8_previous;
+    reg keyboard_f9_previous;
+    reg keyboard_joystick_enabled;
+    reg scanlines_enabled;
+    reg soft_reset_active;
+    reg [21:0] soft_reset_release_count;
+    wire soft_reset_keys_held = keyboard_reset_sync[1] ||
+                                keyboard_keys[51] || keyboard_keys[52];
+    wire system_reset = reset | soft_reset_active;
+    wire [55:0] keyboard_joystick_mask = keyboard_joystick_enabled
+        ? 56'h000000F8000000 : 56'b0;
+    wire [55:0] machine_keyboard_keys = soft_reset_active ? 56'b0 :
+                                       (keyboard_keys & ~keyboard_joystick_mask);
+    wire machine_keyboard_shift = soft_reset_active ? 1'b0 : keyboard_shift;
+    wire machine_keyboard_shift_override = soft_reset_active ? 1'b0 :
+                                           keyboard_shift_override;
+    wire joystick_left_only = keyboard_keys[29] && !keyboard_keys[30];
+    wire joystick_right_only = keyboard_keys[30] && !keyboard_keys[29];
+    wire joystick_up_only = keyboard_keys[27] && !keyboard_keys[28];
+    wire joystick_down_only = keyboard_keys[28] && !keyboard_keys[27];
+    wire [5:0] joystick_left_x = !keyboard_joystick_enabled ? 6'd32 :
+                                 joystick_left_only ? 6'd0 :
+                                 joystick_right_only ? 6'd63 : 6'd32;
+    wire [5:0] joystick_left_y = !keyboard_joystick_enabled ? 6'd32 :
+                                 joystick_up_only ? 6'd0 :
+                                 joystick_down_only ? 6'd63 : 6'd32;
+    wire joystick_left_fire = keyboard_joystick_enabled && keyboard_keys[31];
     wire [7:0] sd_init_status;
     wire [7:0] sd_init_detail;
     wire [7:0] sd_read_status;
@@ -74,23 +118,92 @@ module coco3_boot_system (
         .KEY(keyboard_keys),
         .SHIFT(keyboard_shift),
         .SHIFT_OVERRIDE(keyboard_shift_override),
+        .F8(keyboard_f8),
+        .F9(keyboard_f9),
+        .F10(keyboard_f10),
+        .F11(keyboard_f11),
         .RESET(keyboard_reset)
     );
 
+    // F11 is decoded in the divided keyboard clock domain. Synchronize its
+    // level and toggle artifact color once on each make-code edge.
+    always @(posedge pixel_clk) begin
+        if (reset) begin
+            keyboard_f11_sync <= 2'b00;
+            keyboard_f10_sync <= 2'b00;
+            keyboard_f8_sync <= 2'b00;
+            keyboard_f9_sync <= 2'b00;
+            keyboard_reset_sync <= 2'b00;
+            keyboard_f11_previous <= 1'b0;
+            artifact_enabled <= 1'b1;
+            keyboard_f10_previous <= 1'b0;
+            keyboard_f8_previous <= 1'b0;
+            keyboard_f9_previous <= 1'b0;
+            keyboard_joystick_enabled <= 1'b0;
+            scanlines_enabled <= 1'b0;
+            crt_enabled <= 1'b0;
+        end else begin
+            keyboard_f11_sync <= {keyboard_f11_sync[0], keyboard_f11};
+            keyboard_f10_sync <= {keyboard_f10_sync[0], keyboard_f10};
+            keyboard_f8_sync <= {keyboard_f8_sync[0], keyboard_f8};
+            keyboard_f9_sync <= {keyboard_f9_sync[0], keyboard_f9};
+            keyboard_reset_sync <= {keyboard_reset_sync[0], keyboard_reset};
+            keyboard_f11_previous <= keyboard_f11_sync[1];
+            keyboard_f10_previous <= keyboard_f10_sync[1];
+            keyboard_f8_previous <= keyboard_f8_sync[1];
+            keyboard_f9_previous <= keyboard_f9_sync[1];
+            if (keyboard_reset_sync[1])
+                artifact_enabled <= 1'b1;
+            else if (keyboard_f11_sync[1] && !keyboard_f11_previous)
+                artifact_enabled <= ~artifact_enabled;
+            if (keyboard_f10_sync[1] && !keyboard_f10_previous)
+                crt_enabled <= ~crt_enabled;
+            if (keyboard_f8_sync[1] && !keyboard_f8_previous)
+                keyboard_joystick_enabled <= ~keyboard_joystick_enabled;
+            if (keyboard_f9_sync[1] && !keyboard_f9_previous)
+                scanlines_enabled <= ~scanlines_enabled;
+        end
+    end
+
+    // Ctrl+Alt+Delete is also the CoCo 3 Easter-egg chord. Keep the emulated
+    // machine in reset until the modifiers have been released, then provide a
+    // short key-free guard interval before allowing the ROM to start.
+    always @(posedge pixel_clk) begin
+        if (reset) begin
+            soft_reset_active <= 1'b0;
+            soft_reset_release_count <= 22'd0;
+        end else if (keyboard_reset_sync[1]) begin
+            soft_reset_active <= 1'b1;
+            soft_reset_release_count <= 22'd0;
+        end else if (soft_reset_active) begin
+            if (soft_reset_keys_held) begin
+                soft_reset_release_count <= 22'd0;
+            end else if (soft_reset_release_count == 22'd2499999) begin
+                soft_reset_active <= 1'b0;
+                soft_reset_release_count <= 22'd0;
+            end else begin
+                soft_reset_release_count <= soft_reset_release_count + 1'b1;
+            end
+        end
+    end
+
     coco3_boot_machine machine_i (
-        .clock(pixel_clk), .reset(reset), .debug_address(cpu_address),
+        .clock(pixel_clk), .reset(system_reset), .debug_address(cpu_address),
         .debug_vma(), .debug_read(), .debug_ram_write(),
         .debug_io_write(io_write), .debug_write_data(cpu_data),
-        .keyboard_keys(keyboard_keys),
-        .keyboard_shift(keyboard_shift),
-        .keyboard_shift_override(keyboard_shift_override),
+        .keyboard_keys(machine_keyboard_keys),
+        .keyboard_shift(machine_keyboard_shift),
+        .keyboard_shift_override(machine_keyboard_shift_override),
+        .joystick_left_x(joystick_left_x),
+        .joystick_left_y(joystick_left_y),
+        .joystick_left_fire(joystick_left_fire),
         .sd_status(sd_status), .sd_detail(sd_detail),
-        .video_hsync(hsync), .video_vsync(vsync),
+        .video_hsync(raw_hsync), .video_vsync(raw_vsync),
         .video_address(video_address), .video_read_data(video_data)
     );
 
     always @(posedge pixel_clk) begin
-        if (reset) begin
+        if (system_reset) begin
             coco <= 0; v <= 0; bp <= 0; vert <= 0; vid_cont <= 0; css <= 0;
             lpr <= 0; hlpr <= 0; lpf <= 0; cres <= 0; hres <= 0;
             scroll <= 0; hven <= 0; hor_offset <= 0;
@@ -139,10 +252,10 @@ module coco3_boot_system (
     end
 
     COCO3VIDEO video_i (
-        .PIX_CLK(pixel_clk), .RESET_N(~reset), .COLOR(color), .HSYNC(hsync),
-        .SYNC_FLAG(sync_flag), .VSYNC(vsync), .HBLANKING(hblank),
+        .PIX_CLK(pixel_clk), .RESET_N(~system_reset), .COLOR(color), .HSYNC(raw_hsync),
+        .SYNC_FLAG(sync_flag), .VSYNC(raw_vsync), .HBLANKING(hblank),
         .VBLANKING(vblank), .RAM_ADDRESS(video_address), .RAM_DATA(video_data),
-        .VIDEO_ACTIVE(video_enable),
+        .VIDEO_ACTIVE(raw_video_enable),
         .COCO(coco), .V(v), .BP(bp), .VERT(vert), .VID_CONT(vid_cont), .CSS(css),
         .LPF(lpf), .VERT_FIN_SCRL(scroll), .HLPR(hlpr), .LPR(lpr), .HRES(hres),
         .CRES(cres), .HVEN(hven), .HOR_OFFSET(hor_offset),
@@ -175,19 +288,48 @@ module coco3_boot_system (
                     direct_blue  = {color[3], color[0], color[3], color[0]};
                 end
             endcase
-            red   = {direct_red, direct_red};
-            green = {direct_green, direct_green};
-            blue  = {direct_blue, direct_blue};
+            raw_red   = {direct_red, direct_red};
+            raw_green = {direct_green, direct_green};
+            raw_blue  = {direct_blue, direct_blue};
         end else begin
             // GIME palette encoding is R2 G2 B2 R1 G1 B1, not RR GG BB.
-            red={palette[color[3:0]][5],palette[color[3:0]][2],palette[color[3:0]][5],palette[color[3:0]][2],
+            raw_red={palette[color[3:0]][5],palette[color[3:0]][2],palette[color[3:0]][5],palette[color[3:0]][2],
                  palette[color[3:0]][5],palette[color[3:0]][2],palette[color[3:0]][5],palette[color[3:0]][2]};
-            green={palette[color[3:0]][4],palette[color[3:0]][1],palette[color[3:0]][4],palette[color[3:0]][1],
+            raw_green={palette[color[3:0]][4],palette[color[3:0]][1],palette[color[3:0]][4],palette[color[3:0]][1],
                    palette[color[3:0]][4],palette[color[3:0]][1],palette[color[3:0]][4],palette[color[3:0]][1]};
-            blue={palette[color[3:0]][3],palette[color[3:0]][0],palette[color[3:0]][3],palette[color[3:0]][0],
+            raw_blue={palette[color[3:0]][3],palette[color[3:0]][0],palette[color[3:0]][3],palette[color[3:0]][0],
                   palette[color[3:0]][3],palette[color[3:0]][0],palette[color[3:0]][3],palette[color[3:0]][0]};
         end
     end
-    wire _unused = sync_flag ^ keyboard_reset;
+
+    // Software reaches artifact-capable 256-pixel modes through several
+    // SAM/VDG configurations, so F11 controls the effect directly.
+    wire artifact_on_pixel = raw_red[7] && raw_green[7] && raw_blue[7];
+    ntsc_artifact_filter artifact_i (
+        .pixel_clk(pixel_clk), .reset(system_reset), .enable(artifact_enabled),
+        .phase_reverse(1'b0), .in_hsync(raw_hsync), .in_vsync(raw_vsync),
+        .in_video_enable(raw_video_enable),
+        .in_on_pixel(artifact_on_pixel),
+        .in_red(raw_red), .in_green(raw_green), .in_blue(raw_blue),
+        .out_hsync(artifact_hsync), .out_vsync(artifact_vsync),
+        .out_video_enable(artifact_video_enable),
+        .out_red(artifact_red), .out_green(artifact_green), .out_blue(artifact_blue)
+    );
+
+    crt_filter crt_i (
+        .pixel_clk(pixel_clk), .reset(system_reset),
+        .enable(crt_enabled | scanlines_enabled),
+        .in_hsync(artifact_hsync), .in_vsync(artifact_vsync),
+        .in_video_enable(artifact_video_enable),
+        .in_red(artifact_red), .in_green(artifact_green), .in_blue(artifact_blue),
+        .mask_layout(scanlines_enabled ? 5'd7 : 5'd0),
+        .mask_intensity(8'd72),
+        .bloom_size(crt_enabled ? 3'd6 : 3'd0), .bloom_threshold(8'd100),
+        .corner_radius(7'd0), .vignette_size(7'd0),
+        .vignette_strength(8'd0), .black_level(8'd0), .white_level(8'd255),
+        .out_hsync(hsync), .out_vsync(vsync), .out_video_enable(video_enable),
+        .out_red(red), .out_green(green), .out_blue(blue)
+    );
+    wire _unused = sync_flag;
 endmodule
 `default_nettype wire
