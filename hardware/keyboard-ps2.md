@@ -57,6 +57,8 @@ have special CoCo meanings:
 | --- | --- | --- |
 | Esc | Break | Hardware-verified with Extended Color BASIC |
 | Backspace | Left Arrow | The CoCo uses Left Arrow as its destructive backspace key |
+| F8 | Keyboard left joystick | Toggles arrow-key and Space control of the emulated left joystick; disabled after reset |
+| F10 | CRT filter | Toggles the HDMI CRT presentation filter on or off; disabled after reset |
 | F11 | NTSC artifact color | Toggles HDMI artifact-color processing on or off; enabled after reset |
 | F12 | `@` currently; management GUI planned | Will be reserved to open or close the HDMI management overlay when that subsystem is implemented |
 | Caps Lock | Clear | Generates the CoCo `Shift+0` Clear combination; it does not latch alphabetic case |
@@ -81,10 +83,20 @@ where the CoCo has no matching physical key:
 | `{` / `}` | `Ctrl+,` / `Ctrl+.` |
 | `'` / `"` | `Shift+7` / `Shift+2` |
 
-F3 through F10 and the Insert, Home, End, Page Up, Page Down, Print Screen,
+When F8 keyboard-joystick mode is enabled, Up produces minimum Y, Down maximum
+Y, Left minimum X, Right maximum X, and Space presses the left joystick's
+primary fire button. Opposing directions return that axis to center. These five
+keys are consumed by the joystick while the mode is active and return to their
+normal CoCo keyboard meanings when F8 disables it.
+
+F3 through F7, F9, and the Insert, Home, End, Page Up, Page Down, Print Screen,
 Pause, and numeric-keypad navigation keys are not currently mapped. The
-decoder recognizes Ctrl+Alt+Delete as a reset request, but that request is not
-connected to system reset in the current Wukong build.
+Ctrl+Alt+Delete combination performs a synchronized CoCo soft reset. It resets
+the emulated CPU and video/control state without reconfiguring the FPGA or
+interrupting the HDMI clock generator. Because Ctrl+Alt is also the CoCo 3 ROM
+Easter-egg chord, the soft-reset controller masks the keyboard and holds reset
+until the keys are released, followed by a 100 ms guard interval. Normal reset
+therefore returns to Disk Extended Color BASIC rather than the Easter egg.
 
 The planned management keyboard arbiter will consume the four arrow keys,
 Enter, Esc, and F12 while its GUI is open. Up and Down will change the

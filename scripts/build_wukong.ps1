@@ -36,8 +36,7 @@ foreach ($name in @('coco3.mem', 'disk11.mem')) {
 }
 if ($EmbeddedTestDisks) {
     foreach ($disk in @(
-        @{ Input = 'disks\CASHMAN.DSK'; Output = 'cashman.mem' },
-        @{ Input = 'disks\MUDPIES.DSK'; Output = 'mudpies.mem' }
+        @{ Input = 'disks\CASHMAN.DSK'; Output = 'cashman.mem' }
     )) {
         $inputPath = Join-Path $repoRoot $disk.Input
         $preparedPath = Join-Path $repoRoot "build\disks\$($disk.Output)"

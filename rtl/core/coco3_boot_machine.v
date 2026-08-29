@@ -15,6 +15,9 @@ module coco3_boot_machine (
     input  wire [55:0] keyboard_keys,
     input  wire        keyboard_shift,
     input  wire        keyboard_shift_override,
+    input  wire [5:0]  joystick_left_x,
+    input  wire [5:0]  joystick_left_y,
+    input  wire        joystick_left_fire,
     input  wire [7:0]  sd_status,
     input  wire [7:0]  sd_detail,
     input  wire        video_hsync,
@@ -35,6 +38,12 @@ module coco3_boot_machine (
     reg [7:0] pia0_outb;
     reg [5:0] pia0_cra;
     reg [5:0] pia0_crb;
+    reg [7:0] pia1_ddra;
+    reg [7:0] pia1_ddrb;
+    reg [7:0] pia1_outa;
+    reg [7:0] pia1_outb;
+    reg [5:0] pia1_cra;
+    reg [5:0] pia1_crb;
     reg [7:0] mmu [0:15];
     integer index;
 
@@ -76,6 +85,17 @@ module coco3_boot_machine (
     wire [7:0] keyboard_columns =
         (pia0_outb & pia0_ddrb) | (~pia0_ddrb);
     wire [7:0] keyboard_rows;
+    wire [5:0] joystick_dac = pia1_outa[7:2];
+    wire [1:0] joystick_select = {pia0_crb[3], pia0_cra[3]};
+    // Match the original CoCo3FPGA paddle selection. The unused right
+    // joystick remains centered so software probing it gets a stable value.
+    wire [5:0] joystick_value = joystick_select == 2'b11 ? joystick_left_y :
+                                joystick_select == 2'b10 ? joystick_left_x :
+                                6'd32;
+    wire joystick_comparator = joystick_value >= joystick_dac;
+    wire [7:0] keyboard_joystick_rows =
+        {joystick_comparator, keyboard_rows[6:2],
+         keyboard_rows[1] & ~joystick_left_fire, keyboard_rows[0]};
     reg [7:0] io_read_data;
     wire [7:0] read_data = io_select ? io_read_data :
                              (disk_rom_select ? disk_rom_data :
@@ -86,11 +106,17 @@ module coco3_boot_machine (
         case (address)
             16'hFF00: io_read_data = pia0_cra[2]
                 ? ((pia0_outa & pia0_ddra) |
-                   (keyboard_rows & ~pia0_ddra)) : pia0_ddra;
+                   (keyboard_joystick_rows & ~pia0_ddra)) : pia0_ddra;
             16'hFF01: io_read_data = {pia0_hsync_event, 3'b011, pia0_cra[3:0]};
             16'hFF02: io_read_data = pia0_crb[2]
                 ? ((pia0_outb & pia0_ddrb) | (~pia0_ddrb)) : pia0_ddrb;
             16'hFF03: io_read_data = {pia0_vsync_event, 3'b011, pia0_crb[3:0]};
+            16'hFF20: io_read_data = pia1_cra[2]
+                ? ((pia1_outa & pia1_ddra) | (~pia1_ddra)) : pia1_ddra;
+            16'hFF21: io_read_data = {2'b00, pia1_cra};
+            16'hFF22: io_read_data = pia1_crb[2]
+                ? ((pia1_outb & pia1_ddrb) | (~pia1_ddrb)) : pia1_ddrb;
+            16'hFF23: io_read_data = {2'b00, pia1_crb};
             16'hFF60: io_read_data = sd_status;
             16'hFF61: io_read_data = sd_detail;
             16'hFF90: io_read_data = gime_init0;
@@ -131,6 +157,12 @@ module coco3_boot_machine (
             pia0_outb <= 8'h00;
             pia0_cra <= 6'h00;
             pia0_crb <= 6'h00;
+            pia1_ddra <= 8'h00;
+            pia1_ddrb <= 8'h00;
+            pia1_outa <= 8'h00;
+            pia1_outb <= 8'h00;
+            pia1_cra <= 6'h00;
+            pia1_crb <= 6'h00;
             for (index = 0; index < 16; index = index + 1)
                 mmu[index] <= 8'h00;
         end else if (io_write) begin
@@ -146,6 +178,18 @@ module coco3_boot_machine (
             end
             if (address == 16'hFF03)
                 pia0_crb <= write_data[5:0];
+            if (address == 16'hFF20) begin
+                if (pia1_cra[2]) pia1_outa <= write_data;
+                else pia1_ddra <= write_data;
+            end
+            if (address == 16'hFF21)
+                pia1_cra <= write_data[5:0];
+            if (address == 16'hFF22) begin
+                if (pia1_crb[2]) pia1_outb <= write_data;
+                else pia1_ddrb <= write_data;
+            end
+            if (address == 16'hFF23)
+                pia1_crb <= write_data[5:0];
             if (address == 16'hFF90) begin
                 gime_init0 <= write_data;
                 mmu_enable <= write_data[6];

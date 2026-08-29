@@ -60,6 +60,7 @@ if {$mode eq "COCO3_BOOT"} {
         [file join $repo_dir rtl core coco3_fdc.v] \
         [file join $repo_dir rtl core coco3_boot_machine.v] \
         [file join $rtl_dir ntsc_artifact_filter.v] \
+        [file join $rtl_dir crt_filter.v] \
         [file join $rtl_dir coco3_boot_system.v]
     set coco3_defines {COCO3_BOOT NEW_SRAM}
     if {$embedded_test_disks} {

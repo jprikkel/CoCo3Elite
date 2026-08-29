@@ -74,6 +74,8 @@ module COCOKEY(
 		KEY,
 		SHIFT,
 		SHIFT_OVERRIDE,
+		F8,
+		F10,
 		F11,
 		RESET
 );
@@ -89,6 +91,10 @@ output				SHIFT;
 reg					SHIFT;
 output				SHIFT_OVERRIDE;
 reg					SHIFT_OVERRIDE;
+output				F8;
+reg					F8;
+output				F10;
+reg					F10;
 output				F11;
 reg					F11;
 output				RESET;
@@ -187,6 +193,8 @@ begin
 		KEY <= 56'h00000000000000;
 		SHIFT_OVERRIDE <= 1'b0;
 		SHIFT <= 1'b0;
+		F8 <= 1'b0;
+		F10 <= 1'b0;
 		F11 <= 1'b0;
 		RESET <= 1'b0;
 	end
@@ -196,6 +204,8 @@ begin
 		8'h76:		KEY[50] <= PRESS;					// ESC
 		8'h05:		KEY[53] <= PRESS;					// F1
 		8'h06:		KEY[54] <= PRESS;					// F2
+		8'h0A:		F8 <= PRESS;						// F8 keyboard-joystick toggle
+		8'h09:		F10 <= PRESS;						// F10 CRT-filter toggle
 		8'h78:		F11 <= PRESS;						// F11 artifact-color toggle
 		8'h07:		KEY[0] <= PRESS;					// @ (must be used when there is a shift or ctrl)
 		8'h0E:
