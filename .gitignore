@@ -4,6 +4,7 @@
 *.jou
 *.log
 *.dmp
+*.[dD][sS][kK]
 *.str
 *.xpr
 *.cache/
