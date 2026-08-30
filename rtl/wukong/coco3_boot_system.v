@@ -45,16 +45,20 @@ module coco3_boot_system (
     wire keyboard_shift;
     wire keyboard_shift_override;
     wire keyboard_reset;
+    wire keyboard_f6;
     wire keyboard_f8;
     wire keyboard_f9;
     wire keyboard_f11;
     wire keyboard_f10;
+    reg [1:0] keyboard_f6_sync;
     reg [1:0] keyboard_f10_sync;
     reg [1:0] keyboard_f8_sync;
     reg [1:0] keyboard_f9_sync;
     reg [1:0] keyboard_f11_sync;
     reg [1:0] keyboard_reset_sync;
     reg keyboard_f11_previous;
+    reg keyboard_f6_previous;
+    reg cpu_fast_mode;
     reg artifact_enabled;
     reg crt_enabled;
     reg keyboard_f10_previous;
@@ -121,6 +125,7 @@ module coco3_boot_system (
         .KEY(keyboard_keys),
         .SHIFT(keyboard_shift),
         .SHIFT_OVERRIDE(keyboard_shift_override),
+        .F6(keyboard_f6),
         .F8(keyboard_f8),
         .F9(keyboard_f9),
         .F10(keyboard_f10),
@@ -128,16 +133,19 @@ module coco3_boot_system (
         .RESET(keyboard_reset)
     );
 
-    // F11 is decoded in the divided keyboard clock domain. Synchronize its
-    // level and toggle artifact color once on each make-code edge.
+    // Function keys are decoded in the divided keyboard clock domain.
+    // Synchronize their levels and toggle each feature once per make edge.
     always @(posedge pixel_clk) begin
         if (reset) begin
+            keyboard_f6_sync <= 2'b00;
             keyboard_f11_sync <= 2'b00;
             keyboard_f10_sync <= 2'b00;
             keyboard_f8_sync <= 2'b00;
             keyboard_f9_sync <= 2'b00;
             keyboard_reset_sync <= 2'b00;
             keyboard_f11_previous <= 1'b0;
+            keyboard_f6_previous <= 1'b0;
+            cpu_fast_mode <= 1'b0;
             artifact_enabled <= 1'b1;
             keyboard_f10_previous <= 1'b0;
             keyboard_f8_previous <= 1'b0;
@@ -146,12 +154,14 @@ module coco3_boot_system (
             scanlines_enabled <= 1'b0;
             crt_enabled <= 1'b0;
         end else begin
+            keyboard_f6_sync <= {keyboard_f6_sync[0], keyboard_f6};
             keyboard_f11_sync <= {keyboard_f11_sync[0], keyboard_f11};
             keyboard_f10_sync <= {keyboard_f10_sync[0], keyboard_f10};
             keyboard_f8_sync <= {keyboard_f8_sync[0], keyboard_f8};
             keyboard_f9_sync <= {keyboard_f9_sync[0], keyboard_f9};
             keyboard_reset_sync <= {keyboard_reset_sync[0], keyboard_reset};
             keyboard_f11_previous <= keyboard_f11_sync[1];
+            keyboard_f6_previous <= keyboard_f6_sync[1];
             keyboard_f10_previous <= keyboard_f10_sync[1];
             keyboard_f8_previous <= keyboard_f8_sync[1];
             keyboard_f9_previous <= keyboard_f9_sync[1];
@@ -159,6 +169,8 @@ module coco3_boot_system (
                 artifact_enabled <= 1'b1;
             else if (keyboard_f11_sync[1] && !keyboard_f11_previous)
                 artifact_enabled <= ~artifact_enabled;
+            if (keyboard_f6_sync[1] && !keyboard_f6_previous)
+                cpu_fast_mode <= ~cpu_fast_mode;
             if (keyboard_f10_sync[1] && !keyboard_f10_previous)
                 crt_enabled <= ~crt_enabled;
             if (keyboard_f8_sync[1] && !keyboard_f8_previous)
@@ -192,6 +204,7 @@ module coco3_boot_system (
 
     coco3_boot_machine machine_i (
         .clock(pixel_clk), .reset(system_reset), .debug_address(cpu_address),
+        .cpu_fast_mode(cpu_fast_mode),
         .debug_vma(), .debug_read(), .debug_ram_write(),
         .debug_io_write(io_write), .debug_write_data(cpu_data),
         .keyboard_keys(machine_keyboard_keys),

@@ -6,6 +6,7 @@
 module coco3_boot_machine (
     input  wire        clock,
     input  wire        reset,
+    input  wire        cpu_fast_mode,
     output wire [15:0] debug_address,
     output wire        debug_vma,
     output wire        debug_read,
@@ -26,7 +27,7 @@ module coco3_boot_machine (
     output wire [15:0] video_read_data,
     output wire [5:0]  audio_dac
 );
-    reg [3:0] divider;
+    reg [4:0] divider;
     reg hold;
     reg all_ram;
     reg mmu_enable;
@@ -136,7 +137,10 @@ module coco3_boot_machine (
         if (reset) begin
             divider <= 0;
             hold <= 1'b1;
-        end else if (divider == 13) begin
+        // The 25.2 MHz HDMI pixel clock gives approximately 1.8 MHz with a
+        // divide-by-14 enable and 0.9 MHz with divide-by-28. These correspond
+        // to the CoCo fast and normal CPU rates, respectively.
+        end else if (divider == (cpu_fast_mode ? 5'd13 : 5'd27)) begin
             divider <= 0;
             hold <= 1'b0;
         end else begin

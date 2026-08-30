@@ -49,20 +49,26 @@ the connector pinout and voltages independently before reproducing this setup.*
 
 ## PS/2 key mapping
 
-Letters, digits, Enter, Space, Tab, both Shift keys, Ctrl, Alt, F1, F2, and the
-four cursor keys map to their corresponding CoCo keys. The following PC keys
-have special CoCo meanings:
+Letters, digits, Enter, Space, both Shift keys, Ctrl, Alt, F1, F2, and the four
+cursor keys map to their corresponding CoCo keys. The following PC keys have
+special CoCo meanings or control FPGA features:
 
 | PS/2 keyboard key | CoCo key or action | Notes |
 | --- | --- | --- |
 | Esc | Break | Hardware-verified with Extended Color BASIC |
 | Backspace | Left Arrow | The CoCo uses Left Arrow as its destructive backspace key |
+| Tab | Clear | Hardware-verified; invokes the CoCo Clear function |
+| F1 | CoCo F1 | Direct CoCo keyboard-matrix mapping |
+| F2 | CoCo F2 | Direct CoCo keyboard-matrix mapping |
+| F3–F5 | Unmapped | Reserved for future use |
+| F6 | Processor speed | Toggles between normal speed (approximately 0.9 MHz) and fast speed (approximately 1.8 MHz); normal speed is selected after FPGA reset |
+| F7 | Unmapped | Reserved for future use |
 | F8 | Keyboard left joystick | Toggles arrow-key and Space control of the emulated left joystick; disabled after reset |
 | F9 | Horizontal scanlines | Toggles horizontal CRT scanlines on or off; disabled after reset |
 | F10 | Phosphor glow | Toggles HDMI phosphor bloom/glow on or off independently of scanlines; disabled after reset |
 | F11 | NTSC artifact color | Toggles HDMI artifact-color processing on or off; enabled after reset |
 | F12 | `@` currently; management GUI planned | Will be reserved to open or close the HDMI management overlay when that subsystem is implemented |
-| Caps Lock | Clear | Generates the CoCo `Shift+0` Clear combination; it does not latch alphabetic case |
+| Caps Lock | Upper/lower case | Switches the CoCo between upper- and lowercase input; hardware-verified |
 | Scroll Lock | `Ctrl+W` | Generates the CoCo control-key combination while held |
 
 The PC punctuation keys are translated into the combinations available in the
@@ -90,7 +96,7 @@ primary fire button. Opposing directions return that axis to center. These five
 keys are consumed by the joystick while the mode is active and return to their
 normal CoCo keyboard meanings when F8 disables it.
 
-F3 through F7 and the Insert, Home, End, Page Up, Page Down, Print Screen,
+F3 through F5, F7, and the Insert, Home, End, Page Up, Page Down, Print Screen,
 Pause, and numeric-keypad navigation keys are not currently mapped. The
 Ctrl+Alt+Delete combination performs a synchronized CoCo soft reset. It resets
 the emulated CPU and video/control state without reconfiguring the FPGA or
