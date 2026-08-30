@@ -84,3 +84,11 @@ modules generate the HDMI data islands. Initial volume is deliberately
 conservative because hand-generated CoCo DAC waveforms can otherwise be loud.
 This path is disabled in the default bitstream until its packet timing is
 validated in simulation and accepted by the target HDMI sink.
+
+## Open video issues
+
+- The library-owned HDMI raster can leave a short horizontal green line to
+  the left of the first character row in 40- and 80-column modes. Raster
+  dimensions, frame resynchronization, centering, and CoCo blanking are
+  correct enough for stable mode changes, but the remaining one-line artifact
+  still needs a pipeline/phase investigation.

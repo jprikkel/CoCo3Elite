@@ -1,7 +1,7 @@
 param(
     [string]$Vivado = 'C:\AMD\2025.2\Vivado\bin\vivado.bat',
     [string]$Part = 'xc7a100tfgg676-2',
-    [ValidateSet('TEST_PATTERN', 'COCO_VIDEO', 'CPU_DIAGNOSTIC', 'COCO3_BOOT')]
+    [ValidateSet('TEST_PATTERN', 'HDMI_LIBRARY_TEST', 'HDMI_COCO_TEST', 'HDMI_COCO_AUDIO', 'COCO_VIDEO', 'CPU_DIAGNOSTIC', 'COCO3_BOOT')]
     [string]$Mode = 'TEST_PATTERN',
     [switch]$EmbeddedTestDisks
 )
@@ -36,7 +36,7 @@ foreach ($name in @('coco3.mem', 'disk11.mem')) {
 }
 if ($EmbeddedTestDisks) {
     foreach ($disk in @(
-        @{ Input = 'disks\CASHMAN.DSK'; Output = 'cashman.mem' }
+        @{ Input = 'disks\MUDPIES.DSK'; Output = 'mudpies.mem' }
     )) {
         $inputPath = Join-Path $repoRoot $disk.Input
         $preparedPath = Join-Path $repoRoot "build\disks\$($disk.Output)"

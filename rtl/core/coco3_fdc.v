@@ -37,7 +37,7 @@ module coco3_fdc (
     wire [7:0] image_data = drive0_data;
 
     (* dont_touch = "yes" *)
-    coco3_disk_image #(.IMAGE_FILE("build/disks/cashman.mem")) drive0_image_i (
+    coco3_disk_image #(.IMAGE_FILE("build/disks/mudpies.mem")) drive0_image_i (
         .clock(clock), .address(image_address), .data(drive0_data)
     );
 `endif

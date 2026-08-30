@@ -3,11 +3,13 @@
 
 module coco3_boot_system (
     input wire pixel_clk, input wire reset,
+    input wire raster_resync,
     input wire ps2_clk, input wire ps2_data,
     output wire sd_cs_n, output wire sd_sck, output wire sd_mosi,
     input wire sd_miso,
     output wire hsync, output wire vsync, output wire video_enable,
     output wire [5:0] audio_dac,
+    output wire narrow_video_mode,
     output wire [7:0] red, output wire [7:0] green, output wire [7:0] blue
 );
     wire [15:0] cpu_address;
@@ -254,7 +256,8 @@ module coco3_boot_system (
     end
 
     COCO3VIDEO video_i (
-        .PIX_CLK(pixel_clk), .RESET_N(~system_reset), .COLOR(color), .HSYNC(raw_hsync),
+        .PIX_CLK(pixel_clk), .RESET_N(~(system_reset | raster_resync)),
+        .COLOR(color), .HSYNC(raw_hsync),
         .SYNC_FLAG(sync_flag), .VSYNC(raw_vsync), .HBLANKING(hblank),
         .VBLANKING(vblank), .RAM_ADDRESS(video_address), .RAM_DATA(video_data),
         .VIDEO_ACTIVE(raw_video_enable),
@@ -333,5 +336,8 @@ module coco3_boot_system (
         .out_red(red), .out_green(green), .out_blue(blue)
     );
     wire _unused = sync_flag;
+    // Matches COCO3VIDEO's MODE_256 selection. In text modes this identifies
+    // the 32-column/narrow raster that needs separate HDMI centering.
+    assign narrow_video_mode = coco | ~hres[0];
 endmodule
 `default_nettype wire

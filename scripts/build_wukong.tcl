@@ -15,8 +15,8 @@ set top        wukong_top
 # synthesis algorithms retain an internal two-thread cap in Vivado 2025.2.
 set_param general.maxThreads 8
 
-if {$mode ni {TEST_PATTERN COCO_VIDEO CPU_DIAGNOSTIC COCO3_BOOT}} {
-    error "Unknown video mode '$mode'; use TEST_PATTERN, COCO_VIDEO, CPU_DIAGNOSTIC, or COCO3_BOOT"
+if {$mode ni {TEST_PATTERN HDMI_LIBRARY_TEST HDMI_COCO_TEST HDMI_COCO_AUDIO COCO_VIDEO CPU_DIAGNOSTIC COCO3_BOOT}} {
+    error "Unknown video mode '$mode'; use TEST_PATTERN, HDMI_LIBRARY_TEST, HDMI_COCO_TEST, HDMI_COCO_AUDIO, COCO_VIDEO, CPU_DIAGNOSTIC, or COCO3_BOOT"
 }
 
 file mkdir $output_dir
@@ -36,7 +36,15 @@ if {[llength $hdmi_sources] == 0} {
     error "hdl-util/hdmi sources not found at $hdmi_library_dir"
 }
 
-if {$mode in {COCO_VIDEO CPU_DIAGNOSTIC COCO3_BOOT}} {
+if {$mode eq "HDMI_LIBRARY_TEST"} {
+    set_property verilog_define HDMI_LIBRARY_TEST [current_fileset]
+}
+
+if {$mode in {HDMI_COCO_TEST HDMI_COCO_AUDIO}} {
+    set_property verilog_define {HDMI_LIBRARY_TEST HDMI_LIBRARY_COCO} [current_fileset]
+}
+
+if {$mode in {HDMI_COCO_TEST HDMI_COCO_AUDIO COCO_VIDEO CPU_DIAGNOSTIC COCO3_BOOT}} {
     lappend sources \
         [file join $repo_dir rtl core coco3_char_rom.v] \
         [file join $repo_dir rtl core coco3_synthetic_video_ram.v] \
@@ -45,7 +53,7 @@ if {$mode in {COCO_VIDEO CPU_DIAGNOSTIC COCO3_BOOT}} {
     set_property verilog_define COCO_VIDEO [current_fileset]
 }
 
-if {$mode eq "COCO3_BOOT"} {
+if {$mode in {COCO3_BOOT HDMI_COCO_TEST HDMI_COCO_AUDIO}} {
     set rom_mem [file join $repo_dir build roms coco3.mem]
     if {![file exists $rom_mem]} {
         error "Prepared ROM not found at $rom_mem; run scripts/prepare_coco3_rom.ps1"
@@ -70,6 +78,12 @@ if {$mode eq "COCO3_BOOT"} {
         [file join $rtl_dir crt_filter.v] \
         [file join $rtl_dir coco3_boot_system.v]
     set coco3_defines {COCO3_BOOT NEW_SRAM}
+    if {$mode in {HDMI_COCO_TEST HDMI_COCO_AUDIO}} {
+        lappend coco3_defines HDMI_LIBRARY_TEST HDMI_LIBRARY_COCO HDMI_RASTER_800X525
+    }
+    if {$mode eq "HDMI_COCO_AUDIO"} {
+        lappend coco3_defines HDMI_LIBRARY_AUDIO
+    }
     if {$embedded_test_disks} {
         lappend coco3_defines EMBEDDED_TEST_DISKS
     }
@@ -117,6 +131,9 @@ if {$worst_slack < 0} {
 
 set bit_name [expr {$mode eq "COCO3_BOOT" ? "wukong_coco3_boot.bit" :
                     ($mode eq "CPU_DIAGNOSTIC" ? "wukong_cpu_diagnostic.bit" :
-                    ($mode eq "COCO_VIDEO" ? "wukong_coco_video.bit" : "wukong_hdmi_test.bit"))}]
+                    ($mode eq "COCO_VIDEO" ? "wukong_coco_video.bit" :
+                    ($mode eq "HDMI_LIBRARY_TEST" ? "wukong_hdmi_library_test.bit" :
+                    ($mode eq "HDMI_COCO_TEST" ? "wukong_hdmi_coco_test.bit" :
+                    ($mode eq "HDMI_COCO_AUDIO" ? "wukong_hdmi_coco_audio.bit" : "wukong_hdmi_test.bit")))))}]
 write_bitstream -force [file join $output_dir $bit_name]
 puts "Wrote [file join $output_dir $bit_name] for $part in $mode mode"

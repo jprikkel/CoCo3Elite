@@ -33,6 +33,7 @@ module wukong_top (
     wire [7:0] green;
     wire [7:0] blue;
     wire [5:0] audio_dac;
+    wire narrow_video_mode;
 
     wukong_clocking clocking_i (
         .clk_50mhz    (clk_50mhz),
@@ -42,17 +43,146 @@ module wukong_top (
         .video_reset  (video_reset)
     );
 
-`ifdef COCO3_BOOT
+`ifdef HDMI_LIBRARY_TEST
+    wire [9:0] library_x;
+    wire [9:0] library_y;
+    wire [9:0] library_frame_width;
+    wire [9:0] library_frame_height;
+    wire [9:0] library_screen_width;
+    wire [9:0] library_screen_height;
+    wire [2:0] library_tmds;
+    wire library_tmds_clock;
+    wire library_active = (library_x < library_screen_width) &&
+                          (library_y < library_screen_height);
+    wire [7:0] library_red;
+    wire [7:0] library_green;
+    wire [7:0] library_blue;
+    wire [15:0] hdmi_audio_words [1:0];
+    reg [9:0] hdmi_audio_divider;
+    reg hdmi_audio_clk;
+    wire signed [6:0] centered_audio =
+        $signed({1'b0, audio_dac}) - 7'sd32;
+    wire signed [15:0] scaled_audio = centered_audio <<< 8;
+    wire [23:0] library_rgb_direct;
+    reg [23:0] narrow_rgb_delay [0:55];
+    integer narrow_delay_index;
+    wire [23:0] library_rgb = narrow_video_mode
+        ? narrow_rgb_delay[55] : library_rgb_direct;
+
+`ifdef HDMI_LIBRARY_AUDIO
+    assign hdmi_audio_words[0] = scaled_audio;
+    assign hdmi_audio_words[1] = scaled_audio;
+    always @(posedge pixel_clk) begin
+        if (video_reset) begin
+            hdmi_audio_divider <= 10'd0;
+            hdmi_audio_clk <= 1'b0;
+        end else if (hdmi_audio_divider == 10'd524) begin
+            // 25.2 MHz / 525 = exactly 48 kHz.
+            hdmi_audio_divider <= 10'd0;
+            hdmi_audio_clk <= 1'b1;
+        end else begin
+            hdmi_audio_divider <= hdmi_audio_divider + 1'b1;
+            hdmi_audio_clk <= 1'b0;
+        end
+    end
+`else
+    assign hdmi_audio_words[0] = 16'd0;
+    assign hdmi_audio_words[1] = 16'd0;
+    always @* begin
+        hdmi_audio_divider = 10'd0;
+        hdmi_audio_clk = 1'b0;
+    end
+`endif
+
+`ifdef HDMI_LIBRARY_COCO
+    // The GIME exposes a 656-pixel-wide visible region and wraps its 486
+    // visible scanlines across the 800x525 frame boundary. Start the HDMI
+    // raster eight clocks before its horizontal wrap and 18 lines into its
+    // frame. This centers a 640x480 crop on the GIME output.
+    wire library_frame_start = (library_x == 10'd792) &&
+                               (library_y == 10'd18);
     coco3_boot_system source_i (
-        .pixel_clk(pixel_clk), .reset(video_reset), .hsync(hsync),
+        .pixel_clk(pixel_clk), .reset(video_reset),
+        .raster_resync(library_frame_start), .hsync(hsync),
         .ps2_clk(ps2_clk), .ps2_data(ps2_data),
         .sd_cs_n(sd_cs_n), .sd_sck(sd_sck),
         .sd_mosi(sd_mosi), .sd_miso(sd_miso),
         .vsync(vsync), .video_enable(video_enable),
-        .red(red), .green(green), .blue(blue), .audio_dac(audio_dac)
+        .red(library_red), .green(library_green), .blue(library_blue),
+        .audio_dac(audio_dac), .narrow_video_mode(narrow_video_mode)
+    );
+    // The post-processing pipeline can retain non-black RGB values while the
+    // GIME is blanked. The previous encoder honored video_enable; preserve
+    // that behavior before handing pixels to the library-owned HDMI raster.
+    assign library_rgb_direct = video_enable
+        ? {library_red, library_green, library_blue} : 24'd0;
+
+    always @(posedge pixel_clk) begin
+        if (video_reset || library_frame_start) begin
+            for (narrow_delay_index = 0; narrow_delay_index < 56;
+                 narrow_delay_index = narrow_delay_index + 1)
+                narrow_rgb_delay[narrow_delay_index] <= 24'd0;
+        end else begin
+            narrow_rgb_delay[0] <= library_rgb_direct;
+            for (narrow_delay_index = 1; narrow_delay_index < 56;
+                 narrow_delay_index = narrow_delay_index + 1)
+                narrow_rgb_delay[narrow_delay_index] <=
+                    narrow_rgb_delay[narrow_delay_index - 1];
+        end
+    end
+`else
+    assign sd_cs_n = 1'b1;
+    assign sd_sck = 1'b0;
+    assign sd_mosi = 1'b1;
+    test_pattern library_pattern_i (
+        .x(library_x), .y(library_y), .video_enable(library_active),
+        .red(library_red), .green(library_green), .blue(library_blue)
+    );
+    assign library_rgb_direct = {library_red, library_green, library_blue};
+    assign narrow_video_mode = 1'b0;
+`endif
+
+    hdmi #(
+        .VIDEO_ID_CODE(1),
+`ifdef HDMI_LIBRARY_AUDIO
+        .DVI_OUTPUT(1'b0),
+`else
+        .DVI_OUTPUT(1'b1),
+`endif
+        .VIDEO_REFRESH_RATE(60.0), .AUDIO_RATE(48000),
+        .AUDIO_BIT_WIDTH(16),
+`ifdef HDMI_LIBRARY_COCO
+        .START_X(792), .START_Y(18)
+`else
+        .START_X(0), .START_Y(0)
+`endif
+    ) library_hdmi_i (
+        .clk_pixel_x5(serial_clk), .clk_pixel(pixel_clk),
+        .clk_audio(hdmi_audio_clk), .reset(video_reset),
+        .rgb(library_rgb),
+        .audio_sample_word(hdmi_audio_words),
+        .tmds(library_tmds), .tmds_clock(library_tmds_clock),
+        .cx(library_x), .cy(library_y),
+        .frame_width(library_frame_width), .frame_height(library_frame_height),
+        .screen_width(library_screen_width), .screen_height(library_screen_height)
+    );
+
+    assign hdmi_serial = {library_tmds_clock, library_tmds};
+`else
+`ifdef COCO3_BOOT
+    coco3_boot_system source_i (
+        .pixel_clk(pixel_clk), .reset(video_reset), .raster_resync(1'b0),
+        .hsync(hsync),
+        .ps2_clk(ps2_clk), .ps2_data(ps2_data),
+        .sd_cs_n(sd_cs_n), .sd_sck(sd_sck),
+        .sd_mosi(sd_mosi), .sd_miso(sd_miso),
+        .vsync(vsync), .video_enable(video_enable),
+        .red(red), .green(green), .blue(blue), .audio_dac(audio_dac),
+        .narrow_video_mode(narrow_video_mode)
     );
 `elsif CPU_DIAGNOSTIC
     assign audio_dac = 6'd32;
+    assign narrow_video_mode = 1'b0;
     coco3_diagnostic_system source_i (
         .pixel_clk    (pixel_clk),
         .reset        (video_reset),
@@ -65,6 +195,7 @@ module wukong_top (
     );
 `elsif COCO_VIDEO
     assign audio_dac = 6'd32;
+    assign narrow_video_mode = 1'b0;
     coco_video_source source_i (
         .pixel_clk    (pixel_clk),
         .reset        (video_reset),
@@ -77,6 +208,7 @@ module wukong_top (
     );
 `else
     assign audio_dac = 6'd32;
+    assign narrow_video_mode = 1'b0;
     assign sd_cs_n = 1'b1;
     assign sd_sck = 1'b0;
     assign sd_mosi = 1'b1;
@@ -134,6 +266,7 @@ module wukong_top (
         .pixel_clk(pixel_clk), .serial_clk(serial_clk), .reset(video_reset),
         .parallel_data(hdmi_clock_symbol), .serial_data(hdmi_serial[3]));
 `endif
+`endif // HDMI_LIBRARY_TEST
 
     OBUFDS #(.IOSTANDARD("TMDS_33"), .SLEW("FAST")) data0_obuf_i
         (.I(hdmi_serial[0]), .O(hdmi_tx_p[0]), .OB(hdmi_tx_n[0]));

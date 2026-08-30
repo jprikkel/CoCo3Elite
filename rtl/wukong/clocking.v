@@ -19,14 +19,28 @@ module wukong_clocking (
 
     IBUF clk_ibuf_i (.I(clk_50mhz), .O(clk_in));
 
-    // 50 MHz input, 750 MHz VCO, 25 MHz pixel clock, 125 MHz 5x clock.
+`ifdef HDMI_LIBRARY_TEST
+    // 50 MHz / 5 * 63 = 630 MHz VCO. HDMI VIC 1 uses an exact 25.2 MHz
+    // pixel clock and the hdl-util serializer requires an exact 5x clock.
+    localparam integer MMCM_DIVCLK = 5;
+    localparam real    MMCM_MULT   = 63.000;
+    localparam real    PIXEL_DIV   = 25.000;
+    localparam integer SERIAL_DIV  = 5;
+`else
+    // Existing, hardware-proven CoCo video clocking.
+    localparam integer MMCM_DIVCLK = 1;
+    localparam real    MMCM_MULT   = 15.000;
+    localparam real    PIXEL_DIV   = 30.000;
+    localparam integer SERIAL_DIV  = 6;
+`endif
+
     MMCME2_BASE #(
         .BANDWIDTH("OPTIMIZED"),
         .CLKIN1_PERIOD(20.000),
-        .DIVCLK_DIVIDE(1),
-        .CLKFBOUT_MULT_F(15.000),
-        .CLKOUT0_DIVIDE_F(30.000),
-        .CLKOUT1_DIVIDE(6),
+        .DIVCLK_DIVIDE(MMCM_DIVCLK),
+        .CLKFBOUT_MULT_F(MMCM_MULT),
+        .CLKOUT0_DIVIDE_F(PIXEL_DIV),
+        .CLKOUT1_DIVIDE(SERIAL_DIV),
         .STARTUP_WAIT("FALSE")
     ) mmcm_i (
         .CLKIN1   (clk_in),

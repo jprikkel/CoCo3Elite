@@ -1909,8 +1909,13 @@ begin
 			HBLANKING <= 1'b1;
 			HBORDER <= 1'b0;
 			HSYNC <= 1'b1;
-// added 6 to make total = 794 instead of 800
+			// The original VGA path shortens 640-pixel lines to 794 clocks.
+			// The upstream HDMI VIC-1 raster must remain exactly 800 clocks.
+`ifdef HDMI_RASTER_800X525
+			PIXEL_COUNT <= 10'd658;
+`else
 			PIXEL_COUNT <= 10'd664;
+`endif
 		end
 		10'd671:											// 648 + 24 - 1
 		begin
@@ -2434,7 +2439,11 @@ begin
 	end
 // End of frame. The 225-line mode starts immediately after wrap; shorter
 // modes remain blanked until their centered start position above.
+`ifdef HDMI_RASTER_800X525
+	10'd524:
+`else
 	10'd523:
+`endif
 	begin
 		LINE <= 10'd000;
 		if((LPF == 2'b11) && (COCO == 1'b0))
