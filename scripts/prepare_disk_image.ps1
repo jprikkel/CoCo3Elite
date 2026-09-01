@@ -4,7 +4,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$expectedSize = 35 * 18 * 256
+$supportedSizes = @{
+    (35 * 18 * 256) = 35
+    (80 * 18 * 256) = 80
+}
 
 if (-not (Test-Path -LiteralPath $InputPath -PathType Leaf)) {
     throw "Disk image was not found at '$InputPath'."
@@ -12,9 +15,11 @@ if (-not (Test-Path -LiteralPath $InputPath -PathType Leaf)) {
 
 $resolvedInput = (Resolve-Path -LiteralPath $InputPath).Path
 $image = [System.IO.File]::ReadAllBytes($resolvedInput)
-if ($image.Length -ne $expectedSize) {
-    throw "The initial disk image must be a raw 35-track, 18-sector, 256-byte image ($expectedSize bytes); '$resolvedInput' is $($image.Length) bytes."
+if (-not $supportedSizes.ContainsKey($image.Length)) {
+    $sizes = ($supportedSizes.Keys | Sort-Object) -join ' or '
+    throw "The disk image must be a raw 35- or 80-track, 18-sector, 256-byte image ($sizes bytes); '$resolvedInput' is $($image.Length) bytes."
 }
+$trackCount = $supportedSizes[$image.Length]
 
 $outputDirectory = Split-Path -Parent $OutputPath
 if ($outputDirectory) {
@@ -30,6 +35,6 @@ for ($index = 0; $index -lt $image.Length; $index++) {
 $digest = (Get-FileHash -LiteralPath $resolvedInput -Algorithm SHA256).Hash
 Write-Host 'Prepared read-only CoCo disk image:'
 Write-Host "  Input:        $resolvedInput"
-Write-Host '  Geometry:     35 tracks, 18 sectors/track, 256 bytes/sector'
+Write-Host "  Geometry:     $trackCount tracks, 18 sectors/track, 256 bytes/sector"
 Write-Host "  SHA-256:      $digest"
 Write-Host "  Vivado image: $OutputPath"

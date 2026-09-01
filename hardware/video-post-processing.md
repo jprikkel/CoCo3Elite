@@ -74,7 +74,11 @@ is defined.
 
 ## HDMI audio
 
-The boot machine exports the six-bit DAC value held in PIA1 port A. The HDMI
+The boot machine exports a held six-bit sound DAC value. As on the physical
+CoCo, writes to PIA1 port A reach this audio latch only while PIA1 CB2 enables
+sound and the analog multiplexer selects the DAC. Joystick polling also sweeps
+PIA1's DAC to measure each axis, but those comparator writes are excluded from
+the audio latch so continuous `JOYSTK` calls do not produce ticking. The HDMI
 wrapper subtracts the midpoint, attenuates the result to one-quarter of the
 16-bit PCM range, and duplicates the mono signal into the left and right HDMI
 channels. A fractional accumulator resamples the held DAC level at an average

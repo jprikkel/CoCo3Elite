@@ -5,7 +5,18 @@ module boot_video_tb;
  always #5 clock=~clock;
  coco3_boot_system dut(.pixel_clk(clock),.reset(reset),.hsync(hs),.vsync(vs),.video_enable(de),.red(r),.green(g),.blue(b));
  initial begin
-  repeat(8) @(posedge clock); reset=0;
+  repeat(8) @(posedge clock);
+  #1;
+  if ({dut.palette[0],dut.palette[1],dut.palette[2],dut.palette[3],
+       dut.palette[4],dut.palette[5],dut.palette[6],dut.palette[7]} !==
+      {6'h12,6'h36,6'h09,6'h24,6'h3f,6'h10,6'h2d,6'h26} ||
+      {dut.palette[8],dut.palette[9],dut.palette[10],dut.palette[11],
+       dut.palette[12],dut.palette[13],dut.palette[14],dut.palette[15]} !==
+      {6'h00,6'h12,6'h00,6'h3f,6'h00,6'h12,6'h00,6'h26}) begin
+   $display("FAIL: GIME compatibility palette reset values are incorrect");
+   $fatal;
+  end
+  reset=0;
   repeat(5000000) @(posedge clock);
 
   // GIME palette bits are R2 G2 B2 R1 G1 B1. Full green must not decode

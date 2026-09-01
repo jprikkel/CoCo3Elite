@@ -121,6 +121,21 @@ For example, to use another Vivado installation or compatible FPGA part:
     -Mode COCO3_BOOT
 ```
 
+Scripts also require updating permissions under Windows PowerShell. Run the commands below as
+Administrator in PowerShell.
+
+1. If PowerShell blocks script execution with an execution-policy error, allow scripts for your user account:
+
+  Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+
+2. If vivado executables are blocked use the command below:
+
+  New-CIPolicy `
+  >>   -Level Hash `
+  >>   -FilePath "$env:USERPROFILE\Desktop\VivadoAllow.xml" `
+  >>   -UserPEs `
+  >>   -ScanPath C:\AMD\2025.2\Vivado\bin\unwrapped\win64.o\xsim.exe
+
 ## Documentation and references
 
 - [Wukong port notes](docs/WUKONG_PORT.md)

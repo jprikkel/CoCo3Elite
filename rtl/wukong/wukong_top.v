@@ -8,6 +8,7 @@ module wukong_top (
     output wire       sd_sck,
     output wire       sd_mosi,
     input  wire       sd_miso,
+    output wire       uart_tx,
     output wire [2:0] hdmi_tx_p,
     output wire [2:0] hdmi_tx_n,
     output wire       hdmi_clk_p,
@@ -109,7 +110,8 @@ module wukong_top (
         .sd_mosi(sd_mosi), .sd_miso(sd_miso),
         .vsync(vsync), .video_enable(video_enable),
         .red(library_red), .green(library_green), .blue(library_blue),
-        .audio_dac(audio_dac), .narrow_video_mode(narrow_video_mode)
+        .audio_dac(audio_dac), .narrow_video_mode(narrow_video_mode),
+        .uart_debug_tx(uart_tx)
     );
     // The post-processing pipeline can retain non-black RGB values while the
     // GIME is blanked. The previous encoder honored video_enable; preserve
@@ -178,9 +180,10 @@ module wukong_top (
         .sd_mosi(sd_mosi), .sd_miso(sd_miso),
         .vsync(vsync), .video_enable(video_enable),
         .red(red), .green(green), .blue(blue), .audio_dac(audio_dac),
-        .narrow_video_mode(narrow_video_mode)
+        .narrow_video_mode(narrow_video_mode), .uart_debug_tx(uart_tx)
     );
 `elsif CPU_DIAGNOSTIC
+    assign uart_tx = 1'b1;
     assign audio_dac = 6'd32;
     assign narrow_video_mode = 1'b0;
     coco3_diagnostic_system source_i (
@@ -194,6 +197,7 @@ module wukong_top (
         .blue         (blue)
     );
 `elsif COCO_VIDEO
+    assign uart_tx = 1'b1;
     assign audio_dac = 6'd32;
     assign narrow_video_mode = 1'b0;
     coco_video_source source_i (
@@ -207,6 +211,7 @@ module wukong_top (
         .blue         (blue)
     );
 `else
+    assign uart_tx = 1'b1;
     assign audio_dac = 6'd32;
     assign narrow_video_mode = 1'b0;
     assign sd_cs_n = 1'b1;

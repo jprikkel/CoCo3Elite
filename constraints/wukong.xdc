@@ -18,6 +18,10 @@ set_property -dict { PACKAGE_PIN R20 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_port
 set_property -dict { PACKAGE_PIN T22 IOSTANDARD LVCMOS33 } [get_ports sd_sck]
 set_false_path -from [get_ports sd_miso]
 
+# Onboard CH340N USB-to-UART bridge. TX is the FPGA-to-PC direction used by
+# the passive diagnostic console; RX (F3) is deliberately left unused.
+set_property -dict { PACKAGE_PIN E3 IOSTANDARD LVCMOS33 } [get_ports uart_tx]
+
 set_property -dict { PACKAGE_PIN E1 IOSTANDARD TMDS_33 } [get_ports {hdmi_tx_p[0]}]
 set_property -dict { PACKAGE_PIN D1 IOSTANDARD TMDS_33 } [get_ports {hdmi_tx_n[0]}]
 set_property -dict { PACKAGE_PIN F2 IOSTANDARD TMDS_33 } [get_ports {hdmi_tx_p[1]}]

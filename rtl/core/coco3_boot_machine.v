@@ -3,13 +3,20 @@
 
 // Early real-ROM execution boundary. Peripheral reads are deliberately idle;
 // GIME/MMU and PIA behavior will be added as boot tracing identifies needs.
-module coco3_boot_machine (
+module coco3_boot_machine #(
+    // Give the system ROM time to initialize the GIME and both PIAs before
+    // asserting the emulated CART edge. At 25.2 MHz this is one second.
+    parameter integer CARTRIDGE_START_DELAY = 25199999
+) (
     input  wire        clock,
     input  wire        reset,
     input  wire        cpu_fast_mode,
+    input  wire        diagnostic_cartridge_enabled,
     output wire [15:0] debug_address,
     output wire        debug_vma,
     output wire        debug_read,
+    output wire        debug_opfetch,
+    output wire [7:0]  debug_read_data,
     output wire        debug_ram_write,
     output wire        debug_io_write,
     output wire [7:0]  debug_write_data,
@@ -19,13 +26,19 @@ module coco3_boot_machine (
     input  wire [5:0]  joystick_left_x,
     input  wire [5:0]  joystick_left_y,
     input  wire        joystick_left_fire,
+    input  wire [5:0]  joystick_right_x,
+    input  wire [5:0]  joystick_right_y,
+    input  wire        joystick_right_fire,
     input  wire [7:0]  sd_status,
     input  wire [7:0]  sd_detail,
     input  wire        video_hsync,
     input  wire        video_vsync,
     input  wire [19:0] video_address,
     output wire [15:0] video_read_data,
-    output wire [5:0]  audio_dac
+    output wire [5:0]  audio_dac,
+    output wire [3:0]  video_vdg_control,
+    output wire        video_css,
+    output wire [95:0] video_palette
 );
     reg [4:0] divider;
     reg hold;
@@ -46,16 +59,46 @@ module coco3_boot_machine (
     reg [7:0] pia1_outb;
     reg [5:0] pia1_cra;
     reg [5:0] pia1_crb;
+
+    // PIA1 PB3 is the CoCo 3 RGB/composite monitor-sense input whenever
+    // that bit is configured as an input.  The HDMI output is an RGB path,
+    // so hold PB3 low just as the original CoCo3FPGA implementation does.
+    // Other presently-unmodelled PIA1 port-B inputs retain their pull-ups.
+    wire [7:0] pia1_portb_inputs = 8'b1111_0111;
+    // The physical CoCo routes the six-bit DAC to audio only when SOUND_EN is
+    // asserted and the analog multiplexer selects the DAC (SEL=00). Keep a
+    // separate held audio value so JOYSTK's comparator sweep is inaudible.
+    reg [5:0] sound_dac;
+    reg [24:0] cartridge_start_count;
+    reg cartridge_irq_latch;
+    reg cartridge_start_sent;
+    reg [12:0] diagnostic_probe_address;
     reg [7:0] mmu [0:15];
+    reg [5:0] palette [0:15];
+    reg [4:0] boot_palette_write_count;
+    reg hdmi_palette_initialized;
     integer index;
+    genvar palette_index;
+
+    wire composite_palette_preset =
+        palette[0]  == 6'h12 && palette[1]  == 6'h24 &&
+        palette[2]  == 6'h0b && palette[3]  == 6'h07 &&
+        palette[4]  == 6'h3f && palette[5]  == 6'h1f &&
+        palette[6]  == 6'h09 && palette[7]  == 6'h26 &&
+        palette[8]  == 6'h00 && palette[9]  == 6'h12 &&
+        palette[10] == 6'h00 && palette[11] == 6'h3f &&
+        palette[12] == 6'h00 && palette[13] == 6'h12 &&
+        palette[14] == 6'h00 && palette[15] == 6'h26;
 
     wire vma;
+    wire opfetch;
     wire [15:0] address;
     wire read_cycle;
     wire [7:0] write_data;
     wire [7:0] ram_data;
     wire [7:0] rom_data;
     wire [7:0] disk_rom_data;
+    wire [7:0] diagnostic_rom_data;
     wire [7:0] fdc_read_data;
     wire fdc_nmi;
     wire io_select = address[15:8] == 8'hFF && address[7:4] != 4'hF;
@@ -66,6 +109,8 @@ module coco3_boot_machine (
     wire disk_rom_select = !all_ram && !io_select &&
                            address[15:13] == 3'b110 &&
                            gime_init0[1:0] != 2'b10;
+    wire diagnostic_rom_select = diagnostic_cartridge_enabled &&
+                                 !io_select && address[15:13] == 3'b110;
     // The legacy design always services $FFF0-$FFFF from its dedicated fast
     // vector shadow, even after SAM selects all-RAM mode.
     wire rom_select = vector_select ||
@@ -82,6 +127,12 @@ module coco3_boot_machine (
     wire pia0_vsync_event = (~video_vsync) ^ pia0_crb[1];
     wire cpu_irq = (pia0_cra[0] && pia0_hsync_event) ||
                    (pia0_crb[0] && pia0_vsync_event);
+    // An autostart ROM-Pak boots through the normal system ROM.  Its CART
+    // edge is then latched by PIA1 CB1 and presented as FIRQ once software
+    // enables that interrupt in $FF23.  Starting the cartridge through the
+    // RESET vector skips ROM/GIME/PIA initialization and corrupts video.
+    wire cpu_firq = diagnostic_cartridge_enabled &&
+                    pia1_crb[0] && cartridge_irq_latch;
     wire ram_write = active && !read_cycle && !io_select && !rom_select;
     wire io_write = active && !read_cycle && io_select;
     wire [7:0] keyboard_columns =
@@ -89,38 +140,51 @@ module coco3_boot_machine (
     wire [7:0] keyboard_rows;
     wire [5:0] joystick_dac = pia1_outa[7:2];
     wire [1:0] joystick_select = {pia0_crb[3], pia0_cra[3]};
-    // Match the original CoCo3FPGA paddle selection. The unused right
-    // joystick remains centered so software probing it gets a stable value.
+    // Match the original CoCo3FPGA paddle selection: right X/Y are 00/01 and
+    // left X/Y are 10/11.
     wire [5:0] joystick_value = joystick_select == 2'b11 ? joystick_left_y :
                                 joystick_select == 2'b10 ? joystick_left_x :
-                                6'd32;
+                                joystick_select == 2'b01 ? joystick_right_y :
+                                joystick_right_x;
     wire joystick_comparator = joystick_value >= joystick_dac;
     wire [7:0] keyboard_joystick_rows =
         {joystick_comparator, keyboard_rows[6:2],
-         keyboard_rows[1] & ~joystick_left_fire, keyboard_rows[0]};
+         keyboard_rows[1] & ~joystick_left_fire,
+         keyboard_rows[0] & ~joystick_right_fire};
     reg [7:0] io_read_data;
     wire [7:0] read_data = io_select ? io_read_data :
+                             (diagnostic_rom_select ? diagnostic_rom_data :
                              (disk_rom_select ? disk_rom_data :
-                             (rom_select ? rom_data : ram_data));
+                             (rom_select ? rom_data : ram_data)));
 
     always @* begin
         io_read_data = 8'hFF;
         case (address)
+            // Match the original CoCo3FPGA PIA model. In peripheral-register
+            // mode the keyboard matrix drives the complete port; in DDR mode
+            // the direction register is read back. Treating DDRA as a per-bit
+            // output mask here makes the diagnostic ROM see every row low.
             16'hFF00: io_read_data = pia0_cra[2]
-                ? ((pia0_outa & pia0_ddra) |
-                   (keyboard_joystick_rows & ~pia0_ddra)) : pia0_ddra;
+                ? keyboard_joystick_rows : pia0_ddra;
             16'hFF01: io_read_data = {pia0_hsync_event, 3'b011, pia0_cra[3:0]};
             16'hFF02: io_read_data = pia0_crb[2]
-                ? ((pia0_outb & pia0_ddrb) | (~pia0_ddrb)) : pia0_ddrb;
+                ? pia0_outb : pia0_ddrb;
             16'hFF03: io_read_data = {pia0_vsync_event, 3'b011, pia0_crb[3:0]};
             16'hFF20: io_read_data = pia1_cra[2]
                 ? ((pia1_outa & pia1_ddra) | (~pia1_ddra)) : pia1_ddra;
             16'hFF21: io_read_data = {2'b00, pia1_cra};
             16'hFF22: io_read_data = pia1_crb[2]
-                ? ((pia1_outb & pia1_ddrb) | (~pia1_ddrb)) : pia1_ddrb;
-            16'hFF23: io_read_data = {2'b00, pia1_crb};
+                ? ((pia1_outb & pia1_ddrb) |
+                   (pia1_portb_inputs & ~pia1_ddrb)) : pia1_ddrb;
+            16'hFF23: io_read_data = {cartridge_irq_latch, 1'b0, pia1_crb};
             16'hFF60: io_read_data = sd_status;
             16'hFF61: io_read_data = sd_detail;
+            // Project diagnostic window for validating the ROM-Pak image
+            // without resetting away from a running BASIC test.
+            16'hFF70: io_read_data = diagnostic_probe_address[7:0];
+            16'hFF71: io_read_data = {3'b000, diagnostic_probe_address[12:8]};
+            16'hFF72: io_read_data = diagnostic_rom_data;
+            16'hFF73: io_read_data = 8'hC3;
             16'hFF90: io_read_data = gime_init0;
             16'hFF91: io_read_data = gime_init1;
             default: begin
@@ -129,6 +193,8 @@ module coco3_boot_machine (
                     io_read_data = fdc_read_data;
                 else if (address >= 16'hFFA0 && address <= 16'hFFAF)
                     io_read_data = mmu[address[3:0]];
+                else if (address >= 16'hFFB0 && address <= 16'hFFBF)
+                    io_read_data = {2'b00, palette[address[3:0]]};
             end
         endcase
     end
@@ -168,9 +234,74 @@ module coco3_boot_machine (
             pia1_outb <= 8'h00;
             pia1_cra <= 6'h00;
             pia1_crb <= 6'h00;
+            sound_dac <= 6'd32;
+            cartridge_start_count <= 25'd0;
+            cartridge_irq_latch <= 1'b0;
+            cartridge_start_sent <= 1'b0;
+            diagnostic_probe_address <= 13'd0;
+            boot_palette_write_count <= 5'd0;
+            hdmi_palette_initialized <= 1'b0;
             for (index = 0; index < 16; index = index + 1)
                 mmu[index] <= 8'h00;
-        end else if (io_write) begin
+            palette[4'h0] <= 6'h12;
+            palette[4'h1] <= 6'h36;
+            palette[4'h2] <= 6'h09;
+            palette[4'h3] <= 6'h24;
+            palette[4'h4] <= 6'h3f;
+            palette[4'h5] <= 6'h1b;
+            palette[4'h6] <= 6'h2d;
+            palette[4'h7] <= 6'h26;
+            palette[4'h8] <= 6'h00;
+            palette[4'h9] <= 6'h12;
+            palette[4'ha] <= 6'h00;
+            palette[4'hb] <= 6'h3f;
+            palette[4'hc] <= 6'h00;
+            palette[4'hd] <= 6'h12;
+            palette[4'he] <= 6'h00;
+            palette[4'hf] <= 6'h26;
+        end else begin
+            // Extended Color BASIC starts with its PALETTE CMP preset.  HDMI
+            // is an RGB output, so apply the ROM's PALETTE RGB preset once,
+            // after the complete 16-entry startup write has arrived.  This
+            // changes the real palette registers (and their readback) rather
+            // than disguising values in the renderer.  Later PALETTE CMP/RGB
+            // commands and direct software writes remain untouched.
+            if (!hdmi_palette_initialized &&
+                boot_palette_write_count == 5'd16 &&
+                composite_palette_preset) begin
+                palette[4'h0] <= 6'h12;
+                palette[4'h1] <= 6'h36;
+                palette[4'h2] <= 6'h09;
+                palette[4'h3] <= 6'h24;
+                palette[4'h4] <= 6'h3f;
+                palette[4'h5] <= 6'h1b;
+                palette[4'h6] <= 6'h2d;
+                palette[4'h7] <= 6'h26;
+                palette[4'h8] <= 6'h00;
+                palette[4'h9] <= 6'h12;
+                palette[4'ha] <= 6'h00;
+                palette[4'hb] <= 6'h3f;
+                palette[4'hc] <= 6'h00;
+                palette[4'hd] <= 6'h12;
+                palette[4'he] <= 6'h00;
+                palette[4'hf] <= 6'h26;
+                hdmi_palette_initialized <= 1'b1;
+            end
+            // After the cartridge is presented, wait for the configured
+            // interval before producing one emulated CART edge. Reading PIA1
+            // port B is the normal interrupt acknowledge operation.
+            if (diagnostic_cartridge_enabled && !cartridge_start_sent) begin
+                if (cartridge_start_count == CARTRIDGE_START_DELAY) begin
+                    cartridge_irq_latch <= 1'b1;
+                    cartridge_start_sent <= 1'b1;
+                end else begin
+                    cartridge_start_count <= cartridge_start_count + 1'b1;
+                end
+            end
+            if (io_read && address == 16'hFF22)
+                cartridge_irq_latch <= 1'b0;
+
+          if (io_write) begin
             if (address == 16'hFF00) begin
                 if (pia0_cra[2]) pia0_outa <= write_data;
                 else pia0_ddra <= write_data;
@@ -184,7 +315,11 @@ module coco3_boot_machine (
             if (address == 16'hFF03)
                 pia0_crb <= write_data[5:0];
             if (address == 16'hFF20) begin
-                if (pia1_cra[2]) pia1_outa <= write_data;
+                if (pia1_cra[2]) begin
+                    pia1_outa <= write_data;
+                    if (pia1_crb[3] && joystick_select == 2'b00)
+                        sound_dac <= write_data[7:2];
+                end
                 else pia1_ddra <= write_data;
             end
             if (address == 16'hFF21)
@@ -195,6 +330,10 @@ module coco3_boot_machine (
             end
             if (address == 16'hFF23)
                 pia1_crb <= write_data[5:0];
+            if (address == 16'hFF70)
+                diagnostic_probe_address[7:0] <= write_data;
+            if (address == 16'hFF71)
+                diagnostic_probe_address[12:8] <= write_data[4:0];
             if (address == 16'hFF90) begin
                 gime_init0 <= write_data;
                 mmu_enable <= write_data[6];
@@ -205,18 +344,24 @@ module coco3_boot_machine (
             end
             if (address >= 16'hFFA0 && address <= 16'hFFAF)
                 mmu[address[3:0]] <= write_data;
+            if (address >= 16'hFFB0 && address <= 16'hFFBF) begin
+                palette[address[3:0]] <= write_data[5:0];
+                if (!hdmi_palette_initialized && boot_palette_write_count < 5'd16)
+                    boot_palette_write_count <= boot_palette_write_count + 1'b1;
+            end
             if (address == 16'hFFDE)
                 all_ram <= 1'b0;
             if (address == 16'hFFDF)
                 all_ram <= 1'b1;
+          end
         end
     end
 
     cpu09 cpu_i (
         .clk(clock), .rst(reset), .vma(vma), .lic_out(), .ifetch(),
-        .opfetch(), .ba(), .bs(), .addr(address), .rw(read_cycle),
+        .opfetch(opfetch), .ba(), .bs(), .addr(address), .rw(read_cycle),
         .data_out(write_data), .data_in(read_data), .irq(cpu_irq),
-        .firq(1'b0), .nmi(fdc_nmi), .halt(1'b0), .hold(hold)
+        .firq(cpu_firq), .nmi(fdc_nmi), .halt(1'b0), .hold(hold)
     );
 
     coco3_system_rom rom_i (
@@ -225,6 +370,12 @@ module coco3_boot_machine (
 
     coco3_disk_rom disk_rom_i (
         .clock(clock), .address(address[12:0]), .data(disk_rom_data)
+    );
+
+    coco3_diagnostic_cartridge diagnostic_rom_i (
+        .clock(clock),
+        .address(diagnostic_rom_select ? address[12:0] : diagnostic_probe_address),
+        .data(diagnostic_rom_data)
     );
 
     coco3_fdc fdc_i (
@@ -251,10 +402,19 @@ module coco3_boot_machine (
     assign debug_address = address;
     assign debug_vma = vma;
     assign debug_read = read_cycle;
+    assign debug_opfetch = opfetch;
+    assign debug_read_data = read_data;
     assign debug_ram_write = ram_write;
     assign debug_io_write = io_write;
     assign debug_write_data = write_data;
-    assign audio_dac = pia1_outa[7:2];
+    assign audio_dac = sound_dac;
+    assign video_vdg_control = pia1_outb[7:4];
+    assign video_css = pia1_outb[3];
+    generate
+        for (palette_index = 0; palette_index < 16; palette_index = palette_index + 1) begin : flatten_palette
+            assign video_palette[palette_index*6 +: 6] = palette[palette_index];
+        end
+    endgenerate
 endmodule
 
 `default_nettype wire

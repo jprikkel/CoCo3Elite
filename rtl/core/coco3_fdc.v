@@ -27,18 +27,31 @@ module coco3_fdc (
 
 `ifdef EMBEDDED_TEST_DISKS
     wire drive0_selected = drive_latch[0];
-    wire drive_selected = drive0_selected;
-    wire valid_position = track < 8'd35 && sector >= 8'd1 && sector <= 8'd18;
-    wire [9:0] linear_sector = ({2'b00, track} << 4) +
-                               ({2'b00, track} << 1) +
-                               {2'b00, sector} - 10'd1;
-    wire [17:0] image_address = {linear_sector, 8'b0} + byte_index;
+    wire drive1_selected = drive_latch[1];
+    wire drive_selected = drive0_selected | drive1_selected;
+    wire valid_track = track < 8'd35;
+    wire valid_position = valid_track && sector >= 8'd1 && sector <= 8'd18;
+    wire [10:0] linear_sector = ({3'b000, track} << 4) +
+                                ({3'b000, track} << 1) +
+                                {3'b000, sector} - 11'd1;
+    wire [18:0] image_address = {linear_sector, 8'b0} + byte_index;
     wire [7:0] drive0_data;
-    wire [7:0] image_data = drive0_data;
+    wire [7:0] drive1_data;
+    wire [7:0] image_data = drive0_selected ? drive0_data : drive1_data;
 
     (* dont_touch = "yes" *)
-    coco3_disk_image #(.IMAGE_FILE("build/disks/daggorat.mem")) drive0_image_i (
+    coco3_disk_image #(
+        .IMAGE_FILE("build/disks/fpgatest.mem"),
+        .IMAGE_BYTES(161280)
+    ) drive0_image_i (
         .clock(clock), .address(image_address), .data(drive0_data)
+    );
+    (* dont_touch = "yes" *)
+    coco3_disk_image #(
+        .IMAGE_FILE("build/disks/games.mem"),
+        .IMAGE_BYTES(161280)
+    ) drive1_image_i (
+        .clock(clock), .address(image_address), .data(drive1_data)
     );
 `endif
 

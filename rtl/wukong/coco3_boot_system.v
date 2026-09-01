@@ -10,9 +10,14 @@ module coco3_boot_system (
     output wire hsync, output wire vsync, output wire video_enable,
     output wire [5:0] audio_dac,
     output wire narrow_video_mode,
+    output wire uart_debug_tx,
     output wire [7:0] red, output wire [7:0] green, output wire [7:0] blue
 );
     wire [15:0] cpu_address;
+    wire cpu_vma;
+    wire cpu_read;
+    wire cpu_opfetch;
+    wire [7:0] cpu_read_data;
     wire io_write;
     wire [7:0] cpu_data;
     wire [19:0] video_address;
@@ -27,8 +32,8 @@ module coco3_boot_system (
     reg [2:0] v;
     reg bp;
     reg [6:0] vert;
-    reg [3:0] vid_cont;
-    reg css;
+    wire [3:0] vid_cont;
+    wire css;
     reg [2:0] lpr;
     reg hlpr;
     reg [1:0] lpf, cres;
@@ -37,20 +42,26 @@ module coco3_boot_system (
     reg [6:0] hor_offset;
     reg [1:0] start_hsb;
     reg [7:0] start_msb, start_lsb;
-    reg [5:0] palette [0:15];
-    reg pia_ddr4;
+    wire [95:0] machine_palette;
+    wire [5:0] palette [0:15];
+    genvar palette_index;
     reg [3:0] direct_red, direct_green, direct_blue;
     integer i;
+
     wire [55:0] keyboard_keys;
     wire keyboard_shift;
     wire keyboard_shift_override;
     wire keyboard_reset;
+    wire keyboard_f3;
     wire keyboard_f6;
+    wire keyboard_f7;
     wire keyboard_f8;
     wire keyboard_f9;
     wire keyboard_f11;
     wire keyboard_f10;
     reg [1:0] keyboard_f6_sync;
+    reg [1:0] keyboard_f3_sync;
+    reg [1:0] keyboard_f7_sync;
     reg [1:0] keyboard_f10_sync;
     reg [1:0] keyboard_f8_sync;
     reg [1:0] keyboard_f9_sync;
@@ -58,7 +69,10 @@ module coco3_boot_system (
     reg [1:0] keyboard_reset_sync;
     reg keyboard_f11_previous;
     reg keyboard_f6_previous;
+    reg keyboard_f3_previous;
+    reg keyboard_f7_previous;
     reg cpu_fast_mode;
+    reg keyboard_right_joystick_enabled;
     reg artifact_enabled;
     reg crt_enabled;
     reg keyboard_f10_previous;
@@ -67,14 +81,18 @@ module coco3_boot_system (
     reg keyboard_joystick_enabled;
     reg scanlines_enabled;
     reg soft_reset_active;
+    reg diagnostic_cartridge_enabled;
     reg [21:0] soft_reset_release_count;
-    wire soft_reset_keys_held = keyboard_reset_sync[1] ||
+    wire soft_reset_keys_held = keyboard_reset_sync[1] || keyboard_f3_sync[1] ||
                                 keyboard_keys[51] || keyboard_keys[52];
     wire system_reset = reset | soft_reset_active;
     wire [55:0] keyboard_joystick_mask = keyboard_joystick_enabled
         ? 56'h000000F8000000 : 56'b0;
+    wire [55:0] keyboard_right_joystick_mask = keyboard_right_joystick_enabled
+        ? ((56'b1 << 23) | (56'b1 << 19) | (56'b1 << 1) |
+           (56'b1 << 4) | (56'b1 << 6)) : 56'b0;
     wire [55:0] machine_keyboard_keys = soft_reset_active ? 56'b0 :
-                                       (keyboard_keys & ~keyboard_joystick_mask);
+        (keyboard_keys & ~keyboard_joystick_mask & ~keyboard_right_joystick_mask);
     wire machine_keyboard_shift = soft_reset_active ? 1'b0 : keyboard_shift;
     wire machine_keyboard_shift_override = soft_reset_active ? 1'b0 :
                                            keyboard_shift_override;
@@ -89,6 +107,17 @@ module coco3_boot_system (
                                  joystick_up_only ? 6'd0 :
                                  joystick_down_only ? 6'd63 : 6'd32;
     wire joystick_left_fire = keyboard_joystick_enabled && keyboard_keys[31];
+    wire joystick_right_left_only = keyboard_keys[1] && !keyboard_keys[4];
+    wire joystick_right_right_only = keyboard_keys[4] && !keyboard_keys[1];
+    wire joystick_right_up_only = keyboard_keys[23] && !keyboard_keys[19];
+    wire joystick_right_down_only = keyboard_keys[19] && !keyboard_keys[23];
+    wire [5:0] joystick_right_x = !keyboard_right_joystick_enabled ? 6'd32 :
+                                  joystick_right_left_only ? 6'd0 :
+                                  joystick_right_right_only ? 6'd63 : 6'd32;
+    wire [5:0] joystick_right_y = !keyboard_right_joystick_enabled ? 6'd32 :
+                                  joystick_right_up_only ? 6'd0 :
+                                  joystick_right_down_only ? 6'd63 : 6'd32;
+    wire joystick_right_fire = keyboard_right_joystick_enabled && keyboard_keys[6];
     wire [7:0] sd_init_status;
     wire [7:0] sd_init_detail;
     wire [7:0] sd_read_status;
@@ -125,7 +154,9 @@ module coco3_boot_system (
         .KEY(keyboard_keys),
         .SHIFT(keyboard_shift),
         .SHIFT_OVERRIDE(keyboard_shift_override),
+        .F3(keyboard_f3),
         .F6(keyboard_f6),
+        .F7(keyboard_f7),
         .F8(keyboard_f8),
         .F9(keyboard_f9),
         .F10(keyboard_f10),
@@ -138,6 +169,8 @@ module coco3_boot_system (
     always @(posedge pixel_clk) begin
         if (reset) begin
             keyboard_f6_sync <= 2'b00;
+            keyboard_f3_sync <= 2'b00;
+            keyboard_f7_sync <= 2'b00;
             keyboard_f11_sync <= 2'b00;
             keyboard_f10_sync <= 2'b00;
             keyboard_f8_sync <= 2'b00;
@@ -145,7 +178,10 @@ module coco3_boot_system (
             keyboard_reset_sync <= 2'b00;
             keyboard_f11_previous <= 1'b0;
             keyboard_f6_previous <= 1'b0;
+            keyboard_f3_previous <= 1'b0;
+            keyboard_f7_previous <= 1'b0;
             cpu_fast_mode <= 1'b0;
+            keyboard_right_joystick_enabled <= 1'b0;
             artifact_enabled <= 1'b1;
             keyboard_f10_previous <= 1'b0;
             keyboard_f8_previous <= 1'b0;
@@ -155,6 +191,8 @@ module coco3_boot_system (
             crt_enabled <= 1'b0;
         end else begin
             keyboard_f6_sync <= {keyboard_f6_sync[0], keyboard_f6};
+            keyboard_f3_sync <= {keyboard_f3_sync[0], keyboard_f3};
+            keyboard_f7_sync <= {keyboard_f7_sync[0], keyboard_f7};
             keyboard_f11_sync <= {keyboard_f11_sync[0], keyboard_f11};
             keyboard_f10_sync <= {keyboard_f10_sync[0], keyboard_f10};
             keyboard_f8_sync <= {keyboard_f8_sync[0], keyboard_f8};
@@ -162,6 +200,8 @@ module coco3_boot_system (
             keyboard_reset_sync <= {keyboard_reset_sync[0], keyboard_reset};
             keyboard_f11_previous <= keyboard_f11_sync[1];
             keyboard_f6_previous <= keyboard_f6_sync[1];
+            keyboard_f3_previous <= keyboard_f3_sync[1];
+            keyboard_f7_previous <= keyboard_f7_sync[1];
             keyboard_f10_previous <= keyboard_f10_sync[1];
             keyboard_f8_previous <= keyboard_f8_sync[1];
             keyboard_f9_previous <= keyboard_f9_sync[1];
@@ -171,6 +211,8 @@ module coco3_boot_system (
                 artifact_enabled <= ~artifact_enabled;
             if (keyboard_f6_sync[1] && !keyboard_f6_previous)
                 cpu_fast_mode <= ~cpu_fast_mode;
+            if (keyboard_f7_sync[1] && !keyboard_f7_previous)
+                keyboard_right_joystick_enabled <= ~keyboard_right_joystick_enabled;
             if (keyboard_f10_sync[1] && !keyboard_f10_previous)
                 crt_enabled <= ~crt_enabled;
             if (keyboard_f8_sync[1] && !keyboard_f8_previous)
@@ -187,9 +229,17 @@ module coco3_boot_system (
         if (reset) begin
             soft_reset_active <= 1'b0;
             soft_reset_release_count <= 22'd0;
+            diagnostic_cartridge_enabled <= 1'b0;
         end else if (keyboard_reset_sync[1]) begin
             soft_reset_active <= 1'b1;
             soft_reset_release_count <= 22'd0;
+            diagnostic_cartridge_enabled <= 1'b0;
+        end else if (keyboard_f3_sync[1] && !keyboard_f3_previous) begin
+            // Present an autostart ROM-Pak to the already initialized
+            // machine. Resetting the CPU and PIAs here leaves PIA0 port A in
+            // DDR mode, causing ZIA's keyboard scanner to read $00 forever.
+            // The cartridge controller supplies the delayed CART/FIRQ edge.
+            diagnostic_cartridge_enabled <= 1'b1;
         end else if (soft_reset_active) begin
             if (soft_reset_keys_held) begin
                 soft_reset_release_count <= 22'd0;
@@ -205,7 +255,10 @@ module coco3_boot_system (
     coco3_boot_machine machine_i (
         .clock(pixel_clk), .reset(system_reset), .debug_address(cpu_address),
         .cpu_fast_mode(cpu_fast_mode),
-        .debug_vma(), .debug_read(), .debug_ram_write(),
+        .diagnostic_cartridge_enabled(diagnostic_cartridge_enabled),
+        .debug_vma(cpu_vma), .debug_read(cpu_read),
+        .debug_opfetch(cpu_opfetch), .debug_read_data(cpu_read_data),
+        .debug_ram_write(),
         .debug_io_write(io_write), .debug_write_data(cpu_data),
         .keyboard_keys(machine_keyboard_keys),
         .keyboard_shift(machine_keyboard_shift),
@@ -213,20 +266,37 @@ module coco3_boot_system (
         .joystick_left_x(joystick_left_x),
         .joystick_left_y(joystick_left_y),
         .joystick_left_fire(joystick_left_fire),
+        .joystick_right_x(joystick_right_x),
+        .joystick_right_y(joystick_right_y),
+        .joystick_right_fire(joystick_right_fire),
         .sd_status(sd_status), .sd_detail(sd_detail),
         .video_hsync(raw_hsync), .video_vsync(raw_vsync),
         .video_address(video_address), .video_read_data(video_data),
-        .audio_dac(audio_dac)
+        .audio_dac(audio_dac), .video_vdg_control(vid_cont),
+        .video_css(css), .video_palette(machine_palette)
     );
+
+    coco3_uart_debug uart_debug_i (
+        .clock(pixel_clk), .reset(reset), .cpu_address(cpu_address),
+        .cpu_vma(cpu_vma), .cpu_read(cpu_read), .cpu_opfetch(cpu_opfetch),
+        .cpu_read_data(cpu_read_data), .cpu_write_data(cpu_data),
+        .keyboard_active(|keyboard_keys),
+        .cartridge_enabled(diagnostic_cartridge_enabled),
+        .uart_tx_o(uart_debug_tx)
+    );
+
+    generate
+        for (palette_index = 0; palette_index < 16; palette_index = palette_index + 1) begin : expand_palette
+            assign palette[palette_index] = machine_palette[palette_index*6 +: 6];
+        end
+    endgenerate
 
     always @(posedge pixel_clk) begin
         if (system_reset) begin
-            coco <= 0; v <= 0; bp <= 0; vert <= 0; vid_cont <= 0; css <= 0;
+            coco <= 0; v <= 0; bp <= 0; vert <= 0;
             lpr <= 0; hlpr <= 0; lpf <= 0; cres <= 0; hres <= 0;
             scroll <= 0; hven <= 0; hor_offset <= 0;
             start_hsb <= 0; start_msb <= 0; start_lsb <= 0;
-            pia_ddr4 <= 0;
-            for (i=0; i<16; i=i+1) palette[i] <= i;
         end else if (io_write) begin
             case (cpu_address)
                 16'hFF90: coco <= cpu_data[7];
@@ -237,11 +307,6 @@ module coco3_boot_system (
                 16'hFF9D: start_msb <= cpu_data;
                 16'hFF9E: start_lsb <= cpu_data;
                 16'hFF9F: begin hven <= cpu_data[7]; hor_offset <= cpu_data[6:0]; end
-                16'hFF22: if (pia_ddr4) begin
-                    vid_cont <= cpu_data[7:4];
-                    css <= cpu_data[3];
-                end
-                16'hFF23: pia_ddr4 <= cpu_data[2];
                 16'hFFC0: v[0] <= 1'b0;
                 16'hFFC1: v[0] <= 1'b1;
                 16'hFFC2: v[1] <= 1'b0;
@@ -262,8 +327,7 @@ module coco3_boot_system (
                 16'hFFD1: vert[5] <= 1'b1;
                 16'hFFD2: vert[6] <= 1'b0;
                 16'hFFD3: vert[6] <= 1'b1;
-                default: if (cpu_address >= 16'hFFB0 && cpu_address <= 16'hFFBF)
-                    palette[cpu_address[3:0]] <= cpu_data[5:0];
+                default: begin end
             endcase
         end
     end
@@ -320,11 +384,16 @@ module coco3_boot_system (
         end
     end
 
-    // Software reaches artifact-capable 256-pixel modes through several
-    // SAM/VDG configurations, so F11 controls the effect directly.
+    // NTSC artifact color is meaningful only for the MC6847's 256x192
+    // one-bit graphics mode (A/G=1, GM2:GM0=111).  Applying the decoder to
+    // four-color modes destroys their CSS-selected palette.  F11 remains the
+    // user preference, while this mode qualification protects all other VDG
+    // and GIME video modes.
+    wire artifact_compatible_mode = coco && (vid_cont == 4'b1111);
     wire artifact_on_pixel = raw_red[7] && raw_green[7] && raw_blue[7];
     ntsc_artifact_filter artifact_i (
-        .pixel_clk(pixel_clk), .reset(system_reset), .enable(artifact_enabled),
+        .pixel_clk(pixel_clk), .reset(system_reset),
+        .enable(artifact_enabled && artifact_compatible_mode),
         .phase_reverse(1'b0), .in_hsync(raw_hsync), .in_vsync(raw_vsync),
         .in_video_enable(raw_video_enable),
         .in_on_pixel(artifact_on_pixel),

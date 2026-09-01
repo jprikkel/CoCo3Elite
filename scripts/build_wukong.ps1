@@ -17,6 +17,12 @@ if (-not (Test-Path -LiteralPath $Vivado)) {
 
 New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 
+if ($Mode -in @('COCO3_BOOT', 'HDMI_COCO_TEST', 'HDMI_COCO_AUDIO')) {
+    & (Join-Path $PSScriptRoot 'prepare_diagnostic_cartridge.ps1') `
+        -InputPath (Join-Path $repoRoot 'roms\ziadiag.ccc') `
+        -OutputPath (Join-Path $repoRoot 'build\roms\diagnostic_cart.mem')
+}
+
 # Vivado resolves $readmemh paths from its process working directory. Mirror
 # the small initialization inputs needed by the selectable build modes so the
 # process can run entirely inside build/wukong instead of polluting repo root.
@@ -28,7 +34,7 @@ foreach ($name in @('coco3gen.mem', 'coco3_diagnostic.mem')) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "rtl\core\$name") `
         -Destination (Join-Path $stagedCoreDir $name) -Force
 }
-foreach ($name in @('coco3.mem', 'disk11.mem')) {
+foreach ($name in @('coco3.mem', 'disk11.mem', 'diagnostic_cart.mem')) {
     $source = Join-Path $repoRoot "build\roms\$name"
     if (Test-Path -LiteralPath $source -PathType Leaf) {
         Copy-Item -LiteralPath $source -Destination (Join-Path $stagedRomDir $name) -Force
@@ -36,7 +42,8 @@ foreach ($name in @('coco3.mem', 'disk11.mem')) {
 }
 if ($EmbeddedTestDisks) {
     foreach ($disk in @(
-        @{ Input = 'disks\DAGGORAT.DSK'; Output = 'daggorat.mem' }
+        @{ Input = 'disks\fpgatest.dsk'; Output = 'fpgatest.mem' },
+        @{ Input = 'disks\games.dsk'; Output = 'games.mem' }
     )) {
         $inputPath = Join-Path $repoRoot $disk.Input
         $preparedPath = Join-Path $repoRoot "build\disks\$($disk.Output)"

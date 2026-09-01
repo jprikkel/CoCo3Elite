@@ -74,7 +74,9 @@ module COCOKEY(
 		KEY,
 		SHIFT,
 		SHIFT_OVERRIDE,
+		F3,
 		F6,
+		F7,
 		F8,
 		F9,
 		F10,
@@ -93,8 +95,12 @@ output				SHIFT;
 reg					SHIFT;
 output				SHIFT_OVERRIDE;
 reg					SHIFT_OVERRIDE;
+output				F3;
+reg					F3;
 output				F6;
 reg					F6;
+output				F7;
+reg					F7;
 output				F8;
 reg					F8;
 output				F9;
@@ -199,7 +205,9 @@ begin
 		KEY <= 56'h00000000000000;
 		SHIFT_OVERRIDE <= 1'b0;
 		SHIFT <= 1'b0;
+		F3 <= 1'b0;
 		F6 <= 1'b0;
+		F7 <= 1'b0;
 		F8 <= 1'b0;
 		F9 <= 1'b0;
 		F10 <= 1'b0;
@@ -212,7 +220,9 @@ begin
 		8'h76:		KEY[50] <= PRESS;					// ESC
 		8'h05:		KEY[53] <= PRESS;					// F1
 		8'h06:		KEY[54] <= PRESS;					// F2
+		8'h04:		F3 <= PRESS;						// F3 diagnostic cartridge
 		8'h0B:		F6 <= PRESS;						// F6 processor-speed toggle
+		8'h83:		F7 <= PRESS;						// F7 right keyboard-joystick toggle
 		8'h0A:		F8 <= PRESS;						// F8 keyboard-joystick toggle
 		8'h01:		F9 <= PRESS;						// F9 horizontal-scanline toggle
 		8'h09:		F10 <= PRESS;						// F10 CRT-filter toggle

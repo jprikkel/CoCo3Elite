@@ -28,7 +28,7 @@ PS/2 keyboard interface connected to PMOD J14.*
 | PMOD J14 | Implemented and verified | Direct clock, data, and power for the HP KB-0133 PS/2 keyboard |
 | PMOD J13 | In progress | External Digilent Pmod MicroSD over SPI |
 | Remaining PMOD connectors | Planned | External audio, joystick ADC, and optional I2C RTC modules |
-| CH340N USB-to-UART | Optional | Diagnostic console or independent RS-232 PAK; not storage and not a USB keyboard host |
+| CH340N USB-to-UART | Used | 115200-baud passive diagnostic console; see [USB serial diagnostics](serial-debug.md) |
 | User keys | Unassigned | Candidate reset, cold-start, or maintenance controls |
 | User LEDs | Unassigned | Candidate power, storage activity, keyboard, or diagnostic indicators |
 | 40-pin user I/O header | Reserved | Additional expansion after the PMOD assignments are established |

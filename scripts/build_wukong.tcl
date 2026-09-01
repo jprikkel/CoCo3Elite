@@ -69,11 +69,14 @@ if {$mode in {COCO3_BOOT HDMI_COCO_TEST HDMI_COCO_AUDIO}} {
         [file join $repo_dir rtl core coco3_128k_ram.v] \
         [file join $repo_dir rtl core coco3_system_rom.v] \
         [file join $repo_dir rtl core coco3_disk_rom.v] \
+        [file join $repo_dir rtl core coco3_diagnostic_cartridge.v] \
         [file join $repo_dir rtl core coco3_disk_image.v] \
         [file join $repo_dir rtl core sd_spi_init.v] \
         [file join $repo_dir rtl core sd_spi_read_sector0.v] \
         [file join $repo_dir rtl core coco3_fdc.v] \
         [file join $repo_dir rtl core coco3_boot_machine.v] \
+        [file join $rtl_dir uart_tx.v] \
+        [file join $rtl_dir coco3_uart_debug.v] \
         [file join $rtl_dir ntsc_artifact_filter.v] \
         [file join $rtl_dir crt_filter.v] \
         [file join $rtl_dir coco3_boot_system.v]

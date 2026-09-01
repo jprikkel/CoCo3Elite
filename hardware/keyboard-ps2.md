@@ -60,9 +60,10 @@ special CoCo meanings or control FPGA features:
 | Tab | Clear | Hardware-verified; invokes the CoCo Clear function |
 | F1 | CoCo F1 | Direct CoCo keyboard-matrix mapping |
 | F2 | CoCo F2 | Direct CoCo keyboard-matrix mapping |
-| F3–F5 | Unmapped | Reserved for future use |
+| F3 | ZIA diagnostics | Presents the embedded [ZIA cocodiag cartridge](https://github.com/varmfskii/cocodiag) to the initialized CoCo and starts it through the system ROM's emulated CART/FIRQ autostart path; Ctrl+Alt+Delete deselects it and returns to Disk Extended Color BASIC |
+| F4–F5 | Unmapped | Reserved for future use |
 | F6 | Processor speed | Toggles between normal speed (approximately 0.9 MHz) and fast speed (approximately 1.8 MHz); normal speed is selected after FPGA reset |
-| F7 | Unmapped | Reserved for future use |
+| F7 | Keyboard right joystick | Toggles W/S/A/D/F control of the emulated right joystick; disabled after reset |
 | F8 | Keyboard left joystick | Toggles arrow-key and Space control of the emulated left joystick; disabled after reset |
 | F9 | Horizontal scanlines | Toggles horizontal CRT scanlines on or off; disabled after reset |
 | F10 | Phosphor glow | Toggles HDMI phosphor bloom/glow on or off independently of scanlines; disabled after reset |
@@ -96,7 +97,13 @@ primary fire button. Opposing directions return that axis to center. These five
 keys are consumed by the joystick while the mode is active and return to their
 normal CoCo keyboard meanings when F8 disables it.
 
-F3 through F5, F7, and the Insert, Home, End, Page Up, Page Down, Print Screen,
+When F7 keyboard-joystick mode is enabled, W produces minimum Y, S maximum Y,
+A minimum X, D maximum X, and F presses the right joystick's primary fire
+button. Opposing directions return that axis to center. These five keys are
+consumed by the joystick while the mode is active and return to their normal
+CoCo keyboard meanings when F7 disables it.
+
+F4 through F5 and the Insert, Home, End, Page Up, Page Down, Print Screen,
 Pause, and numeric-keypad navigation keys are not currently mapped. The
 Ctrl+Alt+Delete combination performs a synchronized CoCo soft reset. It resets
 the emulated CPU and video/control state without reconfiguring the FPGA or
