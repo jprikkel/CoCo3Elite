@@ -20,7 +20,7 @@ if (Test-Path -LiteralPath $output) {
 & $decb dskini $output -3
 if ($LASTEXITCODE -ne 0) { throw "decb dskini failed with exit code $LASTEXITCODE" }
 
-$programs = @('TESTMENU', 'CPURAM', 'ROMTEST', 'CARTTEST', 'VIDEO', 'VID2', 'VID3', 'PALTEST', 'GIMETEST', 'AUDIO', 'WIDTHS', 'INPUT')
+$programs = @('TESTMENU', 'CPURAM', 'ROMTEST', 'CARTTEST', 'VIDEO', 'VID2', 'VID3', 'PALTEST', 'GIMETEST', 'GIMETMR', 'AUDIO', 'WIDTHS', 'INPUT')
 foreach ($program in $programs) {
     $source = Join-Path $sourceDir "$program.BAS"
     $destination = "$output,$program.BAS"

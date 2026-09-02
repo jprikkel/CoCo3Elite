@@ -9,7 +9,7 @@ module boot_video_tb;
   #1;
   if ({dut.palette[0],dut.palette[1],dut.palette[2],dut.palette[3],
        dut.palette[4],dut.palette[5],dut.palette[6],dut.palette[7]} !==
-      {6'h12,6'h36,6'h09,6'h24,6'h3f,6'h10,6'h2d,6'h26} ||
+      {6'h12,6'h36,6'h09,6'h24,6'h3f,6'h1b,6'h2d,6'h26} ||
       {dut.palette[8],dut.palette[9],dut.palette[10],dut.palette[11],
        dut.palette[12],dut.palette[13],dut.palette[14],dut.palette[15]} !==
       {6'h00,6'h12,6'h00,6'h3f,6'h00,6'h12,6'h00,6'h26}) begin
@@ -17,19 +17,33 @@ module boot_video_tb;
    $fatal;
   end
   reset=0;
-  repeat(5000000) @(posedge clock);
 
   // GIME palette bits are R2 G2 B2 R1 G1 B1. Full green must not decode
   // as magenta, which catches the adjacent-pair mapping used by the first
   // Wukong checkpoint.
-  dut.palette[0] = 6'b010010;
+  force dut.palette[0] = 6'b010010;
   force dut.color = 9'h000;
   #1;
-  if ({r,g,b} !== 24'h00ff00) begin
-   $display("FAIL: palette green decoded as RGB %02h%02h%02h",r,g,b);
+  if ({dut.raw_red,dut.raw_green,dut.raw_blue} !== 24'h00ff00) begin
+   $display("FAIL: palette green decoded as RGB %02h%02h%02h",dut.raw_red,dut.raw_green,dut.raw_blue);
    $fatal;
   end
   release dut.color;
+  release dut.palette[0];
+
+  // GIME logical color 16 is the border register at $FF9A, not palette 0.
+  // Use a value different from palette 0 so truncating color[4] is detected.
+  force dut.machine_i.border_palette = 6'b100100;
+  force dut.color = 9'h010;
+  #1;
+  if ({dut.raw_red,dut.raw_green,dut.raw_blue} !== 24'hff0000) begin
+   $display("FAIL: FF9A border color decoded as RGB %02h%02h%02h",dut.raw_red,dut.raw_green,dut.raw_blue);
+   $fatal;
+  end
+  release dut.color;
+  release dut.machine_i.border_palette;
+
+  repeat(5000000) @(posedge clock);
 
   // A 192-line CoCo image is doubled to 384 scanlines and centered within
   // the legacy 225-line viewport: scanlines 32 through 415 inclusive.
@@ -48,7 +62,7 @@ module boot_video_tb;
    $display("FAIL: raster active=%0d first=%0d last=%0d",active_lines,first_active,last_active);
    $fatal;
   end
-  $display("PASS: green palette decode and centered 192-line raster");
+  $display("PASS: palette/border decode and centered 192-line raster");
 
   $display("VIDEO coco=%0d v=%0h vert=%0h vid=%0h hres=%0h lpr=%0h start=%0h%02h%02h",
    dut.coco,dut.v,dut.vert,dut.vid_cont,dut.hres,dut.lpr,dut.start_hsb,dut.start_msb,dut.start_lsb);

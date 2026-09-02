@@ -38,7 +38,15 @@ module coco3_boot_machine #(
     output wire [5:0]  audio_dac,
     output wire [3:0]  video_vdg_control,
     output wire        video_css,
-    output wire [95:0] video_palette
+    output wire [95:0] video_palette,
+    output wire [5:0]  video_border_palette,
+    output wire [7:0]  video_mode,
+    output wire [7:0]  video_resolution,
+    output wire [1:0]  video_vbank,
+    output wire [3:0]  video_scroll,
+    output wire [15:0] video_offset,
+    output wire [7:0]  video_horizontal_offset,
+    output wire        video_blink
 );
     reg [4:0] divider;
     reg hold;
@@ -75,6 +83,13 @@ module coco3_boot_machine #(
     reg [12:0] diagnostic_probe_address;
     reg [7:0] mmu [0:15];
     reg [5:0] palette [0:15];
+    reg [5:0] border_palette;
+    reg [7:0] gime_video_mode;
+    reg [7:0] gime_video_resolution;
+    reg [1:0] gime_video_vbank;
+    reg [3:0] gime_video_scroll;
+    reg [15:0] gime_video_offset;
+    reg [7:0] gime_video_horizontal_offset;
     reg [4:0] boot_palette_write_count;
     reg hdmi_palette_initialized;
     integer index;
@@ -99,6 +114,8 @@ module coco3_boot_machine #(
     wire [7:0] rom_data;
     wire [7:0] disk_rom_data;
     wire [7:0] diagnostic_rom_data;
+    wire [3:0] gime_timer_msb;
+    wire [7:0] gime_timer_lsb;
     wire [7:0] fdc_read_data;
     wire fdc_nmi;
     wire io_select = address[15:8] == 8'hFF && address[7:4] != 4'hF;
@@ -187,6 +204,16 @@ module coco3_boot_machine #(
             16'hFF73: io_read_data = 8'hC3;
             16'hFF90: io_read_data = gime_init0;
             16'hFF91: io_read_data = gime_init1;
+            16'hFF94: io_read_data = {4'h0, gime_timer_msb};
+            16'hFF95: io_read_data = gime_timer_lsb;
+            16'hFF98: io_read_data = gime_video_mode;
+            16'hFF99: io_read_data = gime_video_resolution;
+            16'hFF9A: io_read_data = {2'b00, border_palette};
+            16'hFF9B: io_read_data = {6'b000000, gime_video_vbank};
+            16'hFF9C: io_read_data = {4'b0000, gime_video_scroll};
+            16'hFF9D: io_read_data = gime_video_offset[15:8];
+            16'hFF9E: io_read_data = gime_video_offset[7:0];
+            16'hFF9F: io_read_data = gime_video_horizontal_offset;
             default: begin
                 if (address == 16'hFF40 ||
                     (address >= 16'hFF48 && address <= 16'hFF4B))
@@ -259,6 +286,13 @@ module coco3_boot_machine #(
             palette[4'hd] <= 6'h12;
             palette[4'he] <= 6'h00;
             palette[4'hf] <= 6'h26;
+            border_palette <= 6'h00;
+            gime_video_mode <= 8'h00;
+            gime_video_resolution <= 8'h00;
+            gime_video_vbank <= 2'b00;
+            gime_video_scroll <= 4'h0;
+            gime_video_offset <= 16'h0000;
+            gime_video_horizontal_offset <= 8'h00;
         end else begin
             // Extended Color BASIC starts with its PALETTE CMP preset.  HDMI
             // is an RGB output, so apply the ROM's PALETTE RGB preset once,
@@ -342,6 +376,22 @@ module coco3_boot_machine #(
                 gime_init1 <= write_data;
                 mmu_task <= write_data[0];
             end
+            if (address == 16'hFF98)
+                gime_video_mode <= write_data;
+            if (address == 16'hFF99)
+                gime_video_resolution <= write_data;
+            if (address == 16'hFF9A)
+                border_palette <= write_data[5:0];
+            if (address == 16'hFF9B)
+                gime_video_vbank <= write_data[1:0];
+            if (address == 16'hFF9C)
+                gime_video_scroll <= write_data[3:0];
+            if (address == 16'hFF9D)
+                gime_video_offset[15:8] <= write_data;
+            if (address == 16'hFF9E)
+                gime_video_offset[7:0] <= write_data;
+            if (address == 16'hFF9F)
+                gime_video_horizontal_offset <= write_data;
             if (address >= 16'hFFA0 && address <= 16'hFFAF)
                 mmu[address[3:0]] <= write_data;
             if (address >= 16'hFFB0 && address <= 16'hFFBF) begin
@@ -384,6 +434,15 @@ module coco3_boot_machine #(
         .read_data(fdc_read_data), .nmi(fdc_nmi)
     );
 
+    coco3_gime_timer gime_timer_i (
+        .clock(clock), .reset(reset), .hsync(video_hsync),
+        .fast_select(gime_init1[5]),
+        .write_msb(io_write && address == 16'hFF94),
+        .write_lsb(io_write && address == 16'hFF95),
+        .write_data(write_data), .timer_msb(gime_timer_msb),
+        .timer_lsb(gime_timer_lsb), .blink(video_blink)
+    );
+
     coco3_128k_ram #(.INIT_VALUE(8'h00)) ram_i (
         .clock(clock), .cpu_address(physical_address),
         .cpu_write_data(write_data), .cpu_write_enable(ram_write),
@@ -410,6 +469,13 @@ module coco3_boot_machine #(
     assign audio_dac = sound_dac;
     assign video_vdg_control = pia1_outb[7:4];
     assign video_css = pia1_outb[3];
+    assign video_border_palette = border_palette;
+    assign video_mode = gime_video_mode;
+    assign video_resolution = gime_video_resolution;
+    assign video_vbank = gime_video_vbank;
+    assign video_scroll = gime_video_scroll;
+    assign video_offset = gime_video_offset;
+    assign video_horizontal_offset = gime_video_horizontal_offset;
     generate
         for (palette_index = 0; palette_index < 16; palette_index = palette_index + 1) begin : flatten_palette
             assign video_palette[palette_index*6 +: 6] = palette[palette_index];
