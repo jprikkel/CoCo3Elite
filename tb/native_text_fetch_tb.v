@@ -9,6 +9,11 @@ module native_text_fetch_tb;
  reg [20:0] rowaddr=21'h70200;
  wire [19:0] addr; wire [15:0] data;
  integer m,row,col,p,width,bytespercell,index,expected,failures=0;
+`ifdef NEW_SRAM
+ localparam FETCH_PHASE=5;
+`else
+ localparam FETCH_PHASE=3;
+`endif
  coco3_128k_ram ram(.clock(clk),.cpu_address(17'd0),
  .cpu_write_data(8'd0),.cpu_write_enable(1'b0),.video_address(addr),.video_read_data(data));
  COCO3VIDEO dut(.PIX_CLK(clk),.RESET_N(1'b1),.RAM_ADDRESS(addr),.RAM_DATA(data),
@@ -38,7 +43,7 @@ module native_text_fetch_tb;
     for(p=0;p<width*(hres[2]?8:16);p=p+1) begin
      @(posedge clk); #1; pixel=p;
      @(negedge clk); #1;
-     if(p%16==3) begin
+     if(p%16==FETCH_PHASE) begin
       col=p/(hres[2]?8:16); expected=65+col%26;
       if(dut.CHAR_LATCH_0[7:0]!==expected[7:0]) begin
        if(failures<8) $display("FAIL width=%0d attr=%0d row=%0d col=%0d expected=%h got=%h word=%h",

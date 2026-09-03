@@ -2062,14 +2062,17 @@ begin
 			end
 			else
 			begin
-				if(LINES_ROW > VERT_FIN_SCRL)
+                // LINES_ROW is the last valid index, not the row height.
+                // Preserve valid fine scroll, including that last index;
+                // out-of-range values start at zero (e.g. BASIC leaves $0F).
+				if(VERT_FIN_SCRL <= LINES_ROW)
 				begin
 					VLPR <= VERT_FIN_SCRL;
 
 				end
 				else
 				begin
-					VLPR <= LINES_ROW;
+					VLPR <= 4'h0;
 				end
 			end
 		end
@@ -2228,7 +2231,16 @@ begin
 			end
 			4'hA:									// Pixel Row 11
 			begin
-				VLPR <= 4'hB;
+                // Native LPR=6 is eleven lines: index A ends the row.
+                // Legacy twelve-line text still advances to index B.
+                if(NUM_ROW == 4'hA)
+                begin
+                    ROW_ADD <= SCREEN_OFF;
+                    NUM_ROW <= LINES_ROW;
+                    VLPR <= 4'h0;
+                end
+                else
+                    VLPR <= 4'hB;
 				if(NUM_ROW == 4'b1011)			// 12
 					UNDERLINE <= 1'b1;
 				else

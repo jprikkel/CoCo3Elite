@@ -96,8 +96,9 @@ not the CPU's RAM writes, character ROM, palette, or HDMI timing.
 
 The new predicate excludes attributed text and graphics and does not change
 their existing fetch conditions. The same correction is present in both
-fetch branches, but the recorded regression exercised the default branch
-used by this Wukong build; it is not a verification claim for `NEW_SRAM`.
+fetch branches. The original fetch regression exercised the default branch,
+but the Wukong build actually defines `NEW_SRAM`. The follow-up scroll fix
+corrects the regression script to use that build configuration too.
 
 Supporting changes:
 
@@ -144,3 +145,52 @@ last displayed row addresses with each value varied independently. Include
 natural raster progression, which the isolated fetch regression does not
 exercise. Do not clear these registers globally to hide the symptom; software
 may legitimately use banking, scrolling, or a virtual-screen stride.
+
+## V3: missing title and corrupt bottom row
+
+The user additionally confirmed that the cartridge menu's top title was
+missing. Boot simulation with the selected ROM captured FF9B=$00,
+FF9C=$0F, FF9F=$00. This is simulated startup state, not a hardware readback
+from the cartridge itself.
+
+The renderer previously clamped an out-of-range vertical-scroll value to
+`LINES_ROW`, which is the last scanline index (7 for eight-line text). Thus
+$0F skipped seven scanlines of the first row and exposed the next row beyond
+the 25-row screen buffer. The new frame initialization uses valid indices
+unchanged and maps out-of-range values to zero. Register readback is not
+changed, and valid smooth scrolling remains available. This agrees with
+[MAME's GIME new_frame implementation](https://github.com/mamedev/mame/blob/master/src/mame/trs/gime.cpp),
+which resets a scroll value at or above the row height to zero.
+
+`tb/native_text_scroll_tb.v` uses natural raster counters, HSYNC, and vertical
+blanking rather than forcing row addresses. Its 15 cases cover valid and
+out-of-range scroll values for 1-, 2-, 8-, 9-, 10-, and 11-line rows over a
+200-line field. The original RTL failed the out-of-range cases. The test also
+exposed a separate 11-line row boundary error: index A advanced to B instead
+of starting the next row. The index-A handler now ends an 11-line row while
+retaining the existing index-B path for twelve-line legacy text.
+
+Run with `scripts/test_native_text_scroll.ps1`; both this regression and the
+updated fetch regression compile with `NEW_SRAM`, matching the board build.
+V3 of the BASIC probe also prints the entry FF9B/FF9C/FF9F values in its
+summary. Its first case remains unchanged, preserving the values so the
+hardware regression does not hide the defect by clearing scroll.
+
+Hardware result: the user confirms the last-line issue is fixed in both
+F3 → D and VIDPROBE. No cartridge ROM patch is used. The latest confirmation
+does not separately report title visibility.
+
+A separate horizontal clipping issue remains: the user reports only 38
+characters in 40-column mode, with the 38th partially cut off, and 75 in
+80-column mode. This is recorded separately from the resolved vertical-scroll
+issue. The cause is not established; the next regression should check full
+horizontal-line visibility through the video-to-HDMI path, not only character
+latches and vertical row addresses.
+
+Candidate bitstream generated 2026-09-02 22:46:59 local time at
+`build/wukong/wukong_hdmi_coco_audio.bit`; all user-specified timing constraints
+met. Both regressions above passed. SHA-256:
+
+```text
+5E43636FFCA77A6D328A8D7725230A7BD2C5193DE597B079369693438A084E69
+```
