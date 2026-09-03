@@ -20,7 +20,7 @@ if (Test-Path -LiteralPath $output) {
 & $decb dskini $output -3
 if ($LASTEXITCODE -ne 0) { throw "decb dskini failed with exit code $LASTEXITCODE" }
 
-$programs = @('TESTMENU', 'CPURAM', 'ROMTEST', 'CARTTEST', 'VIDEO', 'VID2', 'VID3', 'PALTEST', 'GIMETEST', 'GIMETMR', 'AUDIO', 'WIDTHS', 'INPUT')
+$programs = @('TESTMENU', 'CPURAM', 'ROMTEST', 'CARTTEST', 'VIDEO', 'VID2', 'VID3', 'PALTEST', 'GIMETEST', 'GIMETMR', 'VECTEST', 'VIDPROBE', 'AUDIO', 'WIDTHS', 'INPUT')
 foreach ($program in $programs) {
     $source = Join-Path $sourceDir "$program.BAS"
     $destination = "$output,$program.BAS"
@@ -37,6 +37,9 @@ foreach ($binary in @('MEMT2023.BIN', 'SYSINFO.BIN')) {
     if ($LASTEXITCODE -ne 0) { throw "decb copy failed for $binary with exit code $LASTEXITCODE" }
 }
 
+& (Join-Path $PSScriptRoot 'build_video_probe.ps1')
+& $decb copy -2 -b (Join-Path $repoRoot 'build\tests\vidhelp.bin') "$output,VIDHELP.BIN"
+if ($LASTEXITCODE -ne 0) { throw 'decb copy failed for VIDHELP.BIN' }
 Write-Host "Created CoCo 3 FPGA diagnostic disk: $output"
 & $decb dir "$output,"
 if ($LASTEXITCODE -ne 0) { throw "decb dir failed with exit code $LASTEXITCODE" }

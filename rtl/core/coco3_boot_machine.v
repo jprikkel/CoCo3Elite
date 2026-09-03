@@ -128,11 +128,15 @@ module coco3_boot_machine #(
                            gime_init0[1:0] != 2'b10;
     wire diagnostic_rom_select = diagnostic_cartridge_enabled &&
                                  !io_select && address[15:13] == 3'b110;
-    // The legacy design always services $FFF0-$FFFF from its dedicated fast
-    // vector shadow, even after SAM selects all-RAM mode.
+    // $FE00-$FEFF is RAM in both modes. INIT0 bit 3 selects the fixed page
+    // $3F instead of MMU block 7, matching the original CoCo3FPGA decode.
+    wire vector_page = address[15:8] == 8'hFE;
     wire rom_select = vector_select ||
-                      (!all_ram && !io_select && address[15]);
-    wire [7:0] mapped_page = mmu_enable
+                      (!all_ram && !io_select && address[15] &&
+                       !vector_page);
+    wire [7:0] mapped_page = vector_page && gime_init0[3]
+        ? 8'h3f
+        : mmu_enable
         ? mmu[{mmu_task, address[15:13]}]
         : {5'b00111, address[15:13]};
     // A 128K machine implements 16 physical 8K pages. Higher GIME page
@@ -215,7 +219,9 @@ module coco3_boot_machine #(
             16'hFF9E: io_read_data = gime_video_offset[7:0];
             16'hFF9F: io_read_data = gime_video_horizontal_offset;
             default: begin
-                if (address == 16'hFF40 ||
+                if (address >= 16'hFFA0 && address <= 16'hFFAF)
+                    io_read_data = mmu[address[3:0]];
+                else if (address == 16'hFF40 ||
                     (address >= 16'hFF48 && address <= 16'hFF4B))
                     io_read_data = fdc_read_data;
                 else if (address >= 16'hFFA0 && address <= 16'hFFAF)

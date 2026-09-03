@@ -292,7 +292,8 @@ begin
 			begin
 				if(PIXEL_COUNT[4]
 				&((COCO)															// All other CoCo1 modes
-				|({COCO,BP,HRES[3],HRES[2],HRES[1]}==5'b01001)))	//CoCo3 32/40 bytes/line ?????? might have to add text differences
+				|({COCO,BP,HRES[3],HRES[2],HRES[1]}==5'b01001)
+                |({COCO,BP,HRES[2],CRES[0]}==4'b0000))) // Native 32/40 text: second byte of the word
 				begin
 					CHAR_LATCH_0 <= {8'h00,CHAR_LATCH_0[15:8]};
 				end
@@ -384,7 +385,8 @@ begin
 			begin
 				if(PIXEL_COUNT[4]
 				&((COCO)															// All other CoCo1 modes
-				|({COCO,BP,HRES[3],HRES[2],HRES[1]}==5'b01001)))	//CoCo3 32/40 bytes/line ?????? might have to add text differences
+				|({COCO,BP,HRES[3],HRES[2],HRES[1]}==5'b01001)
+                |({COCO,BP,HRES[2],CRES[0]}==4'b0000))) // Native 32/40 text: second byte of the word
 				begin
 					CHAR_LATCH_0 <= {8'h00,CHAR_LATCH_0[15:8]};
 				end

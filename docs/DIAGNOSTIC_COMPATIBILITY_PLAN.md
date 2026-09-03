@@ -11,7 +11,7 @@ main menu, keyboard, CPU, RAM, ROM, joystick, and sound tests run.
 | Priority | Area | Observed result | Expected result | Current evidence |
 | --- | --- | --- | --- | --- |
 | Resolved input | Super Extended BASIC ROM test | ZIA reports CRC `38E9 UNK` | ZIA identifies a known ROM revision | The host checker reproduces `38E9` exactly from the selected `coco3.rom`; `coco3p.rom` produces `0A99`. This is a ROM-revision identification issue, not evidence of an FPGA mapping failure. |
-| P1 | GIME video test | Selecting the cartridge video test produces a corrupted screen | Stable menu and valid output for each selected GIME mode | The first confirmed defect was loss of GIME border register `$FF9A`: logical color 16 was truncated to palette entry 0. Other missing readback and mode fields remain under test. |
+| P1 | GIME video test: remaining bottom row | F3 → D menu is mostly corrected but its last row remains corrupt; probe case 1 has the same symptom, while cases 2–6 have correct bottom rows | Stable menu and valid output through the last row | Native 32/40-column text byte-selection was fixed after reproducing `AACCEEGG` in simulation. Preserved FF9B/FF9C/FF9F state is the next lead, not a proven root cause. See the [change rationale and hardware results](CARTRIDGE_VIDEO_PROBE.md#code-change-rationale-2026-09-02). |
 | P2 | Machine-language diagnostics | `MEMT2023.BIN` stalls near `$007C`; `SYSINFO.BIN` stalls near `$2EE0` or displays black | Programs complete or identify the implemented machine accurately | These programs exercise MMU, memory-size, interrupt, and GIME behavior beyond the BASIC tests. They are not evidence of a cartridge-launch failure. |
 | P3 | Video edge artifact | A short horizontal green line has appeared left of the first row in some 40/80-column modes | Uniform border outside the active display | Previously recorded as an open video bug; determine whether it remains after the current HDMI integration before changing RTL. |
 
@@ -82,6 +82,11 @@ Acceptance: the BASIC GIME suite passes, supported diagnostics make forward
 progress, and unsupported memory capacity is reported rather than hanging.
 
 ## Phase 5: hardware regression
+
+Before another speculative cartridge-video change, run the six-case
+[cartridge video probe](CARTRIDGE_VIDEO_PROBE.md). It separates automatic
+register/RAM checks from visual results and batches mode, attribute, offset
+and screen-base variations into one disk/build.
 
 For every fix:
 
