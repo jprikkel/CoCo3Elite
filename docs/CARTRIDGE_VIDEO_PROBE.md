@@ -194,3 +194,40 @@ met. Both regressions above passed. SHA-256:
 ```text
 5E43636FFCA77A6D328A8D7725230A7BD2C5193DE597B079369693438A084E69
 ```
+
+## Horizontal HDMI window correction
+
+After the vertical fix, hardware showed only 38 complete characters in
+40-column mode and 75 in 80-column mode. A full-chain test using the actual
+GIME renderer, NTSC and CRT stages, Wukong integration, and hdl-util HDMI
+raster measured 629 source pixels inside HDMI's active area and 11 pixels
+arriving after it in both wide modes. Character-fetch tests had passed because
+the loss occurred after fetching and rendering.
+
+`rtl/wukong/wukong_top.v` now resynchronizes the source at HDMI x=781 instead
+of 792. The GIME's 16-clock left edge plus the three-clock RGB/control pipeline
+then aligns its 640-pixel content with HDMI x=0..639. This changes integration
+phase only; the hdl-util HDMI library is unmodified.
+
+The 32-column source is 512 pixels wide and uses a delay for independent
+centering. Its delay is increased from 56 to 64 clocks so it remains centered
+after shifting the shared raster phase. `tb/hdmi_window_tb.sv` and
+`scripts/test_hdmi_window.ps1` verify:
+
+```text
+40-column HRES: 640 visible, 0 blanked
+80-column HRES: 640 visible, 0 blanked
+32-column HRES: 512 visible, 0 blanked
+```
+
+The test substitutes only clock, differential-output, and TMDS serializer
+shells; the serializer does not affect raster coordinates or the RGB active
+window. The actual HDMI raster and channel inputs remain under test.
+
+Hardware confirmed that WIDTH 32 is centered correctly, but also exposed a
+remaining integration limitation: WIDTH 40 and WIDTH 80 occupy all 640 active
+HDMI pixels with no safety border. One monitor clips part of the final cell;
+another clips one or two cells on the left and two or three on the right. The
+digital window is no longer dropping source pixels, but full-width content is
+still vulnerable to sink overscan. The proposed follow-up is a supported
+720x480 HDMI raster with the 640-pixel GIME image centered inside it.
