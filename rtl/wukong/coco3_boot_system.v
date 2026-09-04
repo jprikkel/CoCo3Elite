@@ -426,8 +426,12 @@ module coco3_boot_system (
     // and GIME video modes.
     wire artifact_compatible_mode = coco && (vid_cont == 4'b1111);
     wire artifact_on_pixel = raw_red[7] && raw_green[7] && raw_blue[7];
+    // The HDMI wrapper realigns the GIME once per transport frame. Reset the
+    // downstream pixel pipelines at the same instant; otherwise their delay
+    // registers carry the tail of the previous frame into the visible border.
+    wire video_pipeline_reset = system_reset | raster_resync;
     ntsc_artifact_filter artifact_i (
-        .pixel_clk(pixel_clk), .reset(system_reset),
+        .pixel_clk(pixel_clk), .reset(video_pipeline_reset),
         .enable(artifact_enabled && artifact_compatible_mode),
         .phase_reverse(1'b0), .in_hsync(raw_hsync), .in_vsync(raw_vsync),
         .in_video_enable(raw_video_enable),
@@ -439,7 +443,7 @@ module coco3_boot_system (
     );
 
     crt_filter crt_i (
-        .pixel_clk(pixel_clk), .reset(system_reset),
+        .pixel_clk(pixel_clk), .reset(video_pipeline_reset),
         .enable(crt_enabled | scanlines_enabled),
         .in_hsync(artifact_hsync), .in_vsync(artifact_vsync),
         .in_video_enable(artifact_video_enable),

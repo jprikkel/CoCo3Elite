@@ -98,9 +98,9 @@ module wukong_top (
 `ifdef HDMI_LIBRARY_COCO
     // The GIME exposes a 656-pixel-wide visible region and wraps its 486
     // visible scanlines across the 800x525 frame boundary. Start the HDMI
-    // Resync 19 clocks before horizontal wrap. The source active area begins
-    // 16 clocks later and the RGB/control pipeline adds three more, aligning
-    // all 640 content pixels with HDMI x=0..639.
+    // Resync the GIME 19 clocks before horizontal wrap so all 640 source
+    // pixels reach HDMI x=0..639. Border-transition artifacts must be fixed
+    // in the GIME path rather than hidden by clipping valid source pixels.
     wire library_frame_start = (library_x == 10'd781) &&
                                (library_y == 10'd18);
     coco3_boot_system source_i (
@@ -155,7 +155,10 @@ module wukong_top (
         .VIDEO_REFRESH_RATE(60.0), .AUDIO_RATE(48000),
         .AUDIO_BIT_WIDTH(16),
 `ifdef HDMI_LIBRARY_COCO
-        .START_X(781), .START_Y(18)
+        // Match the hdl-util 640x480 example: its raster counters start at
+        // the origin. GIME-to-HDMI alignment is handled independently by
+        // library_frame_start above.
+        .START_X(0), .START_Y(0)
 `else
         .START_X(0), .START_Y(0)
 `endif

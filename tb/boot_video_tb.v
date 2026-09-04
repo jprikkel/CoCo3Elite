@@ -1,9 +1,11 @@
 `timescale 1ns/1ps
 module boot_video_tb;
- reg clock=0, reset=1; wire hs,vs,de; wire [7:0] r,g,b;
+ reg clock=0, reset=1, raster_resync=0; wire hs,vs,de; wire [7:0] r,g,b;
  integer n, active_lines, first_active, last_active;
  always #5 clock=~clock;
- coco3_boot_system dut(.pixel_clk(clock),.reset(reset),.hsync(hs),.vsync(vs),.video_enable(de),.red(r),.green(g),.blue(b));
+ coco3_boot_system dut(.pixel_clk(clock),.reset(reset),
+  .raster_resync(raster_resync),.hsync(hs),.vsync(vs),
+  .video_enable(de),.red(r),.green(g),.blue(b));
  initial begin
   repeat(8) @(posedge clock);
   #1;
@@ -42,6 +44,31 @@ module boot_video_tb;
   end
   release dut.color;
   release dut.machine_i.border_palette;
+
+  // Exercise the actual Wukong frame-realignment path. Seed both filters
+  // with conspicuous active green pixels, then resync while the source is
+  // blank. No previous-frame green may survive into the new frame.
+  force dut.raw_video_enable = 1'b1;
+  force dut.raw_red = 8'h00;
+  force dut.raw_green = 8'hff;
+  force dut.raw_blue = 8'h00;
+  repeat(12) @(posedge clock);
+  force dut.raw_video_enable = 1'b0;
+  force dut.raw_green = 8'h00;
+  raster_resync = 1'b1;
+  @(posedge clock); #1;
+  raster_resync = 1'b0;
+  repeat(4) begin
+   @(posedge clock); #1;
+   if (de || r != 0 || g != 0 || b != 0) begin
+    $display("FAIL: stale RGB survived raster resync de=%0d rgb=%02h%02h%02h",de,r,g,b);
+    $fatal;
+   end
+  end
+  release dut.raw_video_enable;
+  release dut.raw_red;
+  release dut.raw_green;
+  release dut.raw_blue;
 
   repeat(5000000) @(posedge clock);
 

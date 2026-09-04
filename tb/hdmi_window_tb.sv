@@ -17,6 +17,7 @@ module hdmi_window_tb;
  reg clk=0,reset=1; always #5 clk=~clk;
  reg [3:0] test_hres=1;
  integer m,n,count,first,last,lost,tag,failures=0;
+ integer capture_file, capture_pixels;
  wukong_top dut(.clk_50mhz(clk),.ps2_clk(1'b1),.ps2_data(1'b1),.sd_miso(1'b1));
  initial begin
   force dut.source_i.machine_i.hold=1'b1;
@@ -51,9 +52,37 @@ module hdmi_window_tb;
    end
    $display("WINDOW hres=%0d content=%0d first=%0d last=%0d blanked=%0d",test_hres,count,first,last,lost);
    if(count!=(m==2?512:640) || lost!=0) failures=failures+1;
+
+   // Capture the actual RGB words presented to hdl-util. These images make
+   // the simulated active-window placement directly comparable with a photo
+   // of the monitor. Black represents HDMI blanking.
+   case (m)
+     0: capture_file=$fopen("width40.ppm","wb");
+     1: capture_file=$fopen("width80.ppm","wb");
+     default: capture_file=$fopen("width32.ppm","wb");
+   endcase
+   if(!capture_file) $fatal(1,"Unable to create simulated screen capture");
+   $fwrite(capture_file,"P6\n640 480\n255\n");
+   wait(dut.library_x==0 && dut.library_y==0);
+   capture_pixels=0;
+   for(n=0;n<800*525;n=n+1) begin
+    @(posedge clk); #1;
+    if(dut.library_x<640 && dut.library_y<480) begin
+     if(dut.library_hdmi_i.mode==1)
+      $fwrite(capture_file,"%c%c%c",
+       dut.library_hdmi_i.video_data[23:16],
+       dut.library_hdmi_i.video_data[15:8],
+       dut.library_hdmi_i.video_data[7:0]);
+     else $fwrite(capture_file,"%c%c%c",0,0,0);
+     capture_pixels=capture_pixels+1;
+    end
+   end
+   $fclose(capture_file);
+   if(capture_pixels!=640*480)
+    $fatal(1,"Capture contained %0d pixels",capture_pixels);
   end
   if(failures) $fatal(1,"HDMI window clipped in %0d modes",failures);
   $display("PASS: full HDMI content window in 32/40/80-column modes");$finish;
  end
- initial begin #30000000; $fatal(1,"Window test timeout");end
+ initial begin #90000000; $fatal(1,"Window test timeout");end
 endmodule
