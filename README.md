@@ -138,6 +138,7 @@ Administrator in PowerShell.
 
 ## Documentation and references
 
+- [Current Wukong implementation and known issues](docs/CURRENT_IMPLEMENTATION.md)
 - [Wukong port notes](docs/WUKONG_PORT.md)
 - [Core integration plan](docs/WUKONG_CORE_INTEGRATION.md)
 - [Hardware bring-up record](docs/BRINGUP.md)
