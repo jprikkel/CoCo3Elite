@@ -63,7 +63,7 @@ if {$mode in {COCO3_BOOT HDMI_COCO_TEST HDMI_COCO_AUDIO}} {
         error "Prepared Disk BASIC ROM not found at $disk_rom_mem; run scripts/prepare_disk_rom.ps1"
     }
     lappend sources \
-        [file join $repo_dir rtl ps2_keyboard.v] \
+        [file join $repo_dir rtl PS2_Key ps2_keyboard.v] \
         [file join $repo_dir rtl cocokey.v] \
         [file join $repo_dir rtl core coco3_keyboard_matrix.v] \
         [file join $repo_dir rtl core coco3_128k_ram.v] \
@@ -92,7 +92,7 @@ if {$mode in {COCO3_BOOT HDMI_COCO_TEST HDMI_COCO_AUDIO}} {
         lappend coco3_defines EMBEDDED_TEST_DISKS
     }
     set_property verilog_define $coco3_defines [current_fileset]
-    read_vhdl [file join $repo_dir rtl cpu09l_128.vhd]
+    read_vhdl [file join $repo_dir rtl CPU09 cpu09l_128.vhd]
 }
 
 if {$mode eq "CPU_DIAGNOSTIC"} {
@@ -101,7 +101,7 @@ if {$mode eq "CPU_DIAGNOSTIC"} {
         [file join $repo_dir rtl core coco3_diagnostic_rom.v] \
         [file join $rtl_dir coco3_diagnostic_system.v]
     set_property verilog_define CPU_DIAGNOSTIC [current_fileset]
-    read_vhdl [file join $repo_dir rtl cpu09l_128.vhd]
+    read_vhdl [file join $repo_dir rtl CPU09 cpu09l_128.vhd]
 }
 
 read_verilog $sources

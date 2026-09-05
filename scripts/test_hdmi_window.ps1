@@ -7,7 +7,7 @@ Copy-Item "$repoRoot\rtl\core\coco3gen.mem" "$runDir\rtl\core\coco3gen.mem" -For
 foreach($rom in @('coco3.mem','disk11.mem','diagnostic_cart.mem')){
  Copy-Item "$repoRoot\build\roms\$rom" "$runDir\build\roms\$rom" -Force
 }
-$sources=@('rtl/ps2_keyboard.v','rtl/cocokey.v','rtl/coco3vid.v',
+$sources=@('rtl/PS2_Key/ps2_keyboard.v','rtl/cocokey.v','rtl/coco3vid.v',
  'rtl/core/coco3_keyboard_matrix.v','rtl/core/coco3_char_rom.v','rtl/core/coco3_128k_ram.v',
  'rtl/core/coco3_system_rom.v','rtl/core/coco3_disk_rom.v','rtl/core/coco3_diagnostic_cartridge.v',
  'rtl/core/coco3_disk_image.v','rtl/core/sd_spi_init.v','rtl/core/sd_spi_read_sector0.v',
@@ -19,7 +19,7 @@ $sources+=@(Get-ChildItem "$repoRoot\rtl\third_party\hdl-util-hdmi\src\*.sv" |
  Where-Object Name -ne 'serializer.sv' | ForEach-Object FullName)
 Push-Location $runDir
 try {
- & "$VivadoBin\xvhdl.bat" --2008 "$repoRoot\rtl\cpu09l_128.vhd"
+ & "$VivadoBin\xvhdl.bat" --2008 "$repoRoot\rtl\CPU09\cpu09l_128.vhd"
  if($LASTEXITCODE){throw 'xvhdl failed'}
  & "$VivadoBin\xvlog.bat" -sv -d COCO3_BOOT -d NEW_SRAM -d HDMI_LIBRARY_TEST -d HDMI_LIBRARY_COCO -d HDMI_LIBRARY_AUDIO -d HDMI_RASTER_800X525 @sources
  if($LASTEXITCODE){throw 'xvlog failed'}

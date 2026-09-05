@@ -20,7 +20,7 @@ while($p -lt $bytes.Length){
 [IO.File]::WriteAllLines((Join-Path $runDir 'vidhelp.mem'),$lines)
 Push-Location $runDir
 try {
- & "$VivadoBin\xvhdl.bat" --2008 "$repoRoot\rtl\cpu09l_128.vhd"
+ & "$VivadoBin\xvhdl.bat" --2008 "$repoRoot\rtl\CPU09\cpu09l_128.vhd"
  if($LASTEXITCODE){throw 'xvhdl failed'}
  & "$VivadoBin\xvlog.bat" "$repoRoot\tb\video_probe_helper_tb.v"
  if($LASTEXITCODE){throw 'xvlog failed'}

@@ -32,7 +32,7 @@ function Invoke-VivadoTool {
 }
 
 $sources = @(
-    'rtl\ps2_keyboard.v', 'rtl\cocokey.v',
+    'rtl\PS2_Key\ps2_keyboard.v', 'rtl\cocokey.v',
     'rtl\core\coco3_keyboard_matrix.v', 'rtl\core\coco3_char_rom.v',
     'rtl\core\coco3_128k_ram.v',
     'rtl\core\coco3_system_rom.v', 'rtl\core\coco3_disk_rom.v',
@@ -48,7 +48,7 @@ $sources = @(
 
 Push-Location $runDir
 try {
-    Invoke-VivadoTool xvhdl @('--2008', (Join-Path $repoRoot 'rtl\cpu09l_128.vhd'))
+    Invoke-VivadoTool xvhdl @('--2008', (Join-Path $repoRoot 'rtl\CPU09\cpu09l_128.vhd'))
     Invoke-VivadoTool xvlog (@('-d', 'NEW_SRAM') + $sources)
     Invoke-VivadoTool xelab @('boot_video_tb', '-s', 'boot_video_tb_sim')
     Invoke-VivadoTool xsim @('boot_video_tb_sim', '-runall')

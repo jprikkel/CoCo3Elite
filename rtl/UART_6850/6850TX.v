@@ -1,6 +1,6 @@
 ////////////////////////////////////////////////////////////////////////////////
 // Project Name:	CoCo3FPGA Version 3.0
-// File Name:		6551tx.v
+// File Name:		6850TX.v
 //
 // CoCo3 in an FPGA
 //
@@ -63,7 +63,7 @@
 // gary_L_becker@yahoo.com
 ////////////////////////////////////////////////////////////////////////////////
 
-module uart51_tx(
+module UART_TX(
 BAUD_CLK,
 RESET_N,
 TX_DATA,
@@ -73,7 +73,6 @@ TX_STOP,
 TX_WORD,
 TX_PAR_DIS,
 TX_PARITY,
-CTS,
 TX_BUFFER
 );
 
@@ -85,10 +84,10 @@ input					TX_START;
 output				TX_DONE;
 reg					TX_DONE;
 input					TX_STOP;
-input		[1:0]		TX_WORD;
+input					TX_WORD;
 input					TX_PAR_DIS;
-input		[1:0]		TX_PARITY;
-input					CTS;
+input					TX_PARITY;
+
 input		[7:0]		TX_BUFFER;
 
 reg		[6:0]		STATE;
@@ -97,18 +96,11 @@ wire					PARITY;
 reg					TX_START0;
 reg					TX_START1;
 
-assign PARITY =	(~TX_PARITY[1]
-
-					&	((TX_BUFFER[0] ^ TX_BUFFER[1])
+assign PARITY =	((TX_BUFFER[0] ^ TX_BUFFER[1])
 					^	 (TX_BUFFER[2] ^ TX_BUFFER[3]))
-
-					^	 (TX_BUFFER[4]
-					^   (TX_BUFFER[5] & (TX_WORD != 2'b00)))
-
-					^  ((TX_BUFFER[6] & (TX_WORD[1] == 1'b1))
-					^   (TX_BUFFER[7] & (TX_WORD == 2'b11)))) // clear bit #8 if only 7 bits
-
-					^	  ~TX_PARITY[0];
+					^	((TX_BUFFER[4] ^ TX_BUFFER[5])
+					^	 (TX_BUFFER[6] ^ (TX_BUFFER[7] & TX_WORD))) // clear bit #8 if only 7 bits
+					^	  TX_PARITY;
 
 always @ (negedge BAUD_CLK or negedge RESET_N)
 begin
@@ -130,13 +122,13 @@ begin
 		begin
 			BIT <= 3'b000;
 			TX_DATA <= 1'b1;
-			if(TX_START1 == 1'b1)
+			if(TX_START1)
 			begin
 				TX_DONE <= 1'b0;
 				STATE <= 7'b0000001;
 			end
 		end
-		7'b0000001:									// Start bit
+		7'b0000001:
 		begin
 			TX_DATA <= 1'b0;
 			STATE <= 7'b0000010;
@@ -149,42 +141,13 @@ begin
 		7'b0100000:
 		begin
 			BIT <= BIT + 1'b1;
-			if((TX_WORD == 2'b00) && (BIT != 3'b111))
-			begin
+			if(BIT != {2'b11, TX_WORD})
 				STATE <= 7'b0010001;
-			end
 			else
-			begin
-				if((TX_WORD == 2'b01) && (BIT != 3'b110))
-				begin
-					STATE <= 7'b0010001;
-				end
+				if(!TX_PAR_DIS)
+					STATE <= 7'b0100001;				// do parity
 				else
-				begin
-					if((TX_WORD == 2'b10) && (BIT != 3'b101))
-					begin
-						STATE <= 7'b0010001;
-					end
-					else
-					begin
-						if((TX_WORD == 2'b11) && (BIT != 3'b100))
-						begin
-							STATE <= 7'b0010001;
-						end
-						else
-						begin
-							if(!TX_PAR_DIS)
-							begin
-								STATE <= 7'b0100001;				// do parity
-							end
-							else
-							begin
-								STATE <= 7'b0110001;				// do stop
-							end
-						end
-					end
-				end
-			end
+					STATE <= 7'b0110001;				// do stop
 		end
 // Start parity bit
 		7'b0100001:
@@ -199,20 +162,17 @@ begin
 			TX_DATA <= 1'b1;
 			STATE <= 7'b0110010;
 		end
-// end of first stop bit-1
+// end of first stop bit
 		7'b0111111:
 		begin
 			if(!TX_STOP)
-				STATE <= 7'b1001111;						// go check for CTS
+				STATE <= 7'b1001111;
 			else
 				STATE <= 7'b1000000;
 		end
 		7'b1001111:
 		begin
-			if(!CTS)								// this is not correct for a 6551
-			begin
-				STATE <= 7'b0000000;
-			end
+			STATE <= 7'b0000000;
 		end
 		default: STATE <= STATE + 1'b1;
 		endcase
