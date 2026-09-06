@@ -48,8 +48,9 @@ current design does not require an additional external oscillator.
 
 The onboard HDMI connector carries the current CoCo display. The implemented
 path uses three TMDS data pairs and one TMDS clock pair. DDC, CEC, and hot-plug
-detection are unused. `COCO3_ELITE` emits audio packets, but the latest
-recorded hardware build is silent; see [video/audio status](video-post-processing.md).
+detection are unused. `COCO3_ELITE` emits 48 kHz audio packets from the CoCo
+DAC; some displays remain muted until sustained nonzero samples arrive after a
+power cycle. See [video/audio status](video-post-processing.md).
 
 ### JTAG
 

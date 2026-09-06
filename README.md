@@ -1,16 +1,17 @@
-# CoCo3FPGA for QMTECH Wukong V3
+# CoCo3Elite for QMTECH Wukong V3
 
-This repository is a hardware port of
+CoCo3Elite is an AMD/Xilinx Vivado port derived from
 [richard42/CoCo3FPGA](https://github.com/richard42/CoCo3FPGA). It preserves the
-original Quartus sources while adding an AMD/Xilinx Vivado implementation for
-the QMTECH Wukong V3 FPGA development board.
+original Quartus sources as a reference while targeting the QMTECH Wukong V3
+FPGA development board.
 
 The current port targets the Wukong V3 fitted with an Artix-7 `XC7A100T` in
 the FGG676 package. The hardware-verified build boots a 128 KiB CoCo 3 system
 ROM from block RAM and displays Extended Color BASIC over the board's HDMI
 connector with 48 kHz stereo HDMI packets carrying the CoCo's mono DAC output.
-A library test-pattern image with silent audio and a CPU-diagnostic image are
-available as separate build modes.
+The current build names are `COCO3_ELITE`, `HDMI_TEST_PATTERN`, and
+`BASIC_6809_DVI_TEST`. The last image is hardware-verified and displays
+`CPU09`, `RESET VECTOR PASSED`, and `STAGE 2 RUNNING` in green on black.
 
 The long-term target family includes boards based on the Artix-7 `XC7A15T`,
 `XC7A50T`, and `XC7A100T`. The RTL is being kept portable across those devices;
@@ -25,14 +26,19 @@ Hardware interface documentation is maintained under [`hardware/`](hardware/):
 
 ![Extended Color BASIC running on the QMTECH Wukong V3](docs/images/wukong-coco3-basic.png)
 
-*Hardware checkpoint: Extended Color BASIC 2.0 with corrected GIME colors and
+*Hardware checkpoint: Disk Extended Color BASIC 2.1 with corrected GIME colors and
 vertical centering, running from block RAM and displayed over HDMI on the
 QMTECH Wukong V3.*
+
+MicroSD currently supports initialization and sector-zero reads only; it does
+not mount FAT32 `.DSK` files. Optional embedded DSK files are local, read-only,
+and untracked. The onboard USB connection is a passive UART diagnostic link,
+not DriveWire or a USB host.
 
 ## Repository layout
 
 ```text
-CoCo3FPGA/
+CoCo3Elite/
 |-- rtl/              Verilog and VHDL sources
 |   |-- core/         Portable CoCo memory, ROM, and boot-machine modules
 |   |-- third-party/  Licensed upstream CPU, CoCo, peripheral, and HDMI RTL

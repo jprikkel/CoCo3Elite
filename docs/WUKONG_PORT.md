@@ -72,8 +72,10 @@ mode. The library owns HDMI encoding/serialization in these modes; local modes
 use `tmds_serializer.v` with OSERDESE2. Board outputs use OBUFDS in both paths.
 The CPU uses enables in the BRAM machine rather than the legacy PH2_CLK block.
 
-`COCO3_ELITE` enables 48 kHz stereo packet generation, but the latest
-recorded hardware build is silent. Other supported modes do not enable audio.
+`COCO3_ELITE` enables 48 kHz stereo packet generation from the CoCo DAC.
+`HDMI_TEST_PATTERN` sends the same packet format with digital silence and no
+sound-test generator. Some displays require sustained nonzero samples after a
+power cycle before they unmute.
 The separate experimental `HDMI_AUDIO` wrapper is not selected by the launcher.
 
 ## Vivado part selection

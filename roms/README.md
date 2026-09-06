@@ -70,8 +70,9 @@ Tandy diagnostic image can be imported manually for
 comparison, but the build launcher selects ZIA and regenerates its memory file.
 
 The cartridge main screen, keyboard, memory, ROM, joystick, and sound tests
-have previously run, but current HDMI playback is reported silent. These are
-not blanket acceptance results for the latest build. Its GIME video test remains
+have previously run. HDMI playback is hardware-verified, although some
+displays remain muted until sustained nonzero samples arrive after a power
+cycle. These are not blanket acceptance results for the latest build. Its GIME video test remains
 a compatibility test and currently exposes incomplete video-mode behavior.
 The printer, RS-232, and cassette tests require physical CoCo-compatible
 interfaces that are not implemented. The Wukong USB UART is a passive FPGA

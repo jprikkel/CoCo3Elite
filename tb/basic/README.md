@@ -51,6 +51,7 @@ See [cartridge video probe](../../docs/CARTRIDGE_VIDEO_PROBE.md).
 
 The capacity probe does not imply installed 512 KiB RAM: the current machine
 has 128 KiB. AUDIO and the cartridge sound test are useful reproduction cases,
-but HDMI audio is currently reported silent. Graphics/border and diagnostic
+but HDMI audio may remain muted by a display until sustained nonzero samples
+arrive after a power cycle. Graphics/border and diagnostic
 GIME/MMU compatibility remain incomplete; a RAM/register PASS alone does not
 prove correct rendered pixels or audible output.

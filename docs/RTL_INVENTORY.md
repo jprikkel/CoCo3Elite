@@ -18,7 +18,11 @@ Classification means:
 - **DEFER**: not needed for the first HDMI or BASIC-screen milestones.
 - **DE1-ONLY**: board/project glue retained only as the reference design.
 
-## Principal machine RTL
+## Principal and historical machine RTL
+
+Entries marked **DEFER**, **REPLACE**, or **DE1-ONLY** describe retained
+historical sources. They are not part of the active Wukong build unless the
+build table and Vivado source list explicitly select them.
 
 | File / module | Purpose | Language | Vendor dependency | Clock assumptions | Memory assumptions | Class | Proposed Wukong action / notes |
 |---|---|---|---|---|---|---|---|
