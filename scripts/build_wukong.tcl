@@ -30,7 +30,7 @@ set systemverilog_sources [list \
     [file join $rtl_dir wukong_top.v] \
     [file join $rtl_dir wukong_hdmi_tx.sv]]
 
-set hdmi_library_dir [file join $repo_dir rtl third_party hdl-util-hdmi src]
+set hdmi_library_dir [file join $repo_dir rtl third-party hdl-util-hdmi src]
 set hdmi_sources [glob -nocomplain [file join $hdmi_library_dir *.sv]]
 if {[llength $hdmi_sources] == 0} {
     error "hdl-util/hdmi sources not found at $hdmi_library_dir"
@@ -48,7 +48,7 @@ if {$mode in {HDMI_COCO_TEST HDMI_COCO_AUDIO COCO_VIDEO CPU_DIAGNOSTIC COCO3_BOO
     lappend sources \
         [file join $repo_dir rtl core coco3_char_rom.v] \
         [file join $repo_dir rtl core coco3_synthetic_video_ram.v] \
-        [file join $repo_dir rtl coco3vid.v] \
+        [file join $repo_dir rtl third-party coco3fpga coco3vid.v] \
         [file join $rtl_dir coco_video_source.v]
     set_property verilog_define COCO_VIDEO [current_fileset]
 }
@@ -63,8 +63,8 @@ if {$mode in {COCO3_BOOT HDMI_COCO_TEST HDMI_COCO_AUDIO}} {
         error "Prepared Disk BASIC ROM not found at $disk_rom_mem; run scripts/prepare_disk_rom.ps1"
     }
     lappend sources \
-        [file join $repo_dir rtl PS2_Key ps2_keyboard.v] \
-        [file join $repo_dir rtl cocokey.v] \
+        [file join $repo_dir rtl third-party PS2_Key ps2_keyboard.v] \
+        [file join $repo_dir rtl third-party coco3fpga cocokey.v] \
         [file join $repo_dir rtl core coco3_keyboard_matrix.v] \
         [file join $repo_dir rtl core coco3_128k_ram.v] \
         [file join $repo_dir rtl core coco3_system_rom.v] \
@@ -92,7 +92,7 @@ if {$mode in {COCO3_BOOT HDMI_COCO_TEST HDMI_COCO_AUDIO}} {
         lappend coco3_defines EMBEDDED_TEST_DISKS
     }
     set_property verilog_define $coco3_defines [current_fileset]
-    read_vhdl [file join $repo_dir rtl CPU09 cpu09l_128.vhd]
+    read_vhdl [file join $repo_dir rtl third-party CPU09 cpu09l_128.vhd]
 }
 
 if {$mode eq "CPU_DIAGNOSTIC"} {
@@ -101,7 +101,7 @@ if {$mode eq "CPU_DIAGNOSTIC"} {
         [file join $repo_dir rtl core coco3_diagnostic_rom.v] \
         [file join $rtl_dir coco3_diagnostic_system.v]
     set_property verilog_define CPU_DIAGNOSTIC [current_fileset]
-    read_vhdl [file join $repo_dir rtl CPU09 cpu09l_128.vhd]
+    read_vhdl [file join $repo_dir rtl third-party CPU09 cpu09l_128.vhd]
 }
 
 read_verilog $sources

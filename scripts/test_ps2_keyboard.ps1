@@ -22,8 +22,8 @@ function Invoke-VivadoTool {
 Push-Location $runDir
 try {
     Invoke-VivadoTool xvlog @(
-        (Join-Path $repoRoot 'rtl\PS2_Key\ps2_keyboard.v'),
-        (Join-Path $repoRoot 'rtl\cocokey.v'),
+        (Join-Path $repoRoot 'rtl\third-party\PS2_Key\ps2_keyboard.v'),
+        (Join-Path $repoRoot 'rtl\third-party\coco3fpga\cocokey.v'),
         (Join-Path $repoRoot 'rtl\core\coco3_keyboard_matrix.v'),
         (Join-Path $repoRoot 'tb\ps2_keyboard_matrix_tb.v')
     )
