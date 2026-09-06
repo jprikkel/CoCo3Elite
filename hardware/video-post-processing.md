@@ -65,8 +65,8 @@ phosphor-mask options.
 TMDS channel encoding uses the vendored
 [hdl-util/hdmi](../rtl/third-party/hdl-util-hdmi/README.md) SystemVerilog
 library. Both hdl-util build modes generate true HDMI data islands and use the
-library serializer. `HDMI_COCO_AUDIO` carries the CoCo DAC samples;
-`HDMI_LIBRARY_TEST` carries digital silence while displaying its color pattern.
+library serializer. `COCO3_ELITE` carries the CoCo DAC samples;
+`HDMI_TEST_PATTERN` carries digital silence while displaying its color pattern.
 
 ## HDMI audio
 
@@ -82,7 +82,7 @@ rate of exactly 48 kHz from the 25 MHz pixel clock. The upstream audio sample,
 audio clock regeneration, Audio InfoFrame, packet selection, and packet ECC
 modules generate the HDMI data islands. Initial volume is deliberately
 conservative because hand-generated CoCo DAC waveforms can otherwise be loud.
-The build defaults to `HDMI_COCO_AUDIO`. Its 48 kHz clock is carried on a BUFG
+The build defaults to `COCO3_ELITE`. Its 48 kHz clock is carried on a BUFG
 and declared as a generated clock in `constraints/wukong_audio.xdc`.
 
 ## Open video issues

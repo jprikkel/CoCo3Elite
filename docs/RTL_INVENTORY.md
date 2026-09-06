@@ -108,14 +108,14 @@ itself.
 
 The active Wukong source set has three entry points:
 
-- `HDMI_COCO_AUDIO` combines the complete CoCo integration with the hdl-util
+- `COCO3_ELITE` combines the complete CoCo integration with the hdl-util
   HDMI encoder and continuous 48 kHz audio packets.
-- `HDMI_LIBRARY_TEST` displays the library test pattern and sends zero-valued
+- `HDMI_TEST_PATTERN` displays the library test pattern and sends zero-valued
   HDMI audio samples. It does not generate a sound test.
-- `CPU_DIAGNOSTIC` retains the small CPU09 and block-RAM diagnostic with the
+- `BASIC_6809_DVI_TEST` retains the small CPU09 and block-RAM diagnostic with the
   local DVI-compatible serializer.
 
 The removed standalone and synthetic-video checkpoints no longer contribute
 RTL or selectable build modes. The remaining `test_pattern.v` is shared by
-`HDMI_LIBRARY_TEST`, while `tmds_serializer.v` remains necessary for
-`CPU_DIAGNOSTIC`.
+`HDMI_TEST_PATTERN`, while `tmds_serializer.v` remains necessary for
+`BASIC_6809_DVI_TEST`.

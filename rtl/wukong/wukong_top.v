@@ -42,7 +42,7 @@ module wukong_top (
         .video_reset  (video_reset)
     );
 
-`ifdef HDMI_LIBRARY_TEST
+`ifdef HDMI_TEST_PATTERN
     wire [9:0] library_x;
     wire [9:0] library_y;
     wire [9:0] library_frame_width;
@@ -237,7 +237,7 @@ module wukong_top (
     tmds_serializer serialize_clock_i (
         .pixel_clk(pixel_clk), .serial_clk(serial_clk), .reset(video_reset),
         .parallel_data(hdmi_clock_symbol), .serial_data(hdmi_serial[3]));
-`endif // HDMI_LIBRARY_TEST
+`endif // HDMI_TEST_PATTERN
 
     OBUFDS #(.IOSTANDARD("TMDS_33"), .SLEW("FAST")) data0_obuf_i
         (.I(hdmi_serial[0]), .O(hdmi_tx_p[0]), .OB(hdmi_tx_n[0]));

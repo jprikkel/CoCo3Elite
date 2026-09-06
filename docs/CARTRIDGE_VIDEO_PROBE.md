@@ -117,7 +117,7 @@ tree are separate from this native-text correction.
 
 ## Hardware result and remaining bottom-row bug
 
-Tested build: `build/wukong/wukong_hdmi_coco_audio.bit`, generated
+Tested build: `build/wukong/wukong_coco3_elite.bit`, generated
 2026-09-02 at 07:42:15 local time, SHA-256:
 
 ```text
@@ -188,7 +188,7 @@ horizontal-line visibility through the video-to-HDMI path, not only character
 latches and vertical row addresses.
 
 Candidate bitstream generated 2026-09-02 22:46:59 local time at
-`build/wukong/wukong_hdmi_coco_audio.bit`; all user-specified timing constraints
+`build/wukong/wukong_coco3_elite.bit`; all user-specified timing constraints
 met. Both regressions above passed. SHA-256:
 
 ```text

@@ -19,7 +19,7 @@ module wukong_clocking (
 
     IBUF clk_ibuf_i (.I(clk_50mhz), .O(clk_in));
 
-`ifdef HDMI_LIBRARY_TEST
+`ifdef HDMI_TEST_PATTERN
     // 50 MHz / 5 * 63 = 630 MHz VCO. HDMI VIC 1 uses an exact 25.2 MHz
     // pixel clock and the hdl-util serializer requires an exact 5x clock.
     localparam integer MMCM_DIVCLK = 5;

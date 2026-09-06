@@ -1,8 +1,8 @@
 param(
     [string]$Vivado = 'C:\AMD\2025.2\Vivado\bin\vivado.bat',
     [string]$Part = 'xc7a100tfgg676-2',
-    [ValidateSet('HDMI_LIBRARY_TEST', 'HDMI_COCO_AUDIO', 'CPU_DIAGNOSTIC')]
-    [string]$Mode = 'HDMI_COCO_AUDIO',
+    [ValidateSet('HDMI_TEST_PATTERN', 'COCO3_ELITE', 'BASIC_6809_DVI_TEST')]
+    [string]$Mode = 'COCO3_ELITE',
     [switch]$EmbeddedTestDisks
 )
 
@@ -17,7 +17,7 @@ if (-not (Test-Path -LiteralPath $Vivado)) {
 
 New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 
-if ($Mode -eq 'HDMI_COCO_AUDIO') {
+if ($Mode -eq 'COCO3_ELITE') {
     & (Join-Path $PSScriptRoot 'prepare_diagnostic_cartridge.ps1') `
         -InputPath (Join-Path $repoRoot 'roms\ziadiag.ccc') `
         -OutputPath (Join-Path $repoRoot 'build\roms\diagnostic_cart.mem')
