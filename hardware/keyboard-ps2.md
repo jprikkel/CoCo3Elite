@@ -8,7 +8,7 @@ matrix, so the Wukong port should retain this interface for its first working
 keyboard implementation.
 
 This interface is implemented and hardware-verified in the Wukong
-`HDMI_COCO_AUDIO` build. Typing and editing BASIC programs, `RUN`, `LIST`, and the
+`COCO3_ELITE` build. Typing and editing BASIC programs, `RUN`, `LIST`, and the
 Break key have been tested successfully.
 
 ## Recommended Wukong connection

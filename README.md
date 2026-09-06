@@ -91,13 +91,13 @@ Prepare the appropriate ROM first, then build the hardware-verified CoCo 3
 image from the repository root:
 
 ```powershell
-& .\scripts\build_wukong.ps1 -Mode HDMI_COCO_AUDIO
+& .\scripts\build_wukong.ps1 -Mode COCO3_ELITE
 ```
 
 On success, program the board with:
 
 ```text
-build/wukong/wukong_hdmi_coco_audio.bit
+build/wukong/wukong_coco3_elite.bit
 ```
 
 The build performs synthesis, implementation, design-rule checks, timing
@@ -108,9 +108,9 @@ Other selectable modes are:
 
 | Mode | Output | Transport and purpose |
 |---|---|---|
-| `HDMI_COCO_AUDIO` | `wukong_hdmi_coco_audio.bit` | Complete CoCo 3 over HDMI with 48 kHz audio; default build |
-| `HDMI_LIBRARY_TEST` | `wukong_hdmi_library_test.bit` | hdl-util pattern over HDMI with silent audio packets and no sound test |
-| `CPU_DIAGNOSTIC` | `wukong_cpu_diagnostic.bit` | CPU09 and 128 KiB block-RAM diagnostic over video-only, DVI-compatible TMDS |
+| `COCO3_ELITE` | `wukong_coco3_elite.bit` | Complete CoCo 3 over HDMI with 48 kHz audio; default build |
+| `HDMI_TEST_PATTERN` | `wukong_hdmi_test_pattern.bit` | hdl-util pattern over HDMI with silent audio packets and no sound test |
+| `BASIC_6809_DVI_TEST` | `wukong_basic_6809_dvi_test.bit` | CPU09 and 128 KiB block-RAM diagnostic over video-only, DVI-compatible TMDS |
 
 All three modes use the board's HDMI connector. See
 [Wukong HDMI bring-up](docs/BRINGUP.md) for the instantiated hardware,
@@ -122,7 +122,7 @@ For example, to use another Vivado installation or compatible FPGA part:
 & .\scripts\build_wukong.ps1 `
     -Vivado 'D:\AMD\Vivado\2025.2\bin\vivado.bat' `
     -Part 'xc7a100tfgg676-2' `
-    -Mode HDMI_COCO_AUDIO
+    -Mode COCO3_ELITE
 ```
 
 Scripts also require updating permissions under Windows PowerShell. Run the commands below as

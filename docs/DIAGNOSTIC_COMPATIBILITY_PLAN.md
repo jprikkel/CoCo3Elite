@@ -92,7 +92,7 @@ and screen-base variations into one disk/build.
 For every fix:
 
 1. Run boot-machine, boot-video, and cartridge-trace simulations.
-2. Build `HDMI_COCO_AUDIO` with the diagnostic disk embedded as drive 0.
+2. Build `COCO3_ELITE` with the diagnostic disk embedded as drive 0.
 3. Verify Disk Extended Color BASIC boot, 32/40/80-column transitions,
    keyboard, both keyboard joysticks, sound, F3 cartridge entry, ROM test, and
    video test.

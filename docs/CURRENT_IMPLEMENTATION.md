@@ -39,7 +39,7 @@ Hardware-verified functions include:
 - CH340N UART diagnostic output through the board USB serial interface.
 - Read-only embedded Disk BASIC images when explicitly enabled at build time.
 - Optional NTSC artifact colors, horizontal scanlines, and CRT glow.
-- The standalone `CPU_DIAGNOSTIC` image, displaying `CPU09`,
+- The standalone `BASIC_6809_DVI_TEST` image, displaying `CPU09`,
   `RESET VECTOR PASSED`, and `STAGE 2 RUNNING` in green on black through its
   DVI-compatible video path.
 
@@ -159,7 +159,7 @@ The current RTL produces a continuous audio clock with alternating 262- and
 ```
 
 The clock is routed through a BUFG and constrained by
-`constraints/wukong_audio.xdc`. `HDMI_LIBRARY_TEST` sends the same 48 kHz HDMI
+`constraints/wukong_audio.xdc`. `HDMI_TEST_PATTERN` sends the same 48 kHz HDMI
 packet stream with zero-valued samples and no audible test signal.
 
 ## Keyboard and runtime controls
@@ -213,12 +213,12 @@ Run all commands from the repository root. The launcher defaults to Vivado
 
 | Mode | Output bitstream | Transport | Audio | Description |
 | --- | --- | --- | --- | --- |
-| `HDMI_COCO_AUDIO` | `build/wukong/wukong_hdmi_coco_audio.bit` | HDMI | 48 kHz stereo CoCo DAC | Complete CoCo 3 system and the default build |
-| `HDMI_LIBRARY_TEST` | `build/wukong/wukong_hdmi_library_test.bit` | HDMI | 48 kHz stereo silence | hdl-util color pattern and HDMI packet test with no sound generator |
-| `CPU_DIAGNOSTIC` | `build/wukong/wukong_cpu_diagnostic.bit` | DVI-compatible TMDS | None | Hardware-verified CPU09, reset-vector, ROM, RAM, and basic GIME-video diagnostic |
+| `COCO3_ELITE` | `build/wukong/wukong_coco3_elite.bit` | HDMI | 48 kHz stereo CoCo DAC | Complete CoCo 3 system and the default build |
+| `HDMI_TEST_PATTERN` | `build/wukong/wukong_hdmi_test_pattern.bit` | HDMI | 48 kHz stereo silence | hdl-util color pattern and HDMI packet test with no sound generator |
+| `BASIC_6809_DVI_TEST` | `build/wukong/wukong_basic_6809_dvi_test.bit` | DVI-compatible TMDS | None | Hardware-verified CPU09, reset-vector, ROM, RAM, and basic GIME-video diagnostic |
 
 All modes drive the physical HDMI connector. The two HDMI modes instantiate
-the hdl-util encoder with HDMI data islands enabled. `CPU_DIAGNOSTIC` uses the
+the hdl-util encoder with HDMI data islands enabled. `BASIC_6809_DVI_TEST` uses the
 local video-only TMDS encoder, so it is DVI-compatible and carries no audio.
 Detailed contents and hardware checks for each image are documented in
 [Wukong HDMI bring-up](BRINGUP.md).
@@ -226,7 +226,7 @@ Detailed contents and hardware checks for each image are documented in
 The current full build command is:
 
 ```powershell
-& .\scripts\build_wukong.ps1 -Mode HDMI_COCO_AUDIO -EmbeddedTestDisks
+& .\scripts\build_wukong.ps1 -Mode COCO3_ELITE -EmbeddedTestDisks
 ```
 
 Omit `-EmbeddedTestDisks` when disk images should not be included. Vivado runs
