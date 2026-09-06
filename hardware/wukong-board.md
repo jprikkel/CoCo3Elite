@@ -26,7 +26,7 @@ PS/2 keyboard interface connected to PMOD J14.*
 | JTAG header | Used | Volatile FPGA programming and hardware testing |
 | Artix-7 block RAM | Used | 128 KiB CoCo main memory, system ROM, character ROM, and supporting buffers |
 | PMOD J14 | Implemented and verified | Direct clock, data, and power for the HP KB-0133 PS/2 keyboard |
-| PMOD J13 | In progress | External Digilent Pmod MicroSD over SPI |
+| PMOD J13 | Partial | External Digilent Pmod MicroSD: initialization and sector-zero reads only; no FAT32 DSK mounting |
 | Remaining PMOD connectors | Planned | External audio, joystick ADC, and optional I2C RTC modules |
 | CH340N USB-to-UART | Used | 115200-baud passive diagnostic console; see [USB serial diagnostics](serial-debug.md) |
 | User keys | Unassigned | Candidate reset, cold-start, or maintenance controls |
@@ -34,7 +34,7 @@ PS/2 keyboard interface connected to PMOD J14.*
 | 40-pin user I/O header | Reserved | Additional expansion after the PMOD assignments are established |
 | 32 MB SDRAM | Deferred | Possible expanded memory or RAM-disk support |
 | 256 MB DDR3 | Deferred | Possible large-memory configuration; unnecessary for the base 128 KiB system |
-| GMII Ethernet | Not planned | Available on the board but outside the initial CoCo3FPGA port scope |
+| GMII Ethernet | Not planned | Available on the board but outside the CoCo3Elite port scope |
 
 ## Interfaces currently used
 
@@ -47,8 +47,9 @@ current design does not require an additional external oscillator.
 ### HDMI
 
 The onboard HDMI connector carries the current CoCo display. The implemented
-path uses three TMDS data pairs and one TMDS clock pair. HDMI DDC, CEC, audio,
-and hot-plug detection are not currently required.
+path uses three TMDS data pairs and one TMDS clock pair. DDC, CEC, and hot-plug
+detection are unused. `COCO3_ELITE` emits audio packets, but the latest
+recorded hardware build is silent; see [video/audio status](video-post-processing.md).
 
 ### JTAG
 
@@ -62,7 +63,7 @@ The base system uses 128 KiB of inferred dual-port block RAM, so external DDR3
 is not needed for the standard CoCo 3 configuration. Video and CPU accesses
 share the inferred memory through separate ports.
 
-## Planned interfaces
+## Peripheral implementation and future expansion
 
 ### PS/2 keyboard
 
@@ -83,8 +84,9 @@ tolerant. See `keyboard-ps2.md` for the complete wiring and constraint guidance.
 ### External MicroSD storage
 
 The Wukong board does not include a MicroSD slot. A Digilent Pmod MicroSD is
-connected to PMOD J13 and uses the standard SPI assignment below. Disk images
-will be read locally from the card; DriveWire will not be ported.
+connected to PMOD J13 and uses the standard SPI assignment below. Initialization and sector-zero reads are implemented; FAT32 DSK mounting is
+planned. Optional read-only embedded DSK files remain a separate, untracked
+test backend. DriveWire will not be ported.
 
 | Function | J13 pin | FPGA pin |
 | --- | ---: | --- |
@@ -97,15 +99,16 @@ will be read locally from the card; DriveWire will not be ported.
 
 ### Audio
 
-Audio is planned through an external PMOD-compatible DAC or audio module. An
-I2S DAC is preferred because the existing design already represents digital
-left and right audio streams. The connector assignment remains open.
+The current audio path converts the held six-bit CoCo DAC to 48 kHz stereo
+HDMI samples. Hardware playback is an open regression. A PMOD DAC/I2S module
+is only a future alternative; no connector is assigned or driver implemented.
 
 ### Joysticks
 
 Original CoCo analog joystick behavior requires external analog-to-digital
 conversion because the FPGA pins accept digital signals only. A PMOD ADC or a
 small dedicated interface board is planned. Its connector is not yet assigned.
+F7 and F8 already provide right and left keyboard joystick emulation.
 
 ### Real-time clock
 
@@ -123,6 +126,6 @@ needed for the current 128 KiB implementation.
 
 - `wukong-pmod-pinout.md` lists every signal and power pin for PMOD connectors
   J10, J11, J13, and J14.
-- `keyboard-ps2.md` documents the PS/2 electrical interface and planned Vivado
+- `keyboard-ps2.md` documents the PS/2 electrical interface and current Vivado
   constraints.
 - The vendor V3 PDF manuals and schematics are stored under `docs/`.

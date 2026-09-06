@@ -158,8 +158,8 @@ not added with `create_clock`.
 
 The relevant existing source files are:
 
-- `rtl/ps2_keyboard.v` — receives serial PS/2 frames and scan codes.
-- `rtl/cocokey.v` — maps scan codes to CoCo key states.
+- `rtl/third-party/PS2_Key/ps2_keyboard.v` — receives serial PS/2 frames and scan codes.
+- `rtl/third-party/coco3fpga/cocokey.v` — maps scan codes to CoCo key states.
 - `rtl/core/coco3_keyboard_matrix.v` — converts those key states into the
   active-low CoCo matrix rows read through PIA0.
 

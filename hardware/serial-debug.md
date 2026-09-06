@@ -1,4 +1,4 @@
-# USB serial diagnostics
+# CoCo3Elite USB serial diagnostics
 
 The Wukong V3 onboard CH340N USB-to-UART bridge provides a passive debug
 console for the CoCo 3 implementation. The FPGA transmits on package pin E3;
@@ -30,3 +30,7 @@ last PIA keyboard row read and column-select write.
 The logger only observes existing debug signals and does not stall the CPU.
 `PC` is retained from the most recent CPU opcode fetch, rather than sampled
 from an arbitrary RAM or I/O bus cycle.
+
+This console is enabled in `COCO3_ELITE`. It is not DriveWire, a ROM console,
+or an emulated CoCo RS-232 PAK; PC input is not consumed. Messages can be
+coalesced while transmission is busy, so this is not a complete instruction trace.
