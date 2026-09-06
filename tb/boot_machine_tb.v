@@ -76,6 +76,8 @@ module boot_machine_tb;
                 io_reads = io_reads + 1;
             end
             if (cycles == 5000000) begin
+                $display("VIDEO STATE FF9B=%02h FF9C=%02h FF9F=%02h",
+                    dut.gime_video_vbank, dut.gime_video_scroll, dut.gime_video_horizontal_offset);
                 if (!saw_reset_target || !saw_disk_rom || ram_writes == 0 || io_writes == 0) begin
                     $display("FAIL: target=%0d disk=%0d RAM writes=%0d IO writes=%0d address=%04h",
                              saw_reset_target, saw_disk_rom, ram_writes, io_writes, address);

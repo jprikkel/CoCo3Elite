@@ -30,19 +30,25 @@ module coco3_boot_system (
     wire hblank, vblank, sync_flag;
     reg coco;
     reg [2:0] v;
-    reg bp;
+    wire bp;
     reg [6:0] vert;
     wire [3:0] vid_cont;
     wire css;
-    reg [2:0] lpr;
-    reg hlpr;
-    reg [1:0] lpf, cres;
-    reg [3:0] hres, scroll;
-    reg hven;
-    reg [6:0] hor_offset;
-    reg [1:0] start_hsb;
-    reg [7:0] start_msb, start_lsb;
+    wire [2:0] lpr;
+    wire hlpr;
+    wire [1:0] lpf, cres;
+    wire [3:0] hres, scroll;
+    wire hven;
+    wire [6:0] hor_offset;
+    wire [1:0] start_hsb;
+    wire [7:0] start_msb, start_lsb;
+    wire [7:0] gime_video_mode;
+    wire [7:0] gime_video_resolution;
+    wire [15:0] gime_video_offset;
+    wire [7:0] gime_horizontal_offset;
     wire [95:0] machine_palette;
+    wire [5:0] border_palette;
+    wire gime_blink;
     wire [5:0] palette [0:15];
     genvar palette_index;
     reg [3:0] direct_red, direct_green, direct_blue;
@@ -273,8 +279,26 @@ module coco3_boot_system (
         .video_hsync(raw_hsync), .video_vsync(raw_vsync),
         .video_address(video_address), .video_read_data(video_data),
         .audio_dac(audio_dac), .video_vdg_control(vid_cont),
-        .video_css(css), .video_palette(machine_palette)
+        .video_css(css), .video_palette(machine_palette),
+        .video_border_palette(border_palette),
+        .video_mode(gime_video_mode),
+        .video_resolution(gime_video_resolution),
+        .video_vbank(start_hsb), .video_scroll(scroll),
+        .video_offset(gime_video_offset),
+        .video_horizontal_offset(gime_horizontal_offset),
+        .video_blink(gime_blink)
     );
+
+    assign bp = gime_video_mode[7];
+    assign hres = {gime_video_mode[6], gime_video_resolution[4:2]};
+    assign lpr = gime_video_mode[2:0];
+    assign hlpr = gime_video_resolution[7];
+    assign lpf = gime_video_resolution[6:5];
+    assign cres = gime_video_resolution[1:0];
+    assign start_msb = gime_video_offset[15:8];
+    assign start_lsb = gime_video_offset[7:0];
+    assign hven = gime_horizontal_offset[7];
+    assign hor_offset = gime_horizontal_offset[6:0];
 
     coco3_uart_debug uart_debug_i (
         .clock(pixel_clk), .reset(reset), .cpu_address(cpu_address),
@@ -293,20 +317,10 @@ module coco3_boot_system (
 
     always @(posedge pixel_clk) begin
         if (system_reset) begin
-            coco <= 0; v <= 0; bp <= 0; vert <= 0;
-            lpr <= 0; hlpr <= 0; lpf <= 0; cres <= 0; hres <= 0;
-            scroll <= 0; hven <= 0; hor_offset <= 0;
-            start_hsb <= 0; start_msb <= 0; start_lsb <= 0;
+            coco <= 0; v <= 0; vert <= 0;
         end else if (io_write) begin
             case (cpu_address)
                 16'hFF90: coco <= cpu_data[7];
-                16'hFF98: begin bp <= cpu_data[7]; hres[3] <= cpu_data[6]; lpr <= cpu_data[2:0]; end
-                16'hFF99: begin hlpr <= cpu_data[7]; lpf <= cpu_data[6:5]; hres[2:0] <= cpu_data[4:2]; cres <= cpu_data[1:0]; end
-                16'hFF9B: start_hsb <= cpu_data[1:0];
-                16'hFF9C: scroll <= cpu_data[3:0];
-                16'hFF9D: start_msb <= cpu_data;
-                16'hFF9E: start_lsb <= cpu_data;
-                16'hFF9F: begin hven <= cpu_data[7]; hor_offset <= cpu_data[6:0]; end
                 16'hFFC0: v[0] <= 1'b0;
                 16'hFFC1: v[0] <= 1'b1;
                 16'hFFC2: v[1] <= 1'b0;
@@ -342,7 +356,7 @@ module coco3_boot_system (
         .LPF(lpf), .VERT_FIN_SCRL(scroll), .HLPR(hlpr), .LPR(lpr), .HRES(hres),
         .CRES(cres), .HVEN(hven), .HOR_OFFSET(hor_offset),
         .SCRN_START_HSB(start_hsb), .SCRN_START_MSB(start_msb),
-        .SCRN_START_LSB(start_lsb), .BLINK(1'b1), .SWITCH5(1'b0)
+        .SCRN_START_LSB(start_lsb), .BLINK(gime_blink), .SWITCH5(1'b0)
     );
     always @* begin
         if (color[8]) begin
@@ -375,12 +389,33 @@ module coco3_boot_system (
             raw_blue  = {direct_blue, direct_blue};
         end else begin
             // GIME palette encoding is R2 G2 B2 R1 G1 B1, not RR GG BB.
-            raw_red={palette[color[3:0]][5],palette[color[3:0]][2],palette[color[3:0]][5],palette[color[3:0]][2],
-                 palette[color[3:0]][5],palette[color[3:0]][2],palette[color[3:0]][5],palette[color[3:0]][2]};
-            raw_green={palette[color[3:0]][4],palette[color[3:0]][1],palette[color[3:0]][4],palette[color[3:0]][1],
-                   palette[color[3:0]][4],palette[color[3:0]][1],palette[color[3:0]][4],palette[color[3:0]][1]};
-            raw_blue={palette[color[3:0]][3],palette[color[3:0]][0],palette[color[3:0]][3],palette[color[3:0]][0],
-                  palette[color[3:0]][3],palette[color[3:0]][0],palette[color[3:0]][3],palette[color[3:0]][0]};
+            // COCO3VIDEO emits logical color 16 for the GIME border. Keep
+            // that fifth index bit instead of truncating the border to
+            // palette entry zero.
+            raw_red={(color[4] ? border_palette[5] : palette[color[3:0]][5]),
+                     (color[4] ? border_palette[2] : palette[color[3:0]][2]),
+                     (color[4] ? border_palette[5] : palette[color[3:0]][5]),
+                     (color[4] ? border_palette[2] : palette[color[3:0]][2]),
+                     (color[4] ? border_palette[5] : palette[color[3:0]][5]),
+                     (color[4] ? border_palette[2] : palette[color[3:0]][2]),
+                     (color[4] ? border_palette[5] : palette[color[3:0]][5]),
+                     (color[4] ? border_palette[2] : palette[color[3:0]][2])};
+            raw_green={(color[4] ? border_palette[4] : palette[color[3:0]][4]),
+                       (color[4] ? border_palette[1] : palette[color[3:0]][1]),
+                       (color[4] ? border_palette[4] : palette[color[3:0]][4]),
+                       (color[4] ? border_palette[1] : palette[color[3:0]][1]),
+                       (color[4] ? border_palette[4] : palette[color[3:0]][4]),
+                       (color[4] ? border_palette[1] : palette[color[3:0]][1]),
+                       (color[4] ? border_palette[4] : palette[color[3:0]][4]),
+                       (color[4] ? border_palette[1] : palette[color[3:0]][1])};
+            raw_blue={(color[4] ? border_palette[3] : palette[color[3:0]][3]),
+                      (color[4] ? border_palette[0] : palette[color[3:0]][0]),
+                      (color[4] ? border_palette[3] : palette[color[3:0]][3]),
+                      (color[4] ? border_palette[0] : palette[color[3:0]][0]),
+                      (color[4] ? border_palette[3] : palette[color[3:0]][3]),
+                      (color[4] ? border_palette[0] : palette[color[3:0]][0]),
+                      (color[4] ? border_palette[3] : palette[color[3:0]][3]),
+                      (color[4] ? border_palette[0] : palette[color[3:0]][0])};
         end
     end
 
@@ -391,8 +426,12 @@ module coco3_boot_system (
     // and GIME video modes.
     wire artifact_compatible_mode = coco && (vid_cont == 4'b1111);
     wire artifact_on_pixel = raw_red[7] && raw_green[7] && raw_blue[7];
+    // The HDMI wrapper realigns the GIME once per transport frame. Reset the
+    // downstream pixel pipelines at the same instant; otherwise their delay
+    // registers carry the tail of the previous frame into the visible border.
+    wire video_pipeline_reset = system_reset | raster_resync;
     ntsc_artifact_filter artifact_i (
-        .pixel_clk(pixel_clk), .reset(system_reset),
+        .pixel_clk(pixel_clk), .reset(video_pipeline_reset),
         .enable(artifact_enabled && artifact_compatible_mode),
         .phase_reverse(1'b0), .in_hsync(raw_hsync), .in_vsync(raw_vsync),
         .in_video_enable(raw_video_enable),
@@ -404,7 +443,7 @@ module coco3_boot_system (
     );
 
     crt_filter crt_i (
-        .pixel_clk(pixel_clk), .reset(system_reset),
+        .pixel_clk(pixel_clk), .reset(video_pipeline_reset),
         .enable(crt_enabled | scanlines_enabled),
         .in_hsync(artifact_hsync), .in_vsync(artifact_vsync),
         .in_video_enable(artifact_video_enable),

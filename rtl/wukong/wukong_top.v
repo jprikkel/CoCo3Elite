@@ -65,10 +65,10 @@ module wukong_top (
         $signed({1'b0, audio_dac}) - 7'sd32;
     wire signed [15:0] scaled_audio = centered_audio <<< 8;
     wire [23:0] library_rgb_direct;
-    reg [23:0] narrow_rgb_delay [0:55];
+    reg [23:0] narrow_rgb_delay [0:63];
     integer narrow_delay_index;
     wire [23:0] library_rgb = narrow_video_mode
-        ? narrow_rgb_delay[55] : library_rgb_direct;
+        ? narrow_rgb_delay[63] : library_rgb_direct;
 
 `ifdef HDMI_LIBRARY_AUDIO
     assign hdmi_audio_words[0] = scaled_audio;
@@ -98,9 +98,10 @@ module wukong_top (
 `ifdef HDMI_LIBRARY_COCO
     // The GIME exposes a 656-pixel-wide visible region and wraps its 486
     // visible scanlines across the 800x525 frame boundary. Start the HDMI
-    // raster eight clocks before its horizontal wrap and 18 lines into its
-    // frame. This centers a 640x480 crop on the GIME output.
-    wire library_frame_start = (library_x == 10'd792) &&
+    // Resync the GIME 19 clocks before horizontal wrap so all 640 source
+    // pixels reach HDMI x=0..639. Border-transition artifacts must be fixed
+    // in the GIME path rather than hidden by clipping valid source pixels.
+    wire library_frame_start = (library_x == 10'd781) &&
                                (library_y == 10'd18);
     coco3_boot_system source_i (
         .pixel_clk(pixel_clk), .reset(video_reset),
@@ -121,12 +122,12 @@ module wukong_top (
 
     always @(posedge pixel_clk) begin
         if (video_reset || library_frame_start) begin
-            for (narrow_delay_index = 0; narrow_delay_index < 56;
+            for (narrow_delay_index = 0; narrow_delay_index < 64;
                  narrow_delay_index = narrow_delay_index + 1)
                 narrow_rgb_delay[narrow_delay_index] <= 24'd0;
         end else begin
             narrow_rgb_delay[0] <= library_rgb_direct;
-            for (narrow_delay_index = 1; narrow_delay_index < 56;
+            for (narrow_delay_index = 1; narrow_delay_index < 64;
                  narrow_delay_index = narrow_delay_index + 1)
                 narrow_rgb_delay[narrow_delay_index] <=
                     narrow_rgb_delay[narrow_delay_index - 1];
@@ -154,7 +155,10 @@ module wukong_top (
         .VIDEO_REFRESH_RATE(60.0), .AUDIO_RATE(48000),
         .AUDIO_BIT_WIDTH(16),
 `ifdef HDMI_LIBRARY_COCO
-        .START_X(792), .START_Y(18)
+        // Match the hdl-util 640x480 example: its raster counters start at
+        // the origin. GIME-to-HDMI alignment is handled independently by
+        // library_frame_start above.
+        .START_X(0), .START_Y(0)
 `else
         .START_X(0), .START_Y(0)
 `endif
