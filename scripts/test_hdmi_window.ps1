@@ -21,7 +21,7 @@ Push-Location $runDir
 try {
  & "$VivadoBin\xvhdl.bat" --2008 "$repoRoot\rtl\third-party\CPU09\cpu09l_128.vhd"
  if($LASTEXITCODE){throw 'xvhdl failed'}
- & "$VivadoBin\xvlog.bat" -sv -d COCO3_BOOT -d NEW_SRAM -d HDMI_LIBRARY_TEST -d HDMI_LIBRARY_COCO -d HDMI_LIBRARY_AUDIO -d HDMI_RASTER_800X525 @sources
+ & "$VivadoBin\xvlog.bat" -sv -d NEW_SRAM -d HDMI_LIBRARY_TEST -d HDMI_LIBRARY_COCO -d HDMI_LIBRARY_AUDIO -d HDMI_RASTER_800X525 @sources
  if($LASTEXITCODE){throw 'xvlog failed'}
  & "$VivadoBin\xelab.bat" hdmi_window_tb -s hdmi_window_sim
  if($LASTEXITCODE){throw 'xelab failed'}

@@ -1,7 +1,7 @@
 # Current Wukong implementation
 
 This document describes the code currently used by the QMTECH Wukong V3
-port. It is a snapshot of the implementation on 2026-09-04, not a list of
+port. It is a snapshot of the implementation on 2026-09-06, not a list of
 future goals. Historical bring-up notes and plans remain useful context, but
 this file is the starting point for understanding the active design.
 
@@ -13,9 +13,9 @@ The repository contains three distinct classes of source:
 | --- | --- | --- |
 | `rtl/wukong/` | Wukong top level, clocking, HDMI adaptation, filters, UART, and board integration | Project-owned; changes for this port belong here |
 | `rtl/core/` | Portable CPU-facing memory, GIME register, timer, keyboard, cartridge, disk, and SD support added by this port | Project-owned; keep board-independent where practical |
-| Original CoCo3FPGA files under `rtl/` | CPU, GIME video generator, keyboard decoder, and other inherited CoCo logic | Preserve as the upstream reference; prefer wrappers and focused compatibility fixes outside these files |
-| `rtl/third_party/hdl-util-hdmi/` | Vendored [hdl-util/hdmi](https://github.com/hdl-util/hdmi) encoder and packet implementation | Do not modify locally; adapt signals in `rtl/wukong/` |
-| `legacy-quartus/` | Original Intel/Altera project files and generated-IP metadata | Preserve as the behavioral reference |
+| `rtl/third-party/coco3fpga/` | GIME video generator, keyboard decoder, and retained original Quartus reference files | Preserve as the upstream reference; prefer wrappers and focused compatibility fixes outside these files |
+| `rtl/third-party/CPU09/` | CPU09 processor core | Preserve under its upstream license |
+| `rtl/third-party/hdl-util-hdmi/` | Vendored [hdl-util/hdmi](https://github.com/hdl-util/hdmi) encoder and packet implementation | Do not modify locally; adapt signals in `rtl/wukong/` |
 
 The active FPGA top level is `rtl/wukong/wukong_top.v`. It selects a source
 and output path with build-time definitions supplied by
@@ -39,12 +39,15 @@ Hardware-verified functions include:
 - CH340N UART diagnostic output through the board USB serial interface.
 - Read-only embedded Disk BASIC images when explicitly enabled at build time.
 - Optional NTSC artifact colors, horizontal scanlines, and CRT glow.
+- The standalone `CPU_DIAGNOSTIC` image, displaying `CPU09`,
+  `RESET VECTOR PASSED`, and `STAGE 2 RUNNING` in green on black through its
+  DVI-compatible video path.
 
 Open hardware issues in the current working implementation are:
 
-- HDMI audio is silent even though simulation observes audio sample and audio
-  clock-regeneration packets. Commit `16d121b` is the last hardware-tested
-  checkpoint known to play HDMI audio correctly.
+- HDMI audio is hardware-verified. Some displays mute sustained digital
+  silence and need roughly two seconds of nonzero samples before unmuting,
+  especially after the display is power-cycled.
 - CoCo-compatible graphics modes can show a black area at the left where the
   programmed graphics border/background color is expected. Text positioning
   is currently correct, so this must be diagnosed without shifting or cropping
@@ -148,18 +151,16 @@ around 32 and expanded to signed 16-bit stereo samples. The HDMI library is
 configured for 48 kHz, 16-bit, two-channel audio and generates its Audio
 Sample, Audio Clock Regeneration, and Audio InfoFrame packets.
 
-The current RTL produces one audio sample-clock rising edge for every 525
-pixel clocks:
+The current RTL produces a continuous audio clock with alternating 262- and
+263-pixel-clock half periods:
 
 ```text
 25,200,000 / 525 = 48,000 samples/second
 ```
 
-Simulation packet presence is necessary but has not proven sink acceptance.
-The present hardware build is silent, so this path is explicitly considered
-open. The next audio diagnosis should compare the final data-island stream and
-clock-domain behavior against the hardware-working `16d121b` checkpoint rather
-than changing video placement at the same time.
+The clock is routed through a BUFG and constrained by
+`constraints/wukong_audio.xdc`. `HDMI_LIBRARY_TEST` sends the same 48 kHz HDMI
+packet stream with zero-valued samples and no audible test signal.
 
 ## Keyboard and runtime controls
 
@@ -210,15 +211,17 @@ so inserting an SD card does not mount drives. The planned architecture is in
 Run all commands from the repository root. The launcher defaults to Vivado
 2025.2 at `C:\AMD\2025.2\Vivado\bin\vivado.bat`.
 
-| Mode | Output bitstream | Description |
-| --- | --- | --- |
-| `TEST_PATTERN` | `build/wukong/wukong_hdmi_test.bit` | Original local HDMI test-pattern path |
-| `HDMI_LIBRARY_TEST` | `build/wukong/wukong_hdmi_library_test.bit` | hdl-util-generated test pattern |
-| `HDMI_COCO_TEST` | `build/wukong/wukong_hdmi_coco_test.bit` | CoCo through hdl-util without HDMI audio |
-| `HDMI_COCO_AUDIO` | `build/wukong/wukong_hdmi_coco_audio.bit` | Full current CoCo/HDMI path with audio packets |
-| `COCO_VIDEO` | `build/wukong/wukong_coco_video.bit` | Earlier CoCo video-core checkpoint |
-| `CPU_DIAGNOSTIC` | `build/wukong/wukong_cpu_diagnostic.bit` | CPU/BRAM diagnostic image |
-| `COCO3_BOOT` | `build/wukong/wukong_coco3_boot.bit` | Earlier CoCo boot path using the local transmitter |
+| Mode | Output bitstream | Transport | Audio | Description |
+| --- | --- | --- | --- | --- |
+| `HDMI_COCO_AUDIO` | `build/wukong/wukong_hdmi_coco_audio.bit` | HDMI | 48 kHz stereo CoCo DAC | Complete CoCo 3 system and the default build |
+| `HDMI_LIBRARY_TEST` | `build/wukong/wukong_hdmi_library_test.bit` | HDMI | 48 kHz stereo silence | hdl-util color pattern and HDMI packet test with no sound generator |
+| `CPU_DIAGNOSTIC` | `build/wukong/wukong_cpu_diagnostic.bit` | DVI-compatible TMDS | None | Hardware-verified CPU09, reset-vector, ROM, RAM, and basic GIME-video diagnostic |
+
+All modes drive the physical HDMI connector. The two HDMI modes instantiate
+the hdl-util encoder with HDMI data islands enabled. `CPU_DIAGNOSTIC` uses the
+local video-only TMDS encoder, so it is DVI-compatible and carries no audio.
+Detailed contents and hardware checks for each image are documented in
+[Wukong HDMI bring-up](BRINGUP.md).
 
 The current full build command is:
 
