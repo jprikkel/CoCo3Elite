@@ -1,4 +1,4 @@
-# HDMI CRT Filter
+# CoCo3Elite HDMI CRT Filter
 
 The Wukong HDMI pipeline includes an optional streaming CRT presentation
 filter after NTSC artifact-color generation. F9 toggles horizontal scanlines,
@@ -34,6 +34,9 @@ the image.
 The rounded corners and vignette provide streaming CRT geometry. True barrel
 distortion changes both source coordinates and therefore needs a full-frame
 buffer or an external-memory video path. It is not implemented in the current
-BRAM-only design, particularly because optional embedded test disks consume
-substantially increases XC7A100T block-RAM use. Barrel remapping can be added after
+BRAM-only design, particularly because optional embedded test disks
+substantially increase XC7A100T block-RAM use. Barrel remapping can be added after
 the management/video architecture has a framebuffer backend.
+
+The management GUI is not implemented; only F9/F10 toggles are available at
+runtime. See [video/audio status](video-post-processing.md) for the active HDMI path.

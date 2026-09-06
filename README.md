@@ -1,149 +1,128 @@
-# CoCo3FPGA for QMTECH Wukong V3
+# CoCo3Elite for QMTECH Wukong V3
 
-This repository is a hardware port of
-[richard42/CoCo3FPGA](https://github.com/richard42/CoCo3FPGA). It preserves the
-original Quartus sources while adding an AMD/Xilinx Vivado implementation for
-the QMTECH Wukong V3 FPGA development board.
+CoCo3Elite is an AMD/Xilinx Vivado port derived from
+[richard42/CoCo3FPGA](https://github.com/richard42/CoCo3FPGA). The original
+Quartus/DE1 sources remain available as a reference. The implemented and
+hardware-tested target is the QMTECH Wukong V3 with an Artix-7 XC7A100T in
+the FGG676 package; other Artix-7 boards are future portability targets.
 
-The current port targets the Wukong V3 fitted with an Artix-7 `XC7A100T` in
-the FGG676 package. The hardware-verified build boots a 128 KiB CoCo 3 system
-ROM from block RAM and displays Extended Color BASIC over the board's HDMI
-connector. Test-pattern, legacy-video, and CPU-diagnostic images remain
-available as separate build modes.
+The machine boots Disk Extended Color BASIC 2.1 with 128 KiB of block RAM,
+a user-supplied 32 KiB system ROM, and an 8 KiB Disk BASIC ROM. PS/2 keyboard,
+keyboard joysticks, F3 diagnostic-cartridge autostart, passive USB UART
+logging, and optional read-only embedded disks are implemented.
 
-The long-term target family includes boards based on the Artix-7 `XC7A15T`,
-`XC7A50T`, and `XC7A100T`. The RTL is being kept portable across those devices;
-the Wukong V3 `XC7A100T` is the currently implemented and hardware-verified
-board target.
+![CoCo BASIC on the QMTECH Wukong V3](docs/images/wukong-coco3-basic.png)
 
-Hardware interface documentation is maintained under [`hardware/`](hardware/):
+*Earlier hardware checkpoint: Extended Color BASIC over HDMI.*
 
-- [QMTECH Wukong V3 board overview](hardware/wukong-board.md)
-- [Wukong V3 PMOD pinout](hardware/wukong-pmod-pinout.md)
-- [PS/2 keyboard interface](hardware/keyboard-ps2.md)
-
-![Extended Color BASIC running on the QMTECH Wukong V3](docs/images/wukong-coco3-basic.png)
-
-*Hardware checkpoint: Extended Color BASIC 2.0 with corrected GIME colors and
-vertical centering, running from block RAM and displayed over HDMI on the
-QMTECH Wukong V3.*
+The current full build is `HDMI_COCO_AUDIO`. Digital 32/40/80-column placement
+is regression-tested, but wide text can be clipped by monitor overscan and
+some graphics borders remain incorrect. HDMI audio packets appear in
+simulation; the latest recorded hardware build is silent. MicroSD currently
+supports initialization and sector-zero reads only—not FAT32 DSK mounting.
+See [current implementation and limitations](docs/CURRENT_IMPLEMENTATION.md).
 
 ## Repository layout
 
 ```text
-CoCo3FPGA/
-|-- rtl/              Verilog and VHDL sources
-|   |-- core/         Portable CoCo memory, ROM, and boot-machine modules
-|   `-- wukong/       Wukong top level, clocking, HDMI, and system integration
-|-- constraints/      Board-specific XDC constraints
-|-- scripts/          Vivado build, ROM preparation, and simulation scripts
-|-- ip/               Vivado-generated IP
-|-- tb/               Testbench sources
-|-- build/            Generated ROM images, reports, checkpoints, and bitstreams
-|-- roms/             User-supplied ROM inputs; ROM binaries are ignored by Git
-|-- hardware/         Wukong interface pinouts and external wiring guides
-|-- docs/              Porting notes, bring-up results, and board documentation
-`-- legacy-quartus/    Original Intel/Altera Quartus project and support files
+CoCo3Elite/
+|-- rtl/                 Inherited CoCo RTL and project integration
+|   |-- core/            Portable memory, machine, keyboard, timer, FDC, SD probe
+|   |-- wukong/          Board top, clocking, HDMI, filters, UART
+|   |-- third_party/     Vendored HDMI library; preserve upstream documentation
+|   `-- CPU09/, T65/, PS2_Key/, UART*/  Inherited CPU/peripheral sources
+|-- constraints/         Wukong V3 pin and timing constraints
+|-- scripts/             Build, ROM/disk preparation, and regression launchers
+|-- tb/                  HDL regressions, basic/ diagnostics, asm/ video helper
+|-- roms/                Untracked local ROM and diagnostic-binary inputs
+|-- disks/               Optional, untracked local DSK inputs
+|-- build/               Ignored reports, staged memories, simulations, bitstreams
+|-- hardware/            Board, wiring, video/audio, and storage documentation
+|-- docs/                Implementation, compatibility, historical tests, PDFs
+|-- tools/               Bundled ToolShed, asm6809, and PuTTY utilities
+|-- ip/                  Reserved for generated Vivado IP
+`-- legacy-quartus/      Original Quartus project and generated support files
 ```
 
-Generated content under `build/` is not committed.
+## ROM and disk preparation
 
-## Requirements
+Run commands from the repository root using Windows PowerShell and Vivado
+with Artix-7 support. The launcher defaults to
+`C:\AMD\2025.2\Vivado\bin\vivado.bat`; pass `-Vivado` to override it.
 
-- Windows PowerShell
-- AMD Vivado with support for the Artix-7 `XC7A100T`
-- A legally obtained CoCo system ROM
-
-The launcher defaults to Vivado 2025.2 at:
-
-```text
-C:\AMD\2025.2\Vivado\bin\vivado.bat
-```
-
-Pass `-Vivado` to the build script if Vivado is installed elsewhere.
-
-## ROM preparation
-
-CoCo ROM images may be obtained from the vetted
-[RetroBIOS Tandy CoCo collection](https://github.com/Abdess/retrobios/tree/main/bios/Tandy/CoCo).
-ROM binaries are inputs to the build and must remain uncommitted.
-
-For the CoCo 3 build, place a compatible system image at `roms/coco3.rom` and
-the standard 8 KiB Disk Extended Color BASIC 1.1 cartridge image at
-`roms/disk11.rom`, then run from the repository root:
+Supply legally obtained `roms/coco3.rom`, `roms/disk11.rom`, and the ZIA
+cartridge `roms/ziadiag.ccc`. All three real-ROM build modes require these
+inputs. The launcher prepares the diagnostic cartridge automatically; prepare
+the system and Disk BASIC memories first:
 
 ```powershell
 & .\scripts\prepare_coco3_rom.ps1
 & .\scripts\prepare_disk_rom.ps1
+& .\scripts\build_wukong.ps1 -Mode HDMI_COCO_AUDIO
 ```
 
-The importer accepts either a raw 32 KiB CoCo 3 image or the historical
-32,258-byte CoCo3FPGA flash format. It validates the reset vector, prints the
-source SHA-256 digest, and writes `build/roms/coco3.mem` for Vivado.
-The disk importer validates the canonical Disk BASIC 1.1 SHA-1 and writes
-`build/roms/disk11.mem`. ROM binaries and generated memory files are ignored
-by Git.
+The system importer accepts raw 32 KiB or historical 32,258-byte CoCo3FPGA
+flash format, checks the reset vector, and reports SHA-256. The Disk BASIC
+importer requires the canonical 8 KiB Disk BASIC 1.1 ROM. See
+[ROM inputs and checksums](roms/README.md) for details. ROM binaries and
+prepared memories remain untracked.
 
-## Building a bitstream
-
-Prepare the appropriate ROM first, then build the hardware-verified CoCo 3
-image from the repository root:
+DSK files are optional, untracked, and read-only when embedded. To include
+`disks/fpgatest.dsk` as drive 0 and `disks/games.dsk` as drive 1:
 
 ```powershell
-& .\scripts\build_wukong.ps1 -Mode COCO3_BOOT
+& .\scripts\build_wukong.ps1 -Mode HDMI_COCO_AUDIO -EmbeddedTestDisks
 ```
 
-On success, program the board with:
+Both must be raw 161,280-byte images. See [disk preparation](disks/README.md)
+for generating the diagnostic disk and its local binary prerequisites.
+Without the switch, no disk backend is mounted. An SD card does not supply
+a replacement backend yet; writes and FAT32 mounting are unsupported.
 
-```text
-build/wukong/wukong_coco3_boot.bit
-```
+## Build modes
 
-The build performs synthesis, implementation, design-rule checks, timing
-analysis, and bitstream generation. It refuses to generate a bitstream if the
-design has negative timing slack.
+The default mode is `TEST_PATTERN`. Outputs are under `build/wukong/`.
 
-Other selectable modes are:
+| Mode | Bitstream | Purpose |
+| --- | --- | --- |
+| `TEST_PATTERN` | `wukong_hdmi_test.bit` | Local test raster, DVI-compatible video |
+| `HDMI_LIBRARY_TEST` | `wukong_hdmi_library_test.bit` | Experimental library raster; current RGB source is undriven |
+| `HDMI_COCO_TEST` | `wukong_hdmi_coco_test.bit` | Real CoCo on the library raster without audio |
+| `HDMI_COCO_AUDIO` | `wukong_hdmi_coco_audio.bit` | Current full path with HDMI audio packets; hardware audio issue remains |
+| `COCO_VIDEO` | `wukong_coco_video.bit` | Synthetic legacy CoCo text, no CPU |
+| `CPU_DIAGNOSTIC` | `wukong_cpu_diagnostic.bit` | Repository-owned CPU/128 KiB BRAM diagnostic ROM |
+| `COCO3_BOOT` | `wukong_coco3_boot.bit` | Real CoCo with local raster, no HDMI audio |
 
-| Mode | Output | Purpose |
-|---|---|---|
-| `TEST_PATTERN` | `wukong_hdmi_test.bit` | Standalone HDMI test image |
-| `COCO_VIDEO` | `wukong_coco_video.bit` | Legacy CoCo video-core checkpoint |
-| `CPU_DIAGNOSTIC` | `wukong_cpu_diagnostic.bit` | CPU and 128 KiB block-RAM diagnostic |
-| `COCO3_BOOT` | `wukong_coco3_boot.bit` | CoCo 3 ROM boot |
+Vivado runs synthesis, optimization, placement, physical optimization, routing,
+DRC and timing reports, then bitstream generation. The flow rejects absent
+timed paths or negative worst-path slack. Review the generated reports before
+programming via JTAG. Check the fitted FPGA speed grade: the default
+`-Part 'xc7a100tfgg676-2'` differs from the -1 device described in the manual.
 
-For example, to use another Vivado installation or compatible FPGA part:
+## Hardware and controls
 
-```powershell
-& .\scripts\build_wukong.ps1 `
-    -Vivado 'D:\AMD\Vivado\2025.2\bin\vivado.bat' `
-    -Part 'xc7a100tfgg676-2' `
-    -Mode COCO3_BOOT
-```
+PS/2 on J14 uses **pin 1/P23 for data and pin 3/T24 for clock**. The verified
+HP KB-0133 runs at 3.3 V; other keyboards may need level translation.
+MicroSD uses a Digilent Pmod on J13. The USB connector is a CH340N serial
+bridge, not a USB host or DriveWire storage connection.
 
-Scripts also require updating permissions under Windows PowerShell. Run the commands below as
-Administrator in PowerShell.
+F3 starts ZIA diagnostics; Ctrl+Alt+Delete resets to Disk BASIC. F6 toggles
+CPU speed, F7/F8 toggle right/left keyboard joysticks, F9 scanlines, F10 glow,
+and F11 artifact color. F12 currently types `@`; the management overlay is
+planned. See the [complete keyboard map](hardware/keyboard-ps2.md).
 
-1. If PowerShell blocks script execution with an execution-policy error, allow scripts for your user account:
+## Documentation
 
-  Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+- [Current implementation and regression scripts](docs/CURRENT_IMPLEMENTATION.md)
+- [Wukong board](hardware/wukong-board.md) and [PMOD pinout](hardware/wukong-pmod-pinout.md)
+- [Clocking and port notes](docs/WUKONG_PORT.md)
+- [Core integration status](docs/WUKONG_CORE_INTEGRATION.md)
+- [Bring-up and acceptance](docs/BRINGUP.md)
+- [Storage status and roadmap](hardware/sd-disk-interface.md)
+- [HDMI video and audio](hardware/video-post-processing.md)
+- [Diagnostic compatibility](docs/DIAGNOSTIC_COMPATIBILITY_PLAN.md)
+- [Cartridge video probe](docs/CARTRIDGE_VIDEO_PROBE.md)
+- [RTL inventory](docs/RTL_INVENTORY.md)
 
-2. If vivado executables are blocked use the command below:
-
-  New-CIPolicy `
-  >>   -Level Hash `
-  >>   -FilePath "$env:USERPROFILE\Desktop\VivadoAllow.xml" `
-  >>   -UserPEs `
-  >>   -ScanPath C:\AMD\2025.2\Vivado\bin\unwrapped\win64.o\xsim.exe
-
-## Documentation and references
-
-- [Current Wukong implementation and known issues](docs/CURRENT_IMPLEMENTATION.md)
-- [Wukong port notes](docs/WUKONG_PORT.md)
-- [Core integration plan](docs/WUKONG_CORE_INTEGRATION.md)
-- [Hardware bring-up record](docs/BRINGUP.md)
-- [Original CoCo3FPGA project](https://github.com/richard42/CoCo3FPGA)
-- [RetroBIOS Tandy CoCo ROM collection](https://github.com/Abdess/retrobios/tree/main/bios/Tandy/CoCo)
-
-See [LICENSE](LICENSE) for the source-code license. ROM images may have separate
-terms and are intentionally not distributed by this repository.
+See [LICENSE](LICENSE). Imported components and ROM inputs have their own
+license/provenance requirements; ROM and disk images are not distributed here.

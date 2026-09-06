@@ -1,9 +1,16 @@
-# CoCo 3 FPGA BASIC diagnostics
+# CoCo3Elite BASIC diagnostics
 
 These ASCII Extended Color BASIC programs are packaged into the local
 `disks/fpgatest.dsk` image by `scripts/create_test_disk.ps1`.
 
-From Disk Extended Color BASIC, run the menu with:
+Generate the disk from the repository root after supplying local
+`roms/MEMT2023.BIN` and `roms/SYSINFO.BIN`. The generator replaces
+`disks/fpgatest.dsk` and assembles `VIDHELP.BIN` using bundled asm6809.
+To use it on hardware, supply `disks/games.dsk` too and build with
+`-EmbeddedTestDisks`; drive 0 is the diagnostic disk. All DSK inputs are
+optional, read-only when embedded, and untracked. MicroSD cannot mount them yet.
+
+From Disk Extended Color BASIC on drive 0, run the menu with:
 
 ```basic
 RUN "TESTMENU"
@@ -36,4 +43,14 @@ values plus explicit `PASS` or `FAIL` results and restores modified state.
 protection, and Disk BASIC mapping. `CARTTEST.BAS` uses the project diagnostic
 window at `$FF70-$FF73` to checksum the diagnostic ROM-Pak without launching
 it. This distinguishes a corrupt or incorrectly mapped image from the
-remaining F3/autostart execution problem.
+execution or compatibility defects; F3 CART/FIRQ autostart is hardware-verified.
+
+`GIMETMR.BAS` and `VECTEST.BAS` probe timer and vector-page behavior;
+`VIDPROBE.BAS` uses the assembly helper for six controlled native-text cases.
+See [cartridge video probe](../../docs/CARTRIDGE_VIDEO_PROBE.md).
+
+The capacity probe does not imply installed 512 KiB RAM: the current machine
+has 128 KiB. AUDIO and the cartridge sound test are useful reproduction cases,
+but HDMI audio is currently reported silent. Graphics/border and diagnostic
+GIME/MMU compatibility remain incomplete; a RAM/register PASS alone does not
+prove correct rendered pixels or audible output.

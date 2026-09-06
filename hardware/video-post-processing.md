@@ -1,4 +1,4 @@
-# HDMI Video Post-Processing
+# CoCo3Elite HDMI video post-processing
 
 The Wukong HDMI output applies optional streaming video processing after the
 CoCo 3 video generator. The processing order is:
@@ -15,7 +15,7 @@ signals along with the pixels. They do not use a framebuffer.
 
 F11 enables or disables artifact-color decoding. It is enabled after FPGA
 reset. The decoder targets the CoCo's 256-pixel, one-bit graphics patterns.
-Each logical source pixel occupies two 25 MHz HDMI pixel clocks. The decoder
+Each logical source pixel occupies two HDMI pixel clocks (25.2 MHz in the library modes). The decoder
 groups two adjacent logical pixels into a four-clock artifact cell and applies
 this mapping:
 
@@ -60,39 +60,52 @@ would require line storage or a framebuffer.
 See [HDMI CRT Filter](crt-filter.md) for the current preset and the detailed
 phosphor-mask options.
 
-## HDMI output library
+## HDMI output paths
 
-TMDS channel encoding uses the vendored
-[hdl-util/hdmi](../rtl/third_party/hdl-util-hdmi/README.md) SystemVerilog
-library. The initial hardware checkpoint combines its unmodified channel
-encoder with the existing Wukong raster timing and proven Artix-7 OSERDES
-physical layer. This sends DVI-compatible video without HDMI auxiliary data
-islands. The project-owned `wukong_hdmi_tx` integration wrapper composes the
-unmodified upstream packet modules with that Wukong physical layer for true
-HDMI output, but remains experimental and is included only when `HDMI_AUDIO`
-is defined.
+`HDMI_COCO_TEST` and `HDMI_COCO_AUDIO` use the unmodified
+[hdl-util/hdmi library](../rtl/third_party/hdl-util-hdmi/README.md) instance in
+`rtl/wukong/wukong_top.v`. Wukong logic resynchronizes the CoCo raster at
+HDMI x=781, y=18 and delays narrow-mode RGB by 64 pixels. The library owns
+640x480 active timing in an 800x525 frame at 25.2 MHz, with 126 MHz serialization.
+
+`TEST_PATTERN`, `COCO_VIDEO`, `CPU_DIAGNOSTIC`, and `COCO3_BOOT` retain local
+raster timing at 25 MHz and 125 MHz serialization. They use the imported TMDS
+channel encoder and local serializer for DVI-compatible video without audio.
+The separate `wukong_hdmi_tx.sv` packet wrapper is experimental: it requires
+`HDMI_AUDIO`, which none of the supported build modes defines.
 
 ## HDMI audio
 
-The boot machine exports a held six-bit sound DAC value. As on the physical
-CoCo, writes to PIA1 port A reach this audio latch only while PIA1 CB2 enables
-sound and the analog multiplexer selects the DAC. Joystick polling also sweeps
-PIA1's DAC to measure each axis, but those comparator writes are excluded from
-the audio latch so continuous `JOYSTK` calls do not produce ticking. The HDMI
-wrapper subtracts the midpoint, attenuates the result to one-quarter of the
-16-bit PCM range, and duplicates the mono signal into the left and right HDMI
-channels. A fractional accumulator resamples the held DAC level at an average
-rate of exactly 48 kHz from the 25 MHz pixel clock. The upstream audio sample,
-audio clock regeneration, Audio InfoFrame, packet selection, and packet ECC
-modules generate the HDMI data islands. Initial volume is deliberately
-conservative because hand-generated CoCo DAC waveforms can otherwise be loud.
-This path is disabled in the default bitstream until its packet timing is
-validated in simulation and accepted by the target HDMI sink.
+The boot machine exports a held six-bit sound DAC. Writes to PIA1 port A
+reach the audio latch only when sound is enabled and the analog multiplexer
+selects the DAC. Joystick comparator sweeps do not update this latch.
+`HDMI_COCO_AUDIO` subtracts midpoint 32, shifts by eight into signed 16-bit
+PCM, and duplicates mono to both channels. One audio-clock pulse per 525
+pixel clocks produces 48 kHz from 25.2 MHz. The library supplies Audio Sample,
+Audio Clock Regeneration, Audio InfoFrame, and packet/error-correction logic.
 
-## Open video issues
+The current hardware build is reported silent despite simulated audio and
+clock-regeneration packets. `16d121b` is the recorded last hardware-working
+audio checkpoint. Packet presence alone does not establish sink acceptance.
+`HDMI_COCO_TEST` and the default `TEST_PATTERN` do not enable audio.
 
-- The library-owned HDMI raster can leave a short horizontal green line to
-  the left of the first character row in 40- and 80-column modes. Raster
-  dimensions, frame resynchronization, centering, and CoCo blanking are
-  correct enough for stable mode changes, but the remaining one-line artifact
-  still needs a pipeline/phase investigation.
+## Known limitations
+
+The standalone `HDMI_LIBRARY_TEST` mode is selectable but currently leaves
+its RGB source undriven; use `TEST_PATTERN` for the established standalone
+display checkpoint.
+
+- Digital tests cover complete 32/40/80-column placement. Wide modes use all
+  640 active pixels, so monitor overscan can still clip characters. A 720x480
+  transport with margins is proposed, not implemented.
+- CoCo-compatible graphics can show a black left area instead of the selected
+  border/background. A previously reported short green line near the first
+  text row also needs rechecking on a recorded build.
+- The renderer and partial GIME behavior do not yet pass every diagnostic
+  video mode. Post-processing is a streaming approximation, not full composite
+  signal emulation or geometric CRT remapping.
+
+See [current implementation](../docs/CURRENT_IMPLEMENTATION.md) and
+[diagnostic compatibility](../docs/DIAGNOSTIC_COMPATIBILITY_PLAN.md) for test
+boundaries and hardware evidence. No new hardware verification is implied by
+this documentation refresh.

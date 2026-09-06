@@ -1,9 +1,11 @@
-# Current Wukong implementation
+# Current CoCo3Elite Wukong implementation
 
 This document describes the code currently used by the QMTECH Wukong V3
-port. It is a snapshot of the implementation on 2026-09-04, not a list of
+port. It is a snapshot of the implementation on 2026-09-06, not a list of
 future goals. Historical bring-up notes and plans remain useful context, but
 this file is the starting point for understanding the active design.
+Hardware results below are previously recorded observations; the documentation
+review does not constitute a new hardware test.
 
 ## Source ownership and modification policy
 
@@ -31,7 +33,8 @@ Hardware-verified functions include:
 - CoCo 3 boot from a user-supplied system ROM in block RAM.
 - Disk Extended Color BASIC 2.1.
 - 128 KiB system RAM in FPGA block RAM.
-- Stable 32-, 40-, and 80-column text with working mode changes.
+- Stable 32-, 40-, and 80-column text and mode changes; wide modes may still
+  suffer monitor overscan clipping despite complete digital placement.
 - PS/2 keyboard on J14, including Break, soft reset, function-key controls,
   and keyboard-emulated left and right joysticks.
 - ZIA diagnostic cartridge autostart through F3 and the system-ROM cartridge
@@ -126,7 +129,8 @@ The sequence is:
 6. The unmodified hdl-util encoder generates VIC 1 HDMI/DVI timing, data
    islands, TMDS symbols, and the serialization input stream.
 
-The HDMI mode is 640 by 480 active pixels in an 800 by 525 total raster at a
+In the library CoCo modes, the HDMI mode is 640 by 480 active pixels in an
+800 by 525 total raster at a
 25.2 MHz pixel clock. The CoCo video source and HDMI transport currently run
 from the same pixel clock; no framebuffer or asynchronous line buffer is used.
 
@@ -163,6 +167,9 @@ than changing video placement at the same time.
 
 ## Keyboard and runtime controls
 
+J14 pin 1/P23 is PS/2 data; pin 3/T24 is PS/2 clock, as constrained in
+`constraints/wukong.xdc`. The imported receiver is `rtl/PS2_Key/ps2_keyboard.v`.
+
 The signal path is:
 
 ```text
@@ -180,6 +187,7 @@ Important FPGA controls are:
 | F9 | Toggle horizontal scanlines |
 | F10 | Toggle CRT glow |
 | F11 | Toggle NTSC artifact-color decoding |
+| F12 | CoCo `@`; management overlay is not implemented |
 | Ctrl+Alt+Delete | Guarded CoCo soft reset |
 
 The complete PC-to-CoCo key mapping and electrical connection are documented
@@ -197,8 +205,10 @@ With `-EmbeddedTestDisks`, the build converts and embeds:
 | 0 | `disks/fpgatest.dsk` | `build/disks/fpgatest.mem` |
 | 1 | `disks/games.dsk` | `build/disks/games.mem` |
 
-These are read-only, 35-track images. Without the option, sector commands do
-not silently fall through to an embedded image.
+These optional, untracked inputs are read-only, raw 161,280-byte, 35-track
+images. Both are required when embedding is enabled. Without the option,
+sector operations report not-ready; there is no mounted image backend.
+See [disk workflow](../disks/README.md) for generation and prerequisites.
 
 The J13 SD path currently performs SPI initialization and a diagnostic read of
 physical sector zero. It does not yet connect FAT32 files to the FDC backend,
@@ -212,27 +222,35 @@ Run all commands from the repository root. The launcher defaults to Vivado
 
 | Mode | Output bitstream | Description |
 | --- | --- | --- |
-| `TEST_PATTERN` | `build/wukong/wukong_hdmi_test.bit` | Original local HDMI test-pattern path |
-| `HDMI_LIBRARY_TEST` | `build/wukong/wukong_hdmi_library_test.bit` | hdl-util-generated test pattern |
+| `TEST_PATTERN` | `build/wukong/wukong_hdmi_test.bit` | Local test raster with imported channel encoding |
+| `HDMI_LIBRARY_TEST` | `build/wukong/wukong_hdmi_library_test.bit` | Experimental standalone library raster; RGB source is currently undriven |
 | `HDMI_COCO_TEST` | `build/wukong/wukong_hdmi_coco_test.bit` | CoCo through hdl-util without HDMI audio |
 | `HDMI_COCO_AUDIO` | `build/wukong/wukong_hdmi_coco_audio.bit` | Full current CoCo/HDMI path with audio packets |
 | `COCO_VIDEO` | `build/wukong/wukong_coco_video.bit` | Earlier CoCo video-core checkpoint |
 | `CPU_DIAGNOSTIC` | `build/wukong/wukong_cpu_diagnostic.bit` | CPU/BRAM diagnostic image |
-| `COCO3_BOOT` | `build/wukong/wukong_coco3_boot.bit` | Earlier CoCo boot path using the local transmitter |
+| `COCO3_BOOT` | `build/wukong/wukong_coco3_boot.bit` | CoCo boot with local raster/channel serialization, no HDMI audio |
 
-The current full build command is:
+The launcher defaults to `TEST_PATTERN`. All real-ROM modes require prepared
+`build/roms/coco3.mem` and `disk11.mem`, plus local `roms/ziadiag.ccc`,
+which the launcher imports automatically. See [ROM preparation](../roms/README.md).
+
+`HDMI_LIBRARY_TEST` is selectable, but its non-CoCo branch currently leaves
+`library_rgb_direct` undriven. It is not a verified replacement for the local
+`TEST_PATTERN` fallback. No new build or hardware pass is claimed here.
+
+The current full build command, without optional embedded disks, is:
 
 ```powershell
-& .\scripts\build_wukong.ps1 -Mode HDMI_COCO_AUDIO -EmbeddedTestDisks
+& .\scripts\build_wukong.ps1 -Mode HDMI_COCO_AUDIO
 ```
 
-Omit `-EmbeddedTestDisks` when disk images should not be included. Vivado runs
+Add `-EmbeddedTestDisks` only after supplying both local DSK inputs. Vivado runs
 inside `build/wukong/`; checkpoints, reports, staged initialization files, and
 the bitstream remain under `build/`.
 
 The Tcl flow uses up to eight host threads, runs synthesis, optimization,
 placement, physical optimization, and routing, and refuses to write a
-bitstream when the worst timed path has negative slack.
+bitstream when no timed path exists or the worst timed path has negative slack.
 
 ## Regression tests
 
@@ -242,7 +260,7 @@ Focused PowerShell launchers under `scripts/` cover the principal boundaries:
 | --- | --- |
 | `test_boot_machine.ps1` | CPU boot and machine bus behavior |
 | `test_boot_video.ps1` | Boot video and palette/border mapping |
-| `test_fdc_read.ps1` | WD1773-compatible embedded-image reads |
+| `test_fdc_read.ps1` | Legacy embedded-image read test; launcher is stale (see below) |
 | `test_gime_border.ps1` | GIME border register behavior |
 | `test_gime_timer.ps1` | GIME timer behavior |
 | `test_gime_vector_page.ps1` | ROM/RAM vector-page mapping |
@@ -253,6 +271,13 @@ Focused PowerShell launchers under `scripts/` cover the principal boundaries:
 | `test_sd_spi_init.ps1` | SD SPI initialization state machine |
 | `test_system_rom.ps1` | Prepared ROM layout and reset vector |
 | `test_video_probe.ps1` | Diagnostic cartridge video register sequences |
+
+`test_fdc_read.ps1` still stages `INTRUDERS.DSK`/`DAGGORAT.DSK` as
+`intruders.mem`/`daggorat.mem` and does not define `EMBEDDED_TEST_DISKS`.
+The active controller expects `fpgatest.mem`/`games.mem` under that define.
+The existing launcher therefore does not validate the current embedded backend
+without a code update; its presence is not a current passing regression claim.
+The SD test covers initialization, not a FAT32 service or full card workflow.
 
 `test_hdmi_window.ps1` writes simulated 640 by 480 captures for the three text
 widths under `build/sim/hdmi_window/`. These captures verify digital placement

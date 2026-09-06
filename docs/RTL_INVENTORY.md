@@ -1,173 +1,62 @@
-# CoCo3FPGA RTL inventory and Wukong port boundary
+# CoCo3Elite RTL inventory and Wukong boundary
 
-## Scope and method
+The active source list is defined by [build_wukong.tcl](../scripts/build_wukong.tcl).
+This inventory describes the current layout; it supersedes the original Phase 1
+proposal for `boards/wukong/` and `vivado/`, which are not current directories.
 
-This is the Phase 1 inventory for an AMD/Xilinx Artix-7 port. It records the
-repository as found and does not change functional RTL. All 48 tracked source,
-generated, initialization, and Quartus project files in the checkout were
-inspected. `coco3fpga_dw.v` and the original Quartus assignments are the
-integration reference.
+## Active implementation
 
-Classification means:
+| Area/files | Role |
+| --- | --- |
+| `rtl/wukong/wukong_top.v`, `clocking.v` | Mode selection, MMCM/reset, HDMI raster alignment, audio sample clock, physical output |
+| `rtl/wukong/coco3_boot_system.v` | Full machine, keyboard controls, SD probe, filters, UART integration |
+| `rtl/core/coco3_boot_machine.v` | CPU09 bus, ROM/RAM decode, GIME/SAM/PIA/MMU, cartridge, timer, FDC |
+| `rtl/core/coco3_128k_ram.v` | Dual-port 128 KiB BRAM shared by CPU/video |
+| `rtl/core/coco3_system_rom.v`, `coco3_disk_rom.v`, `coco3_diagnostic_cartridge.v` | Prepared, user-supplied ROM memories |
+| `rtl/core/coco3_char_rom.v`, `coco3gen.mem` | Portable character generator |
+| `rtl/core/coco3_diagnostic_rom.v`, `coco3_diagnostic.mem` | Repository-owned CPU diagnostic |
+| `rtl/core/coco3_synthetic_video_ram.v` | Synthetic text for `COCO_VIDEO` |
+| `rtl/core/coco3_keyboard_matrix.v`, `rtl/cocokey.v`, `rtl/PS2_Key/ps2_keyboard.v` | PS/2 scan reception and CoCo matrix translation |
+| `rtl/CPU09/cpu09l_128.vhd` | Inherited VHDL `cpu09`, compiled for real boot and CPU diagnostic |
+| `rtl/coco3vid.v` | Inherited CoCo renderer with portable character ROM and native-text fetch/scroll corrections |
+| `rtl/core/coco3_gime_timer.v` | Partial GIME timer/interrupt implementation |
+| `rtl/core/coco3_fdc.v`, `coco3_disk_image.v` | Minimal WD1773-compatible interface; optional read-only embedded DSK backend |
+| `rtl/core/sd_spi_init.v`, `sd_spi_read_sector0.v` | J13 initialization and sector-zero probe only; no FAT32 mounting |
+| `rtl/wukong/ntsc_artifact_filter.v`, `crt_filter.v` | Streaming artifact colors, scanlines, glow |
+| `rtl/wukong/coco3_uart_debug.v`, `uart_tx.v` | Passive USB serial logging |
+| `rtl/wukong/coco_video_source.v`, `coco3_diagnostic_system.v` | Synthetic-video and CPU-diagnostic wrappers |
+| `rtl/wukong/hdmi/` | Local raster/test pattern and Artix-7 serializer; legacy local encoder retained |
+| `rtl/wukong/wukong_hdmi_tx.sv` | Experimental packet wrapper behind `HDMI_AUDIO`; no launcher mode defines that symbol |
+| `rtl/third_party/hdl-util-hdmi/` | Vendored channel encoding and HDMI raster/packet/serialization library |
+| `constraints/wukong.xdc` | V3 clock, HDMI, PS/2, J13 SPI, and UART pins and timing constraints |
 
-- **KEEP**: portable behavioral RTL; use unchanged initially.
-- **MODIFY**: portable behavior exists, but a later integration change is
-  expected and must be checked against the original timing.
-- **REPLACE**: generated/vendor-specific implementation needs a compatible
-  Vivado implementation with the same interface and observable latency.
-- **DEFER**: not needed for the first HDMI or BASIC-screen milestones.
-- **DE1-ONLY**: board/project glue retained only as the reference design.
+`HDMI_COCO_AUDIO` uses the library instance in `wukong_top.v`, not the
+experimental `HDMI_AUDIO` wrapper. Library modes use 25.2/126 MHz clocks;
+local fallback modes use 25/125 MHz. Real boot uses `NEW_SRAM` and CPU enables
+with 128 KiB BRAM; no DE1 SRAM clock/arbitration block is required.
 
-## Principal machine RTL
+## Inherited sources outside the active machine
 
-| File / module | Purpose | Language | Vendor dependency | Clock assumptions | Memory assumptions | Class | Proposed Wukong action / notes |
-|---|---|---|---|---|---|---|---|
-| `coco3fpga_dw.v` / `coco3fpga_dw` | DE1 top-level, CoCo/GIME register logic, MMU/decode, SRAM arbitration, reset, clocks, peripheral integration | Verilog | Directly instantiates `PH2_CLK`, `FFF0`; includes `CoCo3IO.v`; DE1 pin/peripheral model | 50 MHz master; falling-edge divider; a state machine creates 0.89/1.79/8.33/25 MHz CPU timing and interleaves CPU/video SRAM cycles; `PH_2_RAW` is promoted by Altera clock control | Asynchronous 16-bit external SRAM, byte lanes selected by A0; up to 2 MiB addressing though DE1 wiring/commentary varies; external flash plus small internal memories | **DE1-ONLY** as a top; **MODIFY** only later when extracting portable machine logic | Do not use as the first Wukong top and do not rewrite it. Add a separate Wukong top. Later isolate machine/decode/arbitration carefully, replacing SRAM timing explicitly. Switch/button defaults must become constants or Wukong configuration parameters, not prerequisites. |
-| `cpu09l_128.vhd` / `cpu09` | John Kent 6809-compatible CPU | VHDL | None found | One `clk`; active-high reset; bus and interrupt timing tied to `PH_2` in the reference top | External 8-bit synchronous bus contract, no internal memory | **KEEP** | Compile unchanged in Vivado mixed-language flow. Verify reset-vector and read/write phase timing at integration. Entity is lowercase `cpu09` (VHDL is case-insensitive; Verilog instantiates `CPU09`). |
-| `coco3vid.v` / `COCO3VIDEO` | CoCo 1/3 raster generation, text/graphics interpretation, RGB and sync generation | Verilog | Instantiates Altera `COCO3GEN` character ROM | `PIX_CLK` is `CLK50MHZ` in the reference; counters and outputs update directly in that domain | Consumes a 16-bit video buffer supplied by top-level external-SRAM arbitration; produces 20-bit video address; assumes the reference fetch cadence | **MODIFY** | Preserve raster/GIME behavior. Replace only character ROM first. Later expose RGB/HSYNC/VSYNC/blanking through an adapter; do not force HDMI timing into this module. BRAM latency and video prefetch require explicit analysis. |
-| `CoCo3IO.v` (textually included; no module) | 6502-based disk/slave subsystem, registers, time/I2C, buffer/FIFO wiring | Verilog include fragment | Instantiates `disk02`, `buffer_dp`, `FIFO_READ`, `FIFO_WRITE`; depends on T65 | `PH2_02 = MCLOCK[1]` (12.5 MHz) and `~PH2_02` for T65; FIFOs cross T65 and 6809 domains | 2 KiB initialized disk RAM/ROM, two 512x8 dual-port buffers, two 512x8 async FIFOs | **DEFER** | Exclude from standalone HDMI and initial CPU/BRAM bring-up if a minimal machine wrapper permits it. Preserve for storage phase; replace its generated memories/FIFOs before enabling. Because it is an include fragment, extraction needs special care. |
-| `cocokey.v` / `COCOKEY` | Maps PS/2 scan events into the 56-key CoCo matrix and reset/shift signals | Verilog | None | Input sampling from nominal 50 MHz; slow reset clock supplied as `V_SYNC`; internally instantiates PS/2 decoder | Register state only | **DEFER** | Reuse after BASIC video. Later give asynchronous PS/2 inputs proper constraints/synchronization review; keyboard must not gate startup. |
-| `ps2_keyboard.v` / `ps2_keyboard` | PS/2 serial decoder | Verilog | None | Samples asynchronous PS/2 clock/data with system clock | No RAM | **DEFER** | Reuse with `COCOKEY` in keyboard phase; PMOD pin mapping belongs only in Wukong constraints. |
-| `SDCard.v` / `SDCard` | CPU-visible SPI SD interface/state machine | Verilog | None | `clk_i` is asynchronous and documented as 2x SPI clock; reference supplies 25 MHz; `cpuclk_n_i` is `PH_2`; contains an explicit cross-domain halt synchronizer | Small registers only | **DEFER** | Keep unchanged until storage phase; review CDC and generated SPI rate then. Never include in early HDMI acceptance path. |
-| `i2c.v` / `I2C` | Register-programmed I2C master used by disk/slave subsystem | Verilog | None | Falling edge of supplied clock, async active-low reset | Registers only | **DEFER** | Retain for later peripheral/storage work. |
-| `sound.v` (include fragment) | CoCo audio mixing/DAC datapath | Verilog include | None | Uses surrounding top-level signals/clocks | Register/arithmetic state | **DEFER** | Integrate only after BASIC/keyboard/storage baseline; later wrap a clean audio interface. |
-| `paddles.v` (include fragment) | Joystick/paddle timing | Verilog include | None | Uses `MCLOCK[10]` and async reset | Registers only | **DEFER** | Not part of no-wiring milestones. |
-| `uart_6551.v` / `glb6551`; `6551rx.v` / `uart51_rx`; `6551tx.v` / `uart51_tx` | 6551-compatible serial subsystem | Verilog | None | CPU `PH_2` plus receive/transmit/baud clocks; some explicit domain synchronization | FIFO/register state only | **DEFER** | Retain for later serial/DriveWire work; CDC/timing review before use. |
-| `uart_6850.v` / `glb6850`; `6850RX.v` / `UART_RX`; `6850TX.v` / `UART_TX` | 6850-compatible serial subsystem | Verilog | None | CPU `PH_2` plus independent UART clocks; explicit synchronization comments | FIFO/register state only | **DEFER** | Retain for later serial/DriveWire work. |
-| `T65.vhd` / `T65`; `T65_ALU.vhd`; `T65_MCode.vhd`; `T65_Pack.vhd` | 6502 core used by `CoCo3IO.v` | VHDL | None | Single `Clk`, enable and async-style control inputs | No inferred RAM | **DEFER** | Compile unchanged when disk/slave subsystem returns. Keep package/source order in the Vivado Tcl file. |
+`rtl/coco3fpga_dw.v` is the original CoCo3FPGA DE1 top. `CoCo3IO.v`, `sound.v`,
+and `paddles.v` are include fragments for that design. The legacy SPI SD module
+is `rtl/SPI/SDCard.v`; it is not the current J13 probe. T65 and the UART cores
+remain under their own `rtl/` directories and are not the Wukong storage or
+USB debug implementation. DriveWire is not being ported.
 
-## Generated memories, FIFO, and clock resources
+`legacy-quartus/` preserves the original QPF/QSF, generated Altera RAM/FIFO/
+clock wrappers, QIP manifests, MIF data, black boxes, and instantiation
+examples. These are not compiled by Vivado. Some historical QSF inputs are
+missing; see [the legacy project notes](../legacy-quartus/README.md).
 
-| File / module | Purpose | Language/data | Vendor dependency | Clock and latency assumptions | Memory assumptions | Class | Proposed Wukong action / notes |
-|---|---|---|---|---|---|---|---|
-| `COCO3GEN.v` / `COCO3GEN`; `coco3gen.mif` | 2 KiB x 8 CoCo character-generator ROM | Altera-generated Verilog + MIF | `altsyncram`, Cyclone II, `altera_mf` | Clocked address with **unregistered output** configuration; effective behavior must be established in simulation | Initialized from `coco3gen.mif` | **REPLACE** | Add an inferred ROM wrapper with identical ports; convert/consume MIF reproducibly (prefer a checked-in Vivado-readable `.mem`). Preserve address-to-pixel pipeline latency. |
-| `FFF0.v` / `FFF0`; `FFF0.mif` | Writable 2 KiB x 8 vector/fast-ROM page | Altera-generated Verilog + MIF | `altsyncram`, Cyclone II | Single `PH_2` clock, unregistered output configuration, same-port read/write behavior is not explicitly documented | Initialized single-port RAM, CPU writes enabled by `ROM_RW & FFF0_EN` | **REPLACE** | Inferred initialized RAM with identical interface. Establish read-during-write and output latency before replacement; this block contains reset vectors and is CPU-critical. |
-| `disk02.v` / `disk02`; `DISK_02.mif` | 2 KiB x 8 initialized writable memory for T65 disk CPU | Altera-generated Verilog + MIF | `altsyncram`, Cyclone II | Single `PH2_02` clock, unregistered output setting | Initialized single-port RAM | **REPLACE**, then **DEFER** | Implement only for storage phase; preserve initialization and read-during-write behavior. Case mismatch (`disk_02.mif` in wrapper versus checked-in `DISK_02.mif`) matters on case-sensitive hosts. |
-| `buffer_dp.v` / `buffer_dp` | 512 x 8 dual-clock, dual-port disk transfer buffer (instantiated twice) | Altera-generated Verilog | `altsyncram`, Cyclone II | Independent write/read clocks; B address registered, B output configured unregistered | True dual-clock RAM; wrapper names an absent `buffer_dp` init file although power-up is configured initialized | **REPLACE**, then **DEFER** | Use inferred simple dual-port dual-clock RAM only after confirming Vivado inference and exact one-cycle address/output behavior. No initialization file is present. |
-| `FIFO_READ.v` / `FIFO_READ` | 512 x 8 dual-clock FIFO | Altera-generated Verilog | `dcfifo`, `altera_mf`, Cyclone II | Independent clocks, async clear, non-show-ahead output; 4-stage read/write synchronizer settings | BRAM-backed async FIFO | **REPLACE**, then **DEFER** | Prefer XPM FIFO or a proven portable async FIFO. Match non-FWFT behavior, flags, reset semantics, depth, and CDC constraints. |
-| `FIFO_WRITE.v` / `FIFO_WRITE` | 512 x 8 dual-clock FIFO | Altera-generated Verilog | `dcfifo`, `altera_mf`, Cyclone II | Independent clocks, async clear, non-show-ahead output; 5-stage synchronization settings | BRAM-backed async FIFO | **REPLACE**, then **DEFER** | Same as read FIFO; retain the original conservative synchronization depth unless equivalence is demonstrated. |
-| `PH2_CLK.v` / `PH2_CLK` | Promotes generated `PH_2_RAW` onto a global clock network | Altera-generated Verilog | Direct `cycloneii_clkctrl` primitive | Input is a logic-generated, variable-rate CPU clock | None | **REPLACE** | Do not translate literally to a fabric-clock buffer without review. Preferred later architecture is a stable global system clock plus CPU clock enable; if a real divided clock remains necessary use supported Xilinx clocking and generated-clock constraints. Preserve bus phase relationships. |
-| `*_bb.v` for the six generated blocks | Quartus black-box declarations | Altera-generated Verilog | Quartus flow only | Mirrors associated wrapper | None | **DE1-ONLY** | Do not add to Vivado sources. Files: `COCO3GEN_bb.v`, `disk02_bb.v`, `FFF0_bb.v`, `buffer_dp_bb.v`, `FIFO_READ_bb.v`, `FIFO_WRITE_bb.v`, `PH2_CLK_bb.v`. |
-| `COCO3GEN_inst.v`, `PH2_CLK_inst.v` | Wizard instantiation templates, not design modules | Verilog snippets | Quartus wizard artifacts | N/A | N/A | **DE1-ONLY** | Retain as historical reference; do not compile. |
-| `*.qip` | Quartus IP include metadata | Tcl-like Quartus assignments | Quartus only | N/A | Names generated wrapper/black-box files | **DE1-ONLY** | Do not use in Vivado. Files present: `coco3gen.qip`, `disk02.qip`, `buffer_dp.qip`, `FIFO_READ.qip`, `FIFO_WRITE.qip`, `PH2_CLK.qip`. |
+## Ownership and limitations
 
-## Project and board files
+Keep board adaptation in `rtl/wukong/` and portable machine logic in `rtl/core/`.
+Preserve imported CPU/peripheral and third-party boundaries. The active design
+has no FAT32 file service, management CPU/GUI, writable disks, physical floppy,
+external-memory controller, physical joystick ADC, printer/cassette/RS-232 PAK,
+or DriveWire backend. Optional embedded DSK inputs are untracked.
 
-| File | Purpose | Vendor dependency | Class | Wukong action / notes |
-|---|---|---|---|---|
-| `coco3fpga_dw.qsf` | Quartus Cyclone-II device, file, timing, and DE1 pin assignments | Quartus; targets `EP2C20F484C7` | **DE1-ONLY** | Use only to recover source order, ports, and intent. It includes DE1 VGA, SRAM, flash, audio, PS/2, switches/buttons, LEDs, and other pins that must not leak into the Wukong top. |
-| `CoCo3FPGA.qpf` | Quartus project/revision metadata | Quartus | **DE1-ONLY** | Retain as reference. |
-| `LICENSE` | Project license | None | **KEEP** | Preserve. New files should remain compatible with it. |
-
-## Missing and inconsistent legacy inputs
-
-The QSF refers to files not present in this checkout: `disk_c0.mif`,
-`disk_c0.qip`, `disk_c8.qip`, `disk_d0.qip`, `disk_d8.qip`,
-`buffer_dp.mif`, `disk02_1.qip`, `Video_DAC.qip`, and `uartclk.qip`.
-`disk_02.mif` is also named with different case from the checked-in
-`DISK_02.mif`. These are legacy-build reproducibility issues, not permission to
-invent ROM contents. None is required for the standalone HDMI test; ROM/image
-provenance must be resolved before claiming a complete machine build.
-
-## Obvious Altera/Quartus dependencies to replace
-
-1. `altsyncram` in `COCO3GEN.v`, `FFF0.v`, `disk02.v`, and `buffer_dp.v`.
-2. `dcfifo` in `FIFO_READ.v` and `FIFO_WRITE.v`.
-3. `cycloneii_clkctrl` in `PH2_CLK.v`.
-4. All `.qip`, `_bb.v`, wizard instantiation snippets, `.qsf`, and `.qpf`
-   artifacts in a Vivado source set.
-5. Altera MIF initialization handling. Contents must be converted without
-   changing byte order/address meaning and checked by a small ROM test.
-6. DE1 external asynchronous SRAM/flash, VGA DAC, audio codec, PS/2, switch,
-   button, LED, serial, and SD pin glue embedded in `coco3fpga_dw`.
-
-No Altera primitive was found inside the CPU09, T65, GIME/video behavior,
-keyboard decoder/matrix, SD controller, I2C, UART, sound, or paddle source
-itself.
-
-## Clock and reset facts that constrain later work
-
-- The reference master is 50 MHz. `MCLOCK` is a falling-edge binary divider.
-- CPU `PH_2` is not a simple fixed divide in all modes. A 50 MHz state machine
-  interleaves external SRAM CPU and video accesses and creates approximately
-  0.89286, 1.7857, 8.33, or 25 MHz CPU operation depending on switches/build
-  mode. Changing this also changes memory/video arbitration.
-- CoCo video receives the 50 MHz master as `PIX_CLK`; this is machine raster
-  logic, not an HDMI-standard pixel stream.
-- T65 disk logic uses 12.5 MHz (`MCLOCK[1]`) and its opposite edge.
-- SD logic crosses between 25 MHz (`MCLOCK[0]`) and CPU `PH_2`.
-- Reset is asserted by DE1 button or keyboard logic, then stretched by a state
-  machine clocked from a divided master clock. CPU reset releases later than
-  general reset. The source comments' divisor/time arithmetic is inconsistent
-  with `MCLOCK[8]`; measure the actual RTL behavior before reproducing it.
-- Several logic-generated/divided clocks appear throughout the design. Later
-  conversion should prefer one or a small number of MMCM-derived global clocks
-  plus clock enables, with explicit CDC constraints where domains remain.
-
-## Exact minimal next-file proposal (no legacy RTL changes)
-
-The first Wukong implementation should be an isolated HDMI test project. Add
-only these files:
-
-```text
-boards/wukong/wukong_top.v
-boards/wukong/wukong.xdc
-boards/wukong/clocking.v
-boards/wukong/hdmi/video_timing.v
-boards/wukong/hdmi/test_pattern.v
-boards/wukong/hdmi/tmds_encoder.v
-boards/wukong/hdmi/tmds_serializer.v
-vivado/build_wukong.tcl
-docs/WUKONG_PORT.md
-docs/BRINGUP.md
-```
-
-Responsibilities and minimal changes:
-
-1. **Vivado build:** `build_wukong.tcl` creates an in-memory or disposable
-   project reproducibly, selects the exact XC7A100T Wukong-v2 part/package,
-   reads only the new Phase 2/3 RTL and XDC, sets `wukong_top`, runs synthesis,
-   implementation, timing/DRC reports, and bitstream generation. Permit a Tcl
-   variable override for the corresponding XC7A200T part, without weakening
-   pin/clock checks.
-2. **Board top and constraints:** `wukong_top.v` exposes only the 50 MHz clock
-   and onboard HDMI TMDS pairs (plus an HDMI auxiliary/enable signal only if
-   the verified board schematic requires it). `wukong.xdc` must be transcribed
-   from the **Wukong v2 schematic/vendor master constraint for the exact board
-   revision**, not guessed from another QMTECH board. It must contain the
-   20.000 ns input clock and correct package pins, I/O standards, and TMDS
-   assignments. There is no button/switch dependency; power-on reset is an
-   internal counter gated by clock-manager lock.
-3. **Clock generation:** `clocking.v` wraps an Artix-7 MMCM/PLL and global
-   buffers. Choose one documented HDMI mode whose pixel and 5x serialization
-   clocks can be generated legally from 50 MHz (the exact MMCM parameters go in
-   `WUKONG_PORT.md`). Reset remains asserted until `locked` is synchronized and
-   a deterministic startup counter expires. This standalone clock block is not
-   yet the CoCo `PH_2` replacement.
-4. **Standalone HDMI:** `video_timing.v` produces standard timing and data
-   enable; `test_pattern.v` produces unmistakable bars/grid/border;
-   `tmds_encoder.v` implements three data channels plus the clock channel;
-   `tmds_serializer.v` contains the small, isolated Xilinx output primitive
-   boundary (`OSERDESE2`/`OBUFDS`) or an equivalently reviewed implementation.
-   No CPU, CoCo RAM, ROM, keyboard, SD, DDR3, Ethernet, UART, PMOD, or legacy
-   top-level source is in this source set.
-5. **Documentation:** `WUKONG_PORT.md` records verified board revision, part,
-   schematic/constraint provenance, HDMI pin mapping, video mode, pixel/TMDS
-   clocks, MMCM math, reset sequence, and timing exceptions. `BRINGUP.md`
-   records Vivado version, one-command build/program steps, expected reports,
-   and the acceptance test: configure board, attach HDMI display, observe a
-   stable deterministic pattern.
-
-Only after this bitstream passes on hardware should the Vivado source set add
-portable CoCo RTL or replacement memory blocks. The first integration change
-should be a new wrapper around the existing machine, not edits that combine
-HDMI serialization with `coco3vid.v` or that conceal synchronous-BRAM latency.
-
-## Phase 1 conclusion
-
-The first hardware objective is independent of the legacy machine and can be
-built without touching it. The eventual machine port is feasible, but the main
-technical risks are the CPU/video arbitration encoded in the DE1 SRAM state
-machine, synchronous Artix-7 BRAM latency, character/vector ROM latency, and
-the generated `PH_2` clock. Those behaviors need targeted simulations and
-waveform comparisons before functional RTL is refactored.
+The implementation is a partial CoCo 3 compatibility layer, not a complete
+replacement for every legacy peripheral. See [current status](CURRENT_IMPLEMENTATION.md)
+and [diagnostic compatibility](DIAGNOSTIC_COMPATIBILITY_PLAN.md) for hardware
+video/audio issues and regression coverage.

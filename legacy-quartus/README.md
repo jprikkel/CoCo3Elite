@@ -1,4 +1,4 @@
-# Quartus / DE1 project
+# CoCo3Elite historical Quartus / DE1 reference
 
 This flat directory contains the original Intel/Altera Quartus project and its
 vendor-specific generated IP:
@@ -17,3 +17,9 @@ The historical QSF references several files absent from the source repository,
 including `disk_c0.*`, `disk_c8.qip`, `disk_d0.qip`, `disk_d8.qip`,
 `buffer_dp.mif`, `disk02_1.qip`, `Video_DAC.qip`, and `uartclk.qip`. Their
 absence predates this reorganization.
+
+The historical CoCo3FPGA project names and filenames are retained intentionally.
+The active CoCo3Elite Wukong build uses `../scripts/build_wukong.ps1`,
+`../rtl/wukong/`, `../rtl/core/`, and `../constraints/wukong.xdc`; it does not
+use this project's DriveWire/T65 disk path. See the
+[current implementation](../docs/CURRENT_IMPLEMENTATION.md).

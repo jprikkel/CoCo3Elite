@@ -1,4 +1,17 @@
-# Cartridge video probe
+# CoCo3Elite cartridge video probe
+
+This document preserves the V1/V2/V3 investigation and later HDMI-window fix.
+The current result is corrected digital placement and bottom-row scrolling;
+monitor overscan, graphics-border behavior, and HDMI audio remain separate
+limitations. Historical failures below are labeled by their checkpoint and
+must not be read as new results for the current build.
+
+Build the optional diagnostic disk using `scripts/create_test_disk.ps1`, with
+local `MEMT2023.BIN` and `SYSINFO.BIN` in `roms/`. Supply `disks/games.dsk` and
+build with `-EmbeddedTestDisks` to expose the generated `fpgatest.dsk` on drive 0.
+These DSK files are untracked and read-only when embedded. MicroSD currently
+supports initialization and sector-zero reads only, not FAT32 DSK mounting.
+See [disk preparation](../disks/README.md).
 
 Run `RUN "VIDPROBE"` from drive 0, or select **B** in `TESTMENU`.
 Start from ordinary Disk BASIC, not from inside the cartridge. This test uses
@@ -105,7 +118,7 @@ Supporting changes:
 - `tb/native_text_fetch_tb.v` and `scripts/test_native_text_fetch.ps1` add
   the BRAM/video-latch regression described above.
 - `tb/asm/VIDPROBE.asm` corrects the 80-column register value and attribute
-  byte; `tb/basic/VIDPROBE.BAS` identifies the corrected test as V2.
+  byte; `tb/basic/VIDPROBE.BAS` identified that test as V2; the current wrapper is V3.
 - `scripts/create_test_disk.ps1` assembles/packages the helper and BASIC
   wrapper; `tb/basic/TESTMENU.BAS` exposes the probe as option B.
 - The helper execution regression checks safe return and restoration,
@@ -115,7 +128,7 @@ No cartridge ROM, HDMI library, global scroll reset, or screen cropping
 change was made for this fix. Earlier vector-page changes in the working
 tree are separate from this native-text correction.
 
-## Hardware result and remaining bottom-row bug
+## Historical V2 result and then-open bottom-row bug
 
 Tested build: `build/wukong/wukong_hdmi_coco_audio.bit`, generated
 2026-09-02 at 07:42:15 local time, SHA-256:
@@ -180,12 +193,11 @@ Hardware result: the user confirms the last-line issue is fixed in both
 F3 → D and VIDPROBE. No cartridge ROM patch is used. The latest confirmation
 does not separately report title visibility.
 
-A separate horizontal clipping issue remains: the user reports only 38
+At the V3 checkpoint, a separate horizontal clipping issue remained: the user reported only 38
 characters in 40-column mode, with the 38th partially cut off, and 75 in
 80-column mode. This is recorded separately from the resolved vertical-scroll
-issue. The cause is not established; the next regression should check full
-horizontal-line visibility through the video-to-HDMI path, not only character
-latches and vertical row addresses.
+issue. The later full-chain regression and digital correction are recorded in
+[Horizontal HDMI window correction](#horizontal-hdmi-window-correction).
 
 Candidate bitstream generated 2026-09-02 22:46:59 local time at
 `build/wukong/wukong_hdmi_coco_audio.bit`; all user-specified timing constraints

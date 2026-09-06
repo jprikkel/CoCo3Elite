@@ -1,12 +1,36 @@
-# SD-card disk interface
+# CoCo3Elite SD-card disk interface
 
-## Goal
+## Current implementation
 
-The Wukong port mounts ordinary CoCo `.DSK` files directly from a FAT32 SD
-card. It does not use DriveWire, an HDB-DOS virtual hard-disk container, or
-disk images embedded in the FPGA bitstream. The WD1773-compatible controller
-is backend-neutral so a CoCo drive can instead be assigned to a physical
-floppy connected through a protected PMOD adapter.
+MicroSD currently supports SPI initialization and physical sector-zero reads
+only—not FAT32 DSK mounting. `rtl/core/sd_spi_init.v` initializes the card;
+`sd_spi_read_sector0.v` issues CMD17 for sector zero and checks its final
+`55 AA` signature. A successful signature check is not filesystem recognition.
+The current probe does not expose a general block-device or mounted file backend.
+
+The Digilent Pmod MicroSD is on J13: pin 1/N22 chip select, pin 2/N21 MOSI,
+pin 3/R20 MISO, pin 4/T22 clock, pin 5 ground, pin 6 3.3 V. See the
+[PMOD pinout](wukong-pmod-pinout.md). The boot machine exposes probe status
+at `$FF60` and detail at `$FF61`; after initialization these reflect the
+sector-zero reader. No card-detect input is wired.
+
+The minimal FDC already exposes `$FF40` and `$FF48-$FF4B`. Its only image
+backend is optional read-only block ROM: `-EmbeddedTestDisks` embeds local,
+untracked `disks/fpgatest.dsk` as drive 0 and `disks/games.dsk` as drive 1.
+Without that switch sector operations report not-ready. See
+[disk preparation](../disks/README.md). Neither path implements writes.
+
+Everything below is a future design proposal. FAT32 parsing, named-file
+mounting, four mount slots, a management CPU, F12 overlay, mount registers,
+BASIC syntax extensions, and the physical-floppy backend are not implemented.
+F12 currently maps to CoCo `@`. Copying a DSK to an SD card does not mount it.
+
+## Proposed goal
+
+The planned storage service will mount ordinary CoCo `.DSK` files from a FAT32
+card, replacing the optional embedded test backend. DriveWire and HDB-DOS
+containers are outside this plan. A future backend interface would also allow
+a physical floppy through a protected PMOD adapter.
 
 The intended Disk Extended Color BASIC syntax is:
 
@@ -20,7 +44,7 @@ DRIVE 0,UNLOAD
 After an image is mounted, existing commands such as `DIR`, `LOAD`, `LOADM`,
 `SAVE`, and `RUN` continue to use the normal Disk BASIC drive number.
 
-## Initial scope
+## Proposed initial scope
 
 - FAT32 media using either an MBR partition or a FAT32 superfloppy layout
 - Four mount slots, drives 0 through 3
@@ -72,7 +96,7 @@ the Disk BASIC mount code after a backend has been selected.
 
 The preferred architecture uses a separate management subsystem, inspired by
 the division of responsibilities in products such as the Ultimate 64 but
-implemented specifically for CoCo3FPGA:
+implemented specifically for CoCo3Elite:
 
 - A small soft CPU and firmware own SD initialization, FAT32, directory
   browsing, configuration, and `.DSK` file metadata.
@@ -134,8 +158,8 @@ USB mass storage is a later hardware option. The Wukong board's onboard USB
 connection is a USB-to-UART bridge, not a USB host, so USB storage would need
 an external host controller or a different board interface.
 
-The Ultimate project is GPL-3.0 licensed and may be used where it provides a
-useful foundation. Any copied or adapted code must be kept in a separate,
+Any future imported management code must be reviewed for its actual license
+and compatibility. Copied or adapted code must be kept in a separate,
 clearly named source directory with its original copyright and GPL notices,
 license text, provenance, and a record of local modifications. Project-specific
 interfaces should sit outside that directory so the imported component can be
@@ -143,9 +167,9 @@ updated and audited independently. Only the portions needed by the management
 subsystem should be imported; unrelated C64 platform code and dependencies
 should remain upstream.
 
-## Wukong extension registers
+## Proposed Wukong extension registers (not implemented)
 
-The mount service uses addresses outside the WD1773 register window so normal
+The proposed mount service would use addresses outside the WD1773 register window so normal
 disk software cannot accidentally issue mount commands.
 
 | Address | Read | Write |
