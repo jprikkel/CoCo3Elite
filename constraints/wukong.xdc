@@ -11,6 +11,15 @@ set_property -dict { PACKAGE_PIN P23 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_port
 set_property -dict { PACKAGE_PIN T24 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports ps2_clk]
 set_false_path -from [get_ports {ps2_clk ps2_data}]
 
+# Keep the reusable PS/2 RTL vendor-neutral. These four registers form the
+# two-stage clock and data synchronizers inside the KEYBOARD instance.
+set_property ASYNC_REG TRUE [get_cells -quiet -hier -filter {
+    NAME =~ */KEYBOARD/KB_CLK_reg* ||
+    NAME =~ */KEYBOARD/KB_CLK_B_reg ||
+    NAME =~ */KEYBOARD/KB_DATA_reg ||
+    NAME =~ */KEYBOARD/KB_DATA_B_reg
+}]
+
 # Digilent Pmod MicroSD on J13 (standard Type-2 SPI layout).
 set_property -dict { PACKAGE_PIN N22 IOSTANDARD LVCMOS33 } [get_ports sd_cs_n]
 set_property -dict { PACKAGE_PIN N21 IOSTANDARD LVCMOS33 } [get_ports sd_mosi]
