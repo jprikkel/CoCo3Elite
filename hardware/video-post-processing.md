@@ -63,14 +63,10 @@ phosphor-mask options.
 ## HDMI output library
 
 TMDS channel encoding uses the vendored
-[hdl-util/hdmi](../rtl/third_party/hdl-util-hdmi/README.md) SystemVerilog
-library. The initial hardware checkpoint combines its unmodified channel
-encoder with the existing Wukong raster timing and proven Artix-7 OSERDES
-physical layer. This sends DVI-compatible video without HDMI auxiliary data
-islands. The project-owned `wukong_hdmi_tx` integration wrapper composes the
-unmodified upstream packet modules with that Wukong physical layer for true
-HDMI output, but remains experimental and is included only when `HDMI_AUDIO`
-is defined.
+[hdl-util/hdmi](../rtl/third-party/hdl-util-hdmi/README.md) SystemVerilog
+library. Both hdl-util build modes generate true HDMI data islands and use the
+library serializer. `HDMI_COCO_AUDIO` carries the CoCo DAC samples;
+`HDMI_LIBRARY_TEST` carries digital silence while displaying its color pattern.
 
 ## HDMI audio
 
@@ -86,8 +82,8 @@ rate of exactly 48 kHz from the 25 MHz pixel clock. The upstream audio sample,
 audio clock regeneration, Audio InfoFrame, packet selection, and packet ECC
 modules generate the HDMI data islands. Initial volume is deliberately
 conservative because hand-generated CoCo DAC waveforms can otherwise be loud.
-This path is disabled in the default bitstream until its packet timing is
-validated in simulation and accepted by the target HDMI sink.
+The build defaults to `HDMI_COCO_AUDIO`. Its 48 kHz clock is carried on a BUFG
+and declared as a generated clock in `constraints/wukong_audio.xdc`.
 
 ## Open video issues
 

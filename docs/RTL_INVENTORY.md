@@ -104,70 +104,18 @@ itself.
   conversion should prefer one or a small number of MMCM-derived global clocks
   plus clock enables, with explicit CDC constraints where domains remain.
 
-## Exact minimal next-file proposal (no legacy RTL changes)
+## Current Wukong build boundaries
 
-The first Wukong implementation should be an isolated HDMI test project. Add
-only these files:
+The active Wukong source set has three entry points:
 
-```text
-boards/wukong/wukong_top.v
-boards/wukong/wukong.xdc
-boards/wukong/clocking.v
-boards/wukong/hdmi/video_timing.v
-boards/wukong/hdmi/test_pattern.v
-boards/wukong/hdmi/tmds_encoder.v
-boards/wukong/hdmi/tmds_serializer.v
-vivado/build_wukong.tcl
-docs/WUKONG_PORT.md
-docs/BRINGUP.md
-```
+- `HDMI_COCO_AUDIO` combines the complete CoCo integration with the hdl-util
+  HDMI encoder and continuous 48 kHz audio packets.
+- `HDMI_LIBRARY_TEST` displays the library test pattern and sends zero-valued
+  HDMI audio samples. It does not generate a sound test.
+- `CPU_DIAGNOSTIC` retains the small CPU09 and block-RAM diagnostic with the
+  local DVI-compatible serializer.
 
-Responsibilities and minimal changes:
-
-1. **Vivado build:** `build_wukong.tcl` creates an in-memory or disposable
-   project reproducibly, selects the exact XC7A100T Wukong-v2 part/package,
-   reads only the new Phase 2/3 RTL and XDC, sets `wukong_top`, runs synthesis,
-   implementation, timing/DRC reports, and bitstream generation. Permit a Tcl
-   variable override for the corresponding XC7A200T part, without weakening
-   pin/clock checks.
-2. **Board top and constraints:** `wukong_top.v` exposes only the 50 MHz clock
-   and onboard HDMI TMDS pairs (plus an HDMI auxiliary/enable signal only if
-   the verified board schematic requires it). `wukong.xdc` must be transcribed
-   from the **Wukong v2 schematic/vendor master constraint for the exact board
-   revision**, not guessed from another QMTECH board. It must contain the
-   20.000 ns input clock and correct package pins, I/O standards, and TMDS
-   assignments. There is no button/switch dependency; power-on reset is an
-   internal counter gated by clock-manager lock.
-3. **Clock generation:** `clocking.v` wraps an Artix-7 MMCM/PLL and global
-   buffers. Choose one documented HDMI mode whose pixel and 5x serialization
-   clocks can be generated legally from 50 MHz (the exact MMCM parameters go in
-   `WUKONG_PORT.md`). Reset remains asserted until `locked` is synchronized and
-   a deterministic startup counter expires. This standalone clock block is not
-   yet the CoCo `PH_2` replacement.
-4. **Standalone HDMI:** `video_timing.v` produces standard timing and data
-   enable; `test_pattern.v` produces unmistakable bars/grid/border;
-   `tmds_encoder.v` implements three data channels plus the clock channel;
-   `tmds_serializer.v` contains the small, isolated Xilinx output primitive
-   boundary (`OSERDESE2`/`OBUFDS`) or an equivalently reviewed implementation.
-   No CPU, CoCo RAM, ROM, keyboard, SD, DDR3, Ethernet, UART, PMOD, or legacy
-   top-level source is in this source set.
-5. **Documentation:** `WUKONG_PORT.md` records verified board revision, part,
-   schematic/constraint provenance, HDMI pin mapping, video mode, pixel/TMDS
-   clocks, MMCM math, reset sequence, and timing exceptions. `BRINGUP.md`
-   records Vivado version, one-command build/program steps, expected reports,
-   and the acceptance test: configure board, attach HDMI display, observe a
-   stable deterministic pattern.
-
-Only after this bitstream passes on hardware should the Vivado source set add
-portable CoCo RTL or replacement memory blocks. The first integration change
-should be a new wrapper around the existing machine, not edits that combine
-HDMI serialization with `coco3vid.v` or that conceal synchronous-BRAM latency.
-
-## Phase 1 conclusion
-
-The first hardware objective is independent of the legacy machine and can be
-built without touching it. The eventual machine port is feasible, but the main
-technical risks are the CPU/video arbitration encoded in the DE1 SRAM state
-machine, synchronous Artix-7 BRAM latency, character/vector ROM latency, and
-the generated `PH_2` clock. Those behaviors need targeted simulations and
-waveform comparisons before functional RTL is refactored.
+The removed standalone and synthetic-video checkpoints no longer contribute
+RTL or selectable build modes. The remaining `test_pattern.v` is shared by
+`HDMI_LIBRARY_TEST`, while `tmds_serializer.v` remains necessary for
+`CPU_DIAGNOSTIC`.

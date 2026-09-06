@@ -22,7 +22,7 @@ try {
     Invoke-VivadoTool xvlog @(
         '-d', 'NEW_SRAM', '-d', 'HDMI_RASTER_800X525',
         (Join-Path $repoRoot 'rtl\core\coco3_char_rom.v'),
-        (Join-Path $repoRoot 'rtl\coco3vid.v'),
+        (Join-Path $repoRoot 'rtl\third-party\coco3fpga\coco3vid.v'),
         (Join-Path $repoRoot 'tb\gime_border_tb.v'))
     Invoke-VivadoTool xelab @('gime_border_tb', '-s', 'gime_border_sim')
     Invoke-VivadoTool xsim @('gime_border_sim', '-runall')

@@ -8,7 +8,8 @@ the QMTECH Wukong V3 FPGA development board.
 The current port targets the Wukong V3 fitted with an Artix-7 `XC7A100T` in
 the FGG676 package. The hardware-verified build boots a 128 KiB CoCo 3 system
 ROM from block RAM and displays Extended Color BASIC over the board's HDMI
-connector. Test-pattern, legacy-video, and CPU-diagnostic images remain
+connector with 48 kHz stereo HDMI packets carrying the CoCo's mono DAC output.
+A library test-pattern image with silent audio and a CPU-diagnostic image are
 available as separate build modes.
 
 The long-term target family includes boards based on the Artix-7 `XC7A15T`,
@@ -34,6 +35,7 @@ QMTECH Wukong V3.*
 CoCo3FPGA/
 |-- rtl/              Verilog and VHDL sources
 |   |-- core/         Portable CoCo memory, ROM, and boot-machine modules
+|   |-- third-party/  Licensed upstream CPU, CoCo, peripheral, and HDMI RTL
 |   `-- wukong/       Wukong top level, clocking, HDMI, and system integration
 |-- constraints/      Board-specific XDC constraints
 |-- scripts/          Vivado build, ROM preparation, and simulation scripts
@@ -42,8 +44,7 @@ CoCo3FPGA/
 |-- build/            Generated ROM images, reports, checkpoints, and bitstreams
 |-- roms/             User-supplied ROM inputs; ROM binaries are ignored by Git
 |-- hardware/         Wukong interface pinouts and external wiring guides
-|-- docs/              Porting notes, bring-up results, and board documentation
-`-- legacy-quartus/    Original Intel/Altera Quartus project and support files
+`-- docs/              Porting notes, bring-up results, and board documentation
 ```
 
 Generated content under `build/` is not committed.
@@ -90,13 +91,13 @@ Prepare the appropriate ROM first, then build the hardware-verified CoCo 3
 image from the repository root:
 
 ```powershell
-& .\scripts\build_wukong.ps1 -Mode COCO3_BOOT
+& .\scripts\build_wukong.ps1 -Mode HDMI_COCO_AUDIO
 ```
 
 On success, program the board with:
 
 ```text
-build/wukong/wukong_coco3_boot.bit
+build/wukong/wukong_hdmi_coco_audio.bit
 ```
 
 The build performs synthesis, implementation, design-rule checks, timing
@@ -105,12 +106,15 @@ design has negative timing slack.
 
 Other selectable modes are:
 
-| Mode | Output | Purpose |
+| Mode | Output | Transport and purpose |
 |---|---|---|
-| `TEST_PATTERN` | `wukong_hdmi_test.bit` | Standalone HDMI test image |
-| `COCO_VIDEO` | `wukong_coco_video.bit` | Legacy CoCo video-core checkpoint |
-| `CPU_DIAGNOSTIC` | `wukong_cpu_diagnostic.bit` | CPU and 128 KiB block-RAM diagnostic |
-| `COCO3_BOOT` | `wukong_coco3_boot.bit` | CoCo 3 ROM boot |
+| `HDMI_COCO_AUDIO` | `wukong_hdmi_coco_audio.bit` | Complete CoCo 3 over HDMI with 48 kHz audio; default build |
+| `HDMI_LIBRARY_TEST` | `wukong_hdmi_library_test.bit` | hdl-util pattern over HDMI with silent audio packets and no sound test |
+| `CPU_DIAGNOSTIC` | `wukong_cpu_diagnostic.bit` | CPU09 and 128 KiB block-RAM diagnostic over video-only, DVI-compatible TMDS |
+
+All three modes use the board's HDMI connector. See
+[Wukong HDMI bring-up](docs/BRINGUP.md) for the instantiated hardware,
+audio behavior, and hardware checks for each image.
 
 For example, to use another Vivado installation or compatible FPGA part:
 
@@ -118,7 +122,7 @@ For example, to use another Vivado installation or compatible FPGA part:
 & .\scripts\build_wukong.ps1 `
     -Vivado 'D:\AMD\Vivado\2025.2\bin\vivado.bat' `
     -Part 'xc7a100tfgg676-2' `
-    -Mode COCO3_BOOT
+    -Mode HDMI_COCO_AUDIO
 ```
 
 Scripts also require updating permissions under Windows PowerShell. Run the commands below as
@@ -140,7 +144,6 @@ Administrator in PowerShell.
 
 - [Current Wukong implementation and known issues](docs/CURRENT_IMPLEMENTATION.md)
 - [Wukong port notes](docs/WUKONG_PORT.md)
-- [Core integration plan](docs/WUKONG_CORE_INTEGRATION.md)
 - [Hardware bring-up record](docs/BRINGUP.md)
 - [Original CoCo3FPGA project](https://github.com/richard42/CoCo3FPGA)
 - [RetroBIOS Tandy CoCo ROM collection](https://github.com/Abdess/retrobios/tree/main/bios/Tandy/CoCo)

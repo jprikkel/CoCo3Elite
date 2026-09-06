@@ -1,102 +1,99 @@
-# Wukong standalone HDMI bring-up
+# Wukong HDMI bring-up
 
-## Build
+## Supported builds
 
-Use a Vivado release supporting Artix-7. On this Windows workstation, from the
-repository root run:
-
-```powershell
-& scripts/build_wukong.ps1
-```
-
-The default remains the verified standalone test pattern. To build the Stage 1
-legacy CoCo video checkpoint instead, run:
+Run the build launcher from the repository root. It defaults to the complete
+CoCo 3 image:
 
 ```powershell
-& scripts/build_wukong.ps1 -Mode COCO_VIDEO
+& .\scripts\build_wukong.ps1
 ```
 
-That mode produces `build/wukong/wukong_coco_video.bit`. It uses the original
-CoCo video timing and character generator with a synthetic read-only text
-screen; it does not yet contain the CPU, system ROM, keyboard, or writable main
-RAM.
+The supported modes are:
 
-Physical acceptance passed on 2026-08-23. The board displayed green 80-column
-text on a dark background with the expected `COCO3FPGA ARTIX-7`,
-`QMTECH WUKONG VIDEO OK`, and `STAGE 1 PASSED` messages. This confirms the
-portable character ROM, legacy video fetch path, palette adapter, sync/blanking,
-and TMDS output are operating together on hardware.
+| Mode | Output | Video transport | Audio | Purpose |
+| --- | --- | --- | --- | --- |
+| `HDMI_COCO_AUDIO` | `build/wukong/wukong_hdmi_coco_audio.bit` | HDMI | CoCo DAC as 48 kHz, 16-bit stereo | Complete CoCo 3 system |
+| `HDMI_LIBRARY_TEST` | `build/wukong/wukong_hdmi_library_test.bit` | HDMI | Silent 48 kHz, 16-bit stereo packets | HDMI transport and raster test |
+| `CPU_DIAGNOSTIC` | `build/wukong/wukong_cpu_diagnostic.bit` | DVI-compatible TMDS through the HDMI connector | None | CPU09, reset-vector, ROM, and 128 KiB block-RAM diagnostic |
 
-To build the Stage 2 CPU and 128 KiB BRAM diagnostic:
+All three images use the board's HDMI connector and differential TMDS pins.
+`HDMI_COCO_AUDIO` and `HDMI_LIBRARY_TEST` are true HDMI streams with data
+islands. `CPU_DIAGNOSTIC` sends video-only, DVI-compatible TMDS and has no
+HDMI packets or audio.
+
+The full build requires prepared CoCo 3 and Disk BASIC ROMs. Run:
 
 ```powershell
-& scripts/build_wukong.ps1 -Mode CPU_DIAGNOSTIC
+& .\scripts\prepare_coco3_rom.ps1
+& .\scripts\prepare_disk_rom.ps1
+& .\scripts\build_wukong.ps1 -Mode HDMI_COCO_AUDIO
 ```
 
-Program `build/wukong/wukong_cpu_diagnostic.bit`. A successful CPU execution
-displays `CPU09 128K BRAM OK`, `RESET VECTOR PASSED`, and `STAGE 2 RUNNING`.
-This image uses a repository-owned diagnostic ROM and does not contain BASIC.
-Run `scripts/test_cpu_diagnostic.ps1` for the mixed-language CPU/BRAM test.
+Vivado runs synthesis, optimization, placement, routing, timing analysis, and
+DRC before writing a bitstream. Generated files remain under `build/wukong/`.
 
-Physical Stage 2 acceptance passed on 2026-08-23. The Wukong displayed all
-three expected messages, confirming reset-vector fetch, 6809 execution, both
-128 KiB BRAM byte lanes, concurrent video reads, and HDMI output on hardware.
+### `HDMI_COCO_AUDIO`
 
-## Stage 3 ROM preparation
+This is the default and the complete machine. It instantiates CPU09, 128 KiB
+of dual-port block RAM, the CoCo 3 and Disk BASIC ROMs, GIME/SAM/PIA
+compatibility logic, PS/2 keyboard input, keyboard-emulated joysticks, the
+six-bit sound DAC, diagnostic cartridge support, the minimal read-only FDC,
+the MicroSD initialization and sector-zero probe, and UART diagnostics.
 
-The real boot image is user-supplied and is never committed. Place a legally
-obtained CoCo 3 system ROM at `roms/coco3.rom`, then run:
+`COCO3VIDEO` supplies the CoCo raster. The Wukong integration maps its colors,
+optionally applies NTSC artifact color, scanlines, and CRT glow, and aligns it
+to the hdl-util 640 by 480 VIC 1 raster. Narrow 512-pixel modes are centered in
+the 640-pixel active area.
 
-```powershell
-& scripts/prepare_coco3_rom.ps1
-```
+The hdl-util encoder emits full HDMI video and data islands. The held six-bit
+CoCo DAC value is centered, scaled to signed 16-bit PCM, duplicated into left
+and right channels, and sent at 48 kHz.
 
-The script accepts a raw 32 KiB image or the historical 32,258-byte CoCo3FPGA
-flash format. For the latter, it removes the `$8000` load header and recreates
-the vector page from the original `FFF0.mif` behavior. It rejects an incorrect
-format or reset vector, reports the source ROM SHA-256, and creates the ignored
-Vivado input `build/roms/coco3.mem`. Use `-ExpectedSha256` to enforce the source
-digest for reproducible builds. The real-boot RTL and `COCO3_BOOT` build
-selector are the next checkpoint after this input has been validated.
+Adding `-EmbeddedTestDisks` includes the configured read-only DSK images.
+They are optional and untracked. The MicroSD interface does not mount FAT32
+DSK files; it currently initializes the card and reads physical sector zero
+only.
 
-The launcher defaults to `C:\AMD\2025.2\Vivado\bin\vivado.bat`, selects the
-bundled Tcl Store to avoid the corrupt per-user catalog, and invokes the Tcl
-build. On another system, invoke `scripts/build_wukong.tcl` directly or pass a
-different `-Vivado` path to the launcher.
+### `HDMI_LIBRARY_TEST`
 
-The script performs synthesis, optimization, placement, physical optimization,
-routing, timing and DRC reporting, and bitstream generation. Outputs are placed
-under `build/wukong/`; the bitstream is:
+This image isolates the HDMI clocking, hdl-util encoder, serializer, output
+pins, raster geometry, and monitor compatibility from the CoCo system. It
+displays a 640 by 480 pattern with color regions, a checkerboard area, a grid,
+and a white active-area border. It does not instantiate the CPU, machine RAM,
+ROMs, GIME machine, keyboard, cartridge, FDC, or SD controller.
 
-```text
-build/wukong/wukong_hdmi_test.bit
-```
+The output is full HDMI. It includes the normal Audio Sample, Audio Clock
+Regeneration, and Audio InfoFrame traffic at 48 kHz with two 16-bit channels.
+Every sample is zero, so this mode tests HDMI audio transport without
+producing a tone or other test sound.
 
-The build refuses to generate a bitstream when the worst timing path has
-negative slack. Review `timing_summary.rpt` and `drc.rpt` even after a passing
-run.
+### `CPU_DIAGNOSTIC`
 
-## Hardware acceptance test
+This small standalone system instantiates CPU09, a diagnostic ROM, 128 KiB of
+dual-port block RAM, the portable character ROM, and `COCO3VIDEO`. It checks
+CPU execution, reset-vector handling, and RAM byte lanes, then reports status
+through the generated video display. It does not include the complete CoCo
+machine, system or Disk BASIC ROMs, keyboard, audio, disk, SD, cartridge, UART,
+or video post-processing filters.
 
-1. Power the Wukong normally and connect its programmer.
-2. Connect an HDMI display to the onboard HDMI output.
-3. Program `wukong_hdmi_test.bit` into the FPGA over JTAG.
-4. Confirm a stable 640x480 image containing color bars, a lower checker/gradient
-   area, a white grid, and a white border.
-5. Power-cycle and repeat before integrating any CoCo logic.
+Its local encoder emits video-only, DVI-compatible TMDS through the physical
+HDMI connector. It does not generate HDMI data islands or audio packets.
 
-No PMOD wiring, keyboard, SD card, DDR3, Ethernet, UART interaction, button, or
-switch is used. The image begins automatically after configuration and MMCM
-lock.
+## Hardware checks
 
-## Verification status
+For the full image, confirm that Extended Color BASIC boots, PS/2 input works,
+and `SOUND 100,100` is audible. The transmitter sends audio packets
+continuously. Some displays mute digital silence and may require a sustained
+tone before their speakers unmute, especially after the display is power
+cycled.
 
-Vivado 2025.2 successfully synthesized, placed, routed, checked, and generated
-the XC7A100T bitstream on 2026-08-23. The routed timing report shows WNS
-28.670 ns, WHS 0.184 ns, no failing endpoints, and no unconstrained path group.
-The routed DRC report contains zero checks.
+For an HDMI transport check without the CoCo, build `HDMI_LIBRARY_TEST` and
+confirm a stable 640 by 480 color pattern. This mode sends valid 48 kHz,
+16-bit, two-channel HDMI audio packets containing silence; it intentionally
+does not generate a test sound.
 
-The physical HDMI acceptance test passed on 2026-08-23: after JTAG
-configuration, the onboard HDMI output produced the expected stable test
-pattern without PMOD wiring or any input peripheral. The standalone Wukong
-HDMI checkpoint is complete.
+The `CPU_DIAGNOSTIC` image is hardware-verified. It displays `CPU09`,
+`RESET VECTOR PASSED`, and `STAGE 2 RUNNING` in green text on a black
+background. This confirms that the CPU reaches the second diagnostic stage
+and that the DVI-compatible video path is visible on the tested display.

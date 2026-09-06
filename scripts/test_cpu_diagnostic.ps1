@@ -24,7 +24,7 @@ function Invoke-VivadoTool {
 
 Push-Location $runDir
 try {
-    Invoke-VivadoTool xvhdl @('--2008', (Join-Path $repoRoot 'rtl\CPU09\cpu09l_128.vhd'))
+    Invoke-VivadoTool xvhdl @('--2008', (Join-Path $repoRoot 'rtl\third-party\CPU09\cpu09l_128.vhd'))
     Invoke-VivadoTool xvlog @(
         (Join-Path $repoRoot 'rtl\core\coco3_128k_ram.v'),
         (Join-Path $repoRoot 'rtl\core\coco3_diagnostic_rom.v'),

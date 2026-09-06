@@ -25,8 +25,6 @@ module wukong_top (
     wire [9:0] hdmi_clock_symbol = 10'b1111100000;
     wire [3:0] hdmi_serial;
 
-    wire [9:0] x;
-    wire [9:0] y;
     wire hsync;
     wire vsync;
     wire video_enable;
@@ -59,8 +57,9 @@ module wukong_top (
     wire [7:0] library_green;
     wire [7:0] library_blue;
     wire [15:0] hdmi_audio_words [1:0];
-    reg [9:0] hdmi_audio_divider;
-    reg hdmi_audio_clk;
+    reg [8:0] hdmi_audio_divider;
+    reg hdmi_audio_clk_unbuffered;
+    wire hdmi_audio_clk;
     wire signed [6:0] centered_audio =
         $signed({1'b0, audio_dac}) - 7'sd32;
     wire signed [15:0] scaled_audio = centered_audio <<< 8;
@@ -71,28 +70,47 @@ module wukong_top (
         ? narrow_rgb_delay[63] : library_rgb_direct;
 
 `ifdef HDMI_LIBRARY_AUDIO
+`ifdef HDMI_LIBRARY_COCO
     assign hdmi_audio_words[0] = scaled_audio;
     assign hdmi_audio_words[1] = scaled_audio;
+`else
+    // Exercise normal HDMI audio packet transmission without generating a
+    // sound test. The library pattern carries two channels of digital silence.
+    assign hdmi_audio_words[0] = 16'd0;
+    assign hdmi_audio_words[1] = 16'd0;
+`endif
+
+    // Divide 25.2 MHz by 525 using alternating 262- and 263-cycle half
+    // periods. The BUFG puts the resulting 48 kHz clock on dedicated clock
+    // routing; wukong_audio.xdc declares its relationship to pixel_clk.
     always @(posedge pixel_clk) begin
         if (video_reset) begin
-            hdmi_audio_divider <= 10'd0;
-            hdmi_audio_clk <= 1'b0;
-        end else if (hdmi_audio_divider == 10'd524) begin
-            // 25.2 MHz / 525 = exactly 48 kHz.
-            hdmi_audio_divider <= 10'd0;
-            hdmi_audio_clk <= 1'b1;
+            hdmi_audio_divider <= 9'd0;
+            hdmi_audio_clk_unbuffered <= 1'b0;
+        end else if ((!hdmi_audio_clk_unbuffered &&
+                      hdmi_audio_divider == 9'd261) ||
+                     (hdmi_audio_clk_unbuffered &&
+                      hdmi_audio_divider == 9'd262)) begin
+            hdmi_audio_divider <= 9'd0;
+            hdmi_audio_clk_unbuffered <= !hdmi_audio_clk_unbuffered;
         end else begin
             hdmi_audio_divider <= hdmi_audio_divider + 1'b1;
-            hdmi_audio_clk <= 1'b0;
         end
     end
+
+    BUFG hdmi_audio_bufg_i (
+        .I(hdmi_audio_clk_unbuffered),
+        .O(hdmi_audio_clk)
+    );
+
 `else
     assign hdmi_audio_words[0] = 16'd0;
     assign hdmi_audio_words[1] = 16'd0;
     always @* begin
-        hdmi_audio_divider = 10'd0;
-        hdmi_audio_clk = 1'b0;
+        hdmi_audio_divider = 9'd0;
+        hdmi_audio_clk_unbuffered = 1'b0;
     end
+    assign hdmi_audio_clk = 1'b0;
 `endif
 
 `ifdef HDMI_LIBRARY_COCO
@@ -134,9 +152,11 @@ module wukong_top (
         end
     end
 `else
+    assign uart_tx = 1'b1;
     assign sd_cs_n = 1'b1;
     assign sd_sck = 1'b0;
     assign sd_mosi = 1'b1;
+    assign audio_dac = 6'd32;
     test_pattern library_pattern_i (
         .x(library_x), .y(library_y), .video_enable(library_active),
         .red(library_red), .green(library_green), .blue(library_blue)
@@ -175,21 +195,12 @@ module wukong_top (
 
     assign hdmi_serial = {library_tmds_clock, library_tmds};
 `else
-`ifdef COCO3_BOOT
-    coco3_boot_system source_i (
-        .pixel_clk(pixel_clk), .reset(video_reset), .raster_resync(1'b0),
-        .hsync(hsync),
-        .ps2_clk(ps2_clk), .ps2_data(ps2_data),
-        .sd_cs_n(sd_cs_n), .sd_sck(sd_sck),
-        .sd_mosi(sd_mosi), .sd_miso(sd_miso),
-        .vsync(vsync), .video_enable(video_enable),
-        .red(red), .green(green), .blue(blue), .audio_dac(audio_dac),
-        .narrow_video_mode(narrow_video_mode), .uart_debug_tx(uart_tx)
-    );
-`elsif CPU_DIAGNOSTIC
     assign uart_tx = 1'b1;
     assign audio_dac = 6'd32;
     assign narrow_video_mode = 1'b0;
+    assign sd_cs_n = 1'b1;
+    assign sd_sck = 1'b0;
+    assign sd_mosi = 1'b1;
     coco3_diagnostic_system source_i (
         .pixel_clk    (pixel_clk),
         .reset        (video_reset),
@@ -200,55 +211,7 @@ module wukong_top (
         .green        (green),
         .blue         (blue)
     );
-`elsif COCO_VIDEO
-    assign uart_tx = 1'b1;
-    assign audio_dac = 6'd32;
-    assign narrow_video_mode = 1'b0;
-    coco_video_source source_i (
-        .pixel_clk    (pixel_clk),
-        .reset        (video_reset),
-        .hsync        (hsync),
-        .vsync        (vsync),
-        .video_enable (video_enable),
-        .red          (red),
-        .green        (green),
-        .blue         (blue)
-    );
-`else
-    assign uart_tx = 1'b1;
-    assign audio_dac = 6'd32;
-    assign narrow_video_mode = 1'b0;
-    assign sd_cs_n = 1'b1;
-    assign sd_sck = 1'b0;
-    assign sd_mosi = 1'b1;
-    video_timing timing_i (
-        .pixel_clk    (pixel_clk),
-        .reset        (video_reset),
-        .x            (x),
-        .y            (y),
-        .hsync        (hsync),
-        .vsync        (vsync),
-        .video_enable (video_enable)
-    );
 
-    test_pattern pattern_i (
-        .x            (x),
-        .y            (y),
-        .video_enable (video_enable),
-        .red          (red),
-        .green        (green),
-        .blue         (blue)
-    );
-`endif
-
-`ifdef HDMI_AUDIO
-    wukong_hdmi_tx hdmi_i (
-        .pixel_clk(pixel_clk), .serial_clk(serial_clk), .reset(video_reset),
-        .hsync(hsync), .vsync(vsync), .video_enable(video_enable),
-        .red(red), .green(green), .blue(blue), .audio_dac(audio_dac),
-        .tmds_serial(hdmi_serial)
-    );
-`else
     tmds_channel #(.CN(0)) hdmi_blue_i (
         .clk_pixel(pixel_clk), .video_data(blue),
         .data_island_data(4'h0), .control_data({vsync, hsync}),
@@ -274,7 +237,6 @@ module wukong_top (
     tmds_serializer serialize_clock_i (
         .pixel_clk(pixel_clk), .serial_clk(serial_clk), .reset(video_reset),
         .parallel_data(hdmi_clock_symbol), .serial_data(hdmi_serial[3]));
-`endif
 `endif // HDMI_LIBRARY_TEST
 
     OBUFDS #(.IOSTANDARD("TMDS_33"), .SLEW("FAST")) data0_obuf_i
