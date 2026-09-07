@@ -230,7 +230,8 @@ module coco3_boot_system (
 
     // Ctrl+Alt+Delete is also the CoCo 3 Easter-egg chord. Keep the emulated
     // machine in reset until the modifiers have been released, then provide a
-    // short key-free guard interval before allowing the ROM to start.
+    // short key-free guard interval. Release only on the next raster alignment
+    // pulse so the reset raster and the HDMI library raster start together.
     always @(posedge pixel_clk) begin
         if (reset) begin
             soft_reset_active <= 1'b0;
@@ -249,7 +250,8 @@ module coco3_boot_system (
         end else if (soft_reset_active) begin
             if (soft_reset_keys_held) begin
                 soft_reset_release_count <= 22'd0;
-            end else if (soft_reset_release_count == 22'd2499999) begin
+            end else if (soft_reset_release_count == 22'd2499999 &&
+                         raster_resync) begin
                 soft_reset_active <= 1'b0;
                 soft_reset_release_count <= 22'd0;
             end else begin
