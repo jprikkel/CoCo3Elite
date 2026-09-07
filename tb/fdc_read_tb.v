@@ -75,12 +75,12 @@ module fdc_read_tb;
         end
         if ({sector_data[0], sector_data[1], sector_data[2], sector_data[3],
              sector_data[4], sector_data[5], sector_data[6], sector_data[7]} !==
-            64'h5350414345202020) begin
-            $display("FAIL: drive 0 INTRUDERS directory bytes are incorrect");
+            64'h4644435245414420) begin
+            $display("FAIL: drive 0 FDCREAD directory bytes are incorrect");
             $finish;
         end
         if ({sector_data[8], sector_data[9], sector_data[10]} !== 24'h424153) begin
-            $display("FAIL: drive 0 INTRUDERS extension bytes are incorrect");
+            $display("FAIL: drive 0 FDCREAD extension bytes are incorrect");
             $finish;
         end
 
@@ -123,8 +123,8 @@ module fdc_read_tb;
         end
         if ({sector_data[0], sector_data[1], sector_data[2], sector_data[3],
              sector_data[4], sector_data[5], sector_data[6], sector_data[7]} !==
-            64'h444147474F524154) begin
-            $display("FAIL: drive 1 directory name bytes are incorrect");
+            64'h4644435245414432) begin
+            $display("FAIL: drive 1 FDCREAD2 directory name bytes are incorrect");
             $finish;
         end
         if ({sector_data[8], sector_data[9], sector_data[10]} !== 24'h42494E) begin
@@ -132,7 +132,7 @@ module fdc_read_tb;
             $finish;
         end
 
-        $display("PASS: read drive 0 INTRUDERS and drive 1 DAGGORAT directories; reject writes");
+        $display("PASS: read generated DECB directories on both drives; reject writes");
         $finish;
     end
 endmodule

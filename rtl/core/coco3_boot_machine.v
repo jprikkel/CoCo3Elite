@@ -13,6 +13,7 @@ module coco3_boot_machine #(
     input  wire        cpu_fast_mode,
     input  wire        diagnostic_cartridge_enabled,
     output wire [15:0] debug_address,
+    output wire [15:0] debug_pc,
     output wire        debug_vma,
     output wire        debug_read,
     output wire        debug_opfetch,
@@ -236,10 +237,10 @@ module coco3_boot_machine #(
         if (reset) begin
             divider <= 0;
             hold <= 1'b1;
-        // The 25.2 MHz HDMI pixel clock gives approximately 1.8 MHz with a
-        // divide-by-14 enable and 0.9 MHz with divide-by-28. These correspond
-        // to the CoCo fast and normal CPU rates, respectively.
-        end else if (divider == (cpu_fast_mode ? 5'd13 : 5'd27)) begin
+        // The MC6809E wrapper consumes four enabled pixel-clock edges per E
+        // cycle.  Release it every 4 clocks in fast mode and every 7 clocks
+        // in normal mode, producing approximately 1.6 MHz and 0.9 MHz E.
+        end else if (divider == (cpu_fast_mode ? 5'd3 : 5'd6)) begin
             divider <= 0;
             hold <= 1'b0;
         end else begin
@@ -416,6 +417,7 @@ module coco3_boot_machine #(
     cpu09 cpu_i (
         .clk(clock), .rst(reset), .vma(vma), .lic_out(), .ifetch(),
         .opfetch(opfetch), .ba(), .bs(), .addr(address), .rw(read_cycle),
+        .debug_pc(debug_pc),
         .data_out(write_data), .data_in(read_data), .irq(cpu_irq),
         .firq(cpu_firq), .nmi(fdc_nmi), .halt(1'b0), .hold(hold)
     );

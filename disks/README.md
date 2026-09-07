@@ -13,6 +13,10 @@ track, 256 bytes per sector. Embedded disks are read-only block-ROM contents;
 changing them requires preparing and rebuilding the bitstream. Write commands
 do not save changes. Both inputs are required when embedding is enabled.
 
+Use `-Drive0Disk <path>` and `-Drive1Disk <path>` to select different local
+images. Relative paths are resolved from the repository root; absolute paths
+are also accepted. These options still require `-EmbeddedTestDisks`.
+
 Run these commands from the repository root after preparing the ROMs:
 
 ```powershell

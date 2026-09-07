@@ -14,6 +14,7 @@ module coco3_boot_system (
     output wire [7:0] red, output wire [7:0] green, output wire [7:0] blue
 );
     wire [15:0] cpu_address;
+    wire [15:0] cpu_pc;
     wire cpu_vma;
     wire cpu_read;
     wire cpu_opfetch;
@@ -230,7 +231,8 @@ module coco3_boot_system (
 
     // Ctrl+Alt+Delete is also the CoCo 3 Easter-egg chord. Keep the emulated
     // machine in reset until the modifiers have been released, then provide a
-    // short key-free guard interval before allowing the ROM to start.
+    // short key-free guard interval. Release only on the next raster alignment
+    // pulse so the reset raster and the HDMI library raster start together.
     always @(posedge pixel_clk) begin
         if (reset) begin
             soft_reset_active <= 1'b0;
@@ -249,9 +251,15 @@ module coco3_boot_system (
         end else if (soft_reset_active) begin
             if (soft_reset_keys_held) begin
                 soft_reset_release_count <= 22'd0;
-            end else if (soft_reset_release_count == 22'd2499999) begin
+            end else if (soft_reset_release_count == 22'd2499999 &&
+                         raster_resync) begin
                 soft_reset_active <= 1'b0;
                 soft_reset_release_count <= 22'd0;
+            end else if (soft_reset_release_count == 22'd2499999) begin
+                // Saturate after the key-release guard interval.  The HDMI
+                // frame pulse is only one pixel clock wide and may arrive
+                // after this counter reaches its terminal value.
+                soft_reset_release_count <= soft_reset_release_count;
             end else begin
                 soft_reset_release_count <= soft_reset_release_count + 1'b1;
             end
@@ -260,6 +268,7 @@ module coco3_boot_system (
 
     coco3_boot_machine machine_i (
         .clock(pixel_clk), .reset(system_reset), .debug_address(cpu_address),
+        .debug_pc(cpu_pc),
         .cpu_fast_mode(cpu_fast_mode),
         .diagnostic_cartridge_enabled(diagnostic_cartridge_enabled),
         .debug_vma(cpu_vma), .debug_read(cpu_read),
@@ -302,6 +311,7 @@ module coco3_boot_system (
 
     coco3_uart_debug uart_debug_i (
         .clock(pixel_clk), .reset(reset), .cpu_address(cpu_address),
+        .cpu_pc(cpu_pc),
         .cpu_vma(cpu_vma), .cpu_read(cpu_read), .cpu_opfetch(cpu_opfetch),
         .cpu_read_data(cpu_read_data), .cpu_write_data(cpu_data),
         .keyboard_active(|keyboard_keys),
