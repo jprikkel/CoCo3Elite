@@ -13,6 +13,7 @@ module coco3_boot_machine #(
     input  wire        cpu_fast_mode,
     input  wire        diagnostic_cartridge_enabled,
     output wire [15:0] debug_address,
+    output wire [15:0] debug_pc,
     output wire        debug_vma,
     output wire        debug_read,
     output wire        debug_opfetch,
@@ -416,6 +417,7 @@ module coco3_boot_machine #(
     cpu09 cpu_i (
         .clk(clock), .rst(reset), .vma(vma), .lic_out(), .ifetch(),
         .opfetch(opfetch), .ba(), .bs(), .addr(address), .rw(read_cycle),
+        .debug_pc(debug_pc),
         .data_out(write_data), .data_in(read_data), .irq(cpu_irq),
         .firq(cpu_firq), .nmi(fdc_nmi), .halt(1'b0), .hold(hold)
     );

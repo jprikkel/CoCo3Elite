@@ -3,7 +3,9 @@ param(
     [string]$Part = 'xc7a100tfgg676-2',
     [ValidateSet('HDMI_TEST_PATTERN', 'COCO3_ELITE', 'BASIC_6809_DVI_TEST')]
     [string]$Mode = 'COCO3_ELITE',
-    [switch]$EmbeddedTestDisks
+    [switch]$EmbeddedTestDisks,
+    [string]$Drive0Disk = 'disks\fpgatest.dsk',
+    [string]$Drive1Disk = 'disks\games.dsk'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -42,10 +44,14 @@ foreach ($name in @('coco3.mem', 'disk11.mem', 'diagnostic_cart.mem')) {
 }
 if ($EmbeddedTestDisks) {
     foreach ($disk in @(
-        @{ Input = 'disks\fpgatest.dsk'; Output = 'fpgatest.mem' },
-        @{ Input = 'disks\games.dsk'; Output = 'games.mem' }
+        @{ Input = $Drive0Disk; Output = 'fpgatest.mem' },
+        @{ Input = $Drive1Disk; Output = 'games.mem' }
     )) {
-        $inputPath = Join-Path $repoRoot $disk.Input
+        $inputPath = if ([System.IO.Path]::IsPathRooted($disk.Input)) {
+            $disk.Input
+        } else {
+            Join-Path $repoRoot $disk.Input
+        }
         $preparedPath = Join-Path $repoRoot "build\disks\$($disk.Output)"
         & (Join-Path $PSScriptRoot 'prepare_disk_image.ps1') `
             -InputPath $inputPath -OutputPath $preparedPath

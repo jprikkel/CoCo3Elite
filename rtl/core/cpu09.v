@@ -6,6 +6,7 @@
 module cpu09 (
     input wire clk, rst,
     output wire vma, lic_out, ifetch, opfetch, ba, bs,
+    output wire [15:0] debug_pc,
     output wire [15:0] addr,
     output wire rw,
     output wire [7:0] data_out,
@@ -18,29 +19,28 @@ module cpu09 (
     wire avma, busy, lic;
     wire rnw;
     wire [7:0] dout;
+    wire [111:0] registers;
+    assign debug_pc = registers[111:96];
 
     always @(negedge clk) begin
-        if (rst) begin
-            phase <= 2'b00;
-            e <= 1'b0;
-            q <= 1'b0;
-        end else begin
-            case (phase)
-                2'b00: e <= 1'b0;
-                2'b01: q <= 1'b1;
-                2'b10: e <= 1'b1;
-                2'b11: q <= 1'b0;
-            endcase
-            if (!hold)
-                phase <= phase + 2'b01;
-        end
+        // The core synchronously samples nRESET on falling E, then acts on
+        // that sample on the following falling E. Keep both clocks running
+        // during reset, even though the machine asserts hold throughout it.
+        case (phase)
+            2'b00: e <= 1'b0;
+            2'b01: q <= 1'b1;
+            2'b10: e <= 1'b1;
+            2'b11: q <= 1'b0;
+        endcase
+        if (rst || !hold)
+            phase <= phase + 2'b01;
     end
 
     mc6809i core (
         .D(data_in), .DOut(dout), .ADDR(addr), .RnW(rnw), .E(e), .Q(q),
         .BS(bs), .BA(ba), .nIRQ(!irq), .nFIRQ(!firq), .nNMI(!nmi),
         .AVMA(avma), .BUSY(busy), .LIC(lic), .nHALT(!halt),
-        .nRESET(!rst), .nDMABREQ(1'b1), .RegData()
+        .nRESET(!rst), .nDMABREQ(1'b1), .RegData(registers)
     );
 
     assign data_out = dout;
@@ -50,7 +50,7 @@ module cpu09 (
     // the service clock immediately following falling E; qualifying VMA here
     // prevents RAM and I/O peripherals from consuming one CPU access four
     // times.  BA suppresses accesses while the CPU has released the bus.
-    assign vma = !ba && phase == 2'b01;
+    assign vma = !rst && !ba && phase == 2'b01;
     assign lic_out = lic;
     assign ifetch = 1'b0;
     assign opfetch = 1'b0;

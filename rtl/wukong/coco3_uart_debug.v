@@ -7,6 +7,7 @@ module coco3_uart_debug (
     input  wire        clock,
     input  wire        reset,
     input  wire [15:0] cpu_address,
+    input  wire [15:0] cpu_pc,
     input  wire        cpu_vma,
     input  wire        cpu_read,
     input  wire        cpu_opfetch,
@@ -150,8 +151,9 @@ module coco3_uart_debug (
         end else begin
             tx_start <= 1'b0;
             cart_previous <= cartridge_enabled;
-            if (cpu_vma && cpu_opfetch)
-                last_opcode_pc <= cpu_address;
+            // MC6809 exposes its architectural PC through the unmodified
+            // RegData port. This is a register snapshot, not an opcode trace.
+            last_opcode_pc <= cpu_pc;
             if (cpu_vma && !cpu_read && cpu_address == 16'hff02)
                 last_keyboard_column <= cpu_write_data;
             if (cpu_vma && cpu_read && cpu_address == 16'hff00)

@@ -12,7 +12,7 @@ Connect the board's Mini-USB serial connector and open its Windows COM port at
 ```
 
 The console reports `COCO3 UART READY`, cartridge enable/entry events, and a
-once-per-second opcode-fetch address plus keyboard state such as:
+once-per-second CPU PC register snapshot plus keyboard state such as:
 
 ```text
 PC=A176 K=0 R=FF C=FF
@@ -28,8 +28,9 @@ shows whether the PS/2 decoder sees any matrix key, while `R` and `C` show the
 last PIA keyboard row read and column-select write.
 
 The logger only observes existing debug signals and does not stall the CPU.
-`PC` is retained from the most recent CPU opcode fetch, rather than sampled
-from an arbitrary RAM or I/O bus cycle.
+`PC` comes from the MC6809's existing `RegData` output. It is the CPU's
+current program-counter register and may point past an instruction being
+executed; it is not an instruction trace or an arbitrary bus address.
 
 This console is enabled in `COCO3_ELITE`. It is not DriveWire, a ROM console,
 or an emulated CoCo RS-232 PAK; PC input is not consumed. Messages can be

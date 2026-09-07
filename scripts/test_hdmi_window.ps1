@@ -19,7 +19,7 @@ $sources+=@(Get-ChildItem "$repoRoot\rtl\third-party\hdl-util-hdmi\src\*.sv" |
  Where-Object Name -ne 'serializer.sv' | ForEach-Object FullName)
 Push-Location $runDir
 try {
- & "$VivadoBin\xvlog.bat" "$repoRoot\rtl\third-party\MC6809\mc6809i.v" "$repoRoot\rtl\third-party\MC6809\cpu09.v"
+ & "$VivadoBin\xvlog.bat" "$repoRoot\rtl\third-party\MC6809\mc6809i.v" "$repoRoot\rtl\core\cpu09.v"
  if($LASTEXITCODE){throw 'xvhdl failed'}
  & "$VivadoBin\xvlog.bat" -sv -d NEW_SRAM -d HDMI_TEST_PATTERN -d HDMI_LIBRARY_COCO -d HDMI_LIBRARY_AUDIO -d HDMI_RASTER_800X525 @sources
  if($LASTEXITCODE){throw 'xvlog failed'}

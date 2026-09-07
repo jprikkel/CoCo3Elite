@@ -48,7 +48,7 @@ $sources = @(
 
 Push-Location $runDir
 try {
-    Invoke-VivadoTool xvlog @((Join-Path $repoRoot 'rtl\third-party\MC6809\mc6809i.v'), (Join-Path $repoRoot 'rtl\third-party\MC6809\cpu09.v'))
+    Invoke-VivadoTool xvlog @((Join-Path $repoRoot 'rtl\third-party\MC6809\mc6809i.v'), (Join-Path $repoRoot 'rtl\core\cpu09.v'))
     Invoke-VivadoTool xvlog (@('-d', 'NEW_SRAM') + $sources)
     Invoke-VivadoTool xelab @('boot_video_tb', '-s', 'boot_video_tb_sim')
     Invoke-VivadoTool xsim @('boot_video_tb_sim', '-runall')

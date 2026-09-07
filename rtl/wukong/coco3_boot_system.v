@@ -14,6 +14,7 @@ module coco3_boot_system (
     output wire [7:0] red, output wire [7:0] green, output wire [7:0] blue
 );
     wire [15:0] cpu_address;
+    wire [15:0] cpu_pc;
     wire cpu_vma;
     wire cpu_read;
     wire cpu_opfetch;
@@ -267,6 +268,7 @@ module coco3_boot_system (
 
     coco3_boot_machine machine_i (
         .clock(pixel_clk), .reset(system_reset), .debug_address(cpu_address),
+        .debug_pc(cpu_pc),
         .cpu_fast_mode(cpu_fast_mode),
         .diagnostic_cartridge_enabled(diagnostic_cartridge_enabled),
         .debug_vma(cpu_vma), .debug_read(cpu_read),
@@ -309,6 +311,7 @@ module coco3_boot_system (
 
     coco3_uart_debug uart_debug_i (
         .clock(pixel_clk), .reset(reset), .cpu_address(cpu_address),
+        .cpu_pc(cpu_pc),
         .cpu_vma(cpu_vma), .cpu_read(cpu_read), .cpu_opfetch(cpu_opfetch),
         .cpu_read_data(cpu_read_data), .cpu_write_data(cpu_data),
         .keyboard_active(|keyboard_keys),
