@@ -254,6 +254,11 @@ module coco3_boot_system (
                          raster_resync) begin
                 soft_reset_active <= 1'b0;
                 soft_reset_release_count <= 22'd0;
+            end else if (soft_reset_release_count == 22'd2499999) begin
+                // Saturate after the key-release guard interval.  The HDMI
+                // frame pulse is only one pixel clock wide and may arrive
+                // after this counter reaches its terminal value.
+                soft_reset_release_count <= soft_reset_release_count;
             end else begin
                 soft_reset_release_count <= soft_reset_release_count + 1'b1;
             end
