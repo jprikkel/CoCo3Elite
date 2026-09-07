@@ -20,14 +20,20 @@ module cpu09 (
     wire [7:0] dout;
 
     always @(negedge clk) begin
-        case (phase)
-            2'b00: e <= 1'b0;
-            2'b01: q <= 1'b1;
-            2'b10: e <= 1'b1;
-            2'b11: q <= 1'b0;
-        endcase
-        if (!hold)
-            phase <= phase + 2'b01;
+        if (rst) begin
+            phase <= 2'b00;
+            e <= 1'b0;
+            q <= 1'b0;
+        end else begin
+            case (phase)
+                2'b00: e <= 1'b0;
+                2'b01: q <= 1'b1;
+                2'b10: e <= 1'b1;
+                2'b11: q <= 1'b0;
+            endcase
+            if (!hold)
+                phase <= phase + 2'b01;
+        end
     end
 
     mc6809i core (
