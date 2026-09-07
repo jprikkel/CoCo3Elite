@@ -76,7 +76,8 @@ if {$mode eq "COCO3_ELITE"} {
         lappend coco3_defines EMBEDDED_TEST_DISKS
     }
     set_property verilog_define $coco3_defines [current_fileset]
-    read_vhdl [file join $repo_dir rtl third-party CPU09 cpu09l_128.vhd]
+    read_verilog [file join $repo_dir rtl third-party MC6809 mc6809i.v]
+    read_verilog [file join $repo_dir rtl third-party MC6809 cpu09.v]
 }
 
 if {$mode eq "BASIC_6809_DVI_TEST"} {
@@ -85,7 +86,8 @@ if {$mode eq "BASIC_6809_DVI_TEST"} {
         [file join $repo_dir rtl core coco3_diagnostic_rom.v] \
         [file join $rtl_dir coco3_diagnostic_system.v]
     set_property verilog_define BASIC_6809_DVI_TEST [current_fileset]
-    read_vhdl [file join $repo_dir rtl third-party CPU09 cpu09l_128.vhd]
+    read_verilog [file join $repo_dir rtl third-party MC6809 mc6809i.v]
+    read_verilog [file join $repo_dir rtl third-party MC6809 cpu09.v]
 }
 
 read_verilog $sources
