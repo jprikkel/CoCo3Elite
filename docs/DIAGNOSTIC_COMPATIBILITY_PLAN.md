@@ -37,20 +37,41 @@ controllers are board-specific and require Wukong integration or replacement.
    physical floppy hardware.
 3. **SD-card filesystem mounting** — Add FAT32 parsing and mount named `.DSK`
    files from MicroSD instead of embedding disk images into the bitstream.
-4. **CoCo peripheral interfaces** — Add cassette, printer, RS-232 PAK, and
+4. **GMC cartridge sound support — Important** — Add the Game Master
+   Cartridge's TI SN76489AN-compatible digital sound generator alongside the
+   existing CoCo DAC. GMC software writes sound data to the cartridge's
+   write-only `$FF41` port; the implementation must decode those writes, run a
+   cycle-appropriate PSG model, mix its output with the current audio path, and
+   preserve normal cartridge ROM access. Include a cartridge-present/detection
+   test, register and tone/noise tests, audio-mix regression, and a GMC-enabled
+   game or demo test. Review these candidate open-source cores for integration:
+   [rejunity/tt05-psg-sn76489](https://github.com/rejunity/tt05-psg-sn76489)
+   (Verilog, Apache-2.0, approximately 1,400 gates, with a cocotb regression
+   suite and configurable SN76489 variants) and
+   [dnotq/sn76489_audio](https://github.com/dnotq/sn76489_audio) (VHDL,
+   BSD-3-Clause, FPGA-proven on Xilinx Spartan-6, with optional emulation of
+   the original 32-clock I/O timing and multi-width PCM outputs). Compare both
+   against GMC timing, clock-divider, noise-LFSR, attenuation, reset, and audio
+   mixing requirements before selecting one; do not import either repository
+   until its license and source-history requirements are recorded. The
+   [GMC hardware summary](https://www.cocopedia.com/wiki/Game_Master_Cart) and
+   [VCC GMC implementation notes](https://github-wiki-see.page/m/VCCE/VCC/wiki/UserGuide#gmcdll)
+   provide the initial cartridge behavior references.
+5. **CoCo peripheral interfaces** — Add cassette, printer, RS-232 PAK, and
    physical analog-joystick support if suitable Wukong pins or external
    hardware are assigned.
-5. **8 MiB video/system addressing** — Optional CoCo3FPGA extension, not a
+6. **8 MiB video/system addressing** — Optional CoCo3FPGA extension, not a
    feature of a stock CoCo 3. Keep it separate from the 512 KiB compatibility
    work and require software that can exercise the extended registers.
-6. **Widest 256-color video modes** — Restore the 512- and 640-byte-per-line
+7. **Widest 256-color video modes** — Restore the 512- and 640-byte-per-line
    CoCo3FPGA extension by designing a fetch schedule with enough memory
    bandwidth under `NEW_SRAM`. These modes are also nonstandard and should not
    take priority over normal CoCo 3 compatibility.
 
-Recommended order: implement 512 KiB RAM first, then SD-mounted writable disk
-images. Add physical peripherals only when there is a concrete hardware target;
-treat 8 MiB addressing and the widest 256-color modes as optional extensions.
+Recommended order: implement GMC sound support and 512 KiB RAM first, then
+SD-mounted writable disk images. Add physical peripherals only when there is a
+concrete hardware target; treat 8 MiB addressing and the widest 256-color modes
+as optional extensions.
 
 ## Phase 1: make failures reproducible
 
