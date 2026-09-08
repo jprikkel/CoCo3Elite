@@ -175,7 +175,7 @@ Important FPGA controls are:
 | Key | Function |
 | --- | --- |
 | F3 | Start the embedded diagnostic cartridge |
-| F6 | Toggle normal/fast CPU speed |
+| F6 | Toggle the board turbo override |
 | F7 | Toggle W/S/A/D/F control of the right joystick |
 | F8 | Toggle arrow/Space control of the left joystick |
 | F9 | Toggle horizontal scanlines |
@@ -183,8 +183,19 @@ Important FPGA controls are:
 | F11 | Toggle NTSC artifact-color decoding |
 | Ctrl+Alt+Delete | Guarded CoCo soft reset |
 
+CoCo software selects the normal approximately 0.9 MHz rate with the SAM
+`$FFD8` strobe and the double-speed approximately 1.8 MHz rate with `$FFD9`.
+F6 independently forces double speed for debugging and compatibility testing.
+
 The complete PC-to-CoCo key mapping and electrical connection are documented
 in [PS/2 Keyboard Interface](../hardware/keyboard-ps2.md).
+
+The 115200-baud UART PC snapshot includes a `V=` field of 40 hex digits.
+From left to right it contains FF98 (2 digits), FF99 (2), FF9B (2),
+FF9D/FF9E (4), FF9F (2), the sixteen packed six-bit palette registers
+(24, palette 15 first and palette 0 last), and the current video RAM word (4).
+All fields are captured together once per second. The RAM word is an
+instantaneous fetch sample, not a framebuffer dump.
 
 ## Disk and SD behavior
 
@@ -248,6 +259,9 @@ Focused PowerShell launchers under `scripts/` cover the principal boundaries:
 | `test_fdc_read.ps1` | WD1773-compatible embedded-image reads |
 | `test_gime_border.ps1` | GIME border register behavior |
 | `test_gime_timer.ps1` | GIME timer behavior |
+| `test_sync_wait.ps1` | Real CPU VSYNC polling and GIME read-to-clear status at both speeds; HVEN fill and MMU restoration |
+| `test_zenix_video.ps1` | Zenix 320x225/16-color HVEN addressing, pixel decode, RAM-bank crossing, and raster output |
+| `test_uart_video_trace.ps1` | Complete 66-byte video-state message decoded from the UART wire |
 | `test_gime_vector_page.ps1` | ROM/RAM vector-page mapping |
 | `test_hdmi_window.ps1` | 32/40/80-column HDMI placement, screen captures, and packet presence |
 | `test_native_text_fetch.ps1` | Native text byte selection and fetch timing |

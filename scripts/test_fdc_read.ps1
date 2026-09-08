@@ -30,7 +30,6 @@ $source = Join-Path $repoRoot 'tb\basic\TESTMENU.BAS'
 if ($LASTEXITCODE -ne 0) { throw 'decb copy failed for FDCREAD.BAS' }
 & $decb copy -2 -b $source "$drive1Dsk,FDCREAD2.BIN"
 if ($LASTEXITCODE -ne 0) { throw 'decb copy failed for FDCREAD2.BIN' }
-
 & (Join-Path $PSScriptRoot 'prepare_disk_image.ps1') `
     -InputPath $drive0Dsk `
     -OutputPath $drive0Image

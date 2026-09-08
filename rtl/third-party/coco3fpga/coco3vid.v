@@ -1,3 +1,4 @@
+`timescale 1ns/1ps
 ////////////////////////////////////////////////////////////////////////////////
 // Project Name:	CoCo3FPGA Version 3.0
 // File Name:		coco3vid.v
@@ -210,6 +211,12 @@ reg		[15:0]	COLOR6;
 reg		[15:0]	COLOR7;
 reg		[20:0]	ROW_ADD;		// 18:0 for 512kb
 wire		[8:0]		ROW_OFFSET;
+reg		[9:0]		ROW_OFFSET_X;
+reg		[2:0]		FETCH_INC;
+wire		[9:0]		ROW_OFFSET_Y0;
+wire		[9:0]		ROW_OFFSET_Z0;
+wire		[9:0]		ROW_OFFSET_Y;
+wire		[9:0]		ROW_OFFSET_Z;
 wire		[20:0]	SCREEN_OFF;	// 18:0 for 512kb
 reg					VBORDER;
 reg					HBORDER;
@@ -244,7 +251,16 @@ COCO3GEN coco3gen(
 /*****************************************************************************
 * Read RAM
 ******************************************************************************/
-assign RAM_ADDRESS_X = {ROW_ADD[20:1] + ROW_OFFSET};
+// Add the horizontal offset in word units.  HVEN selects a 256-byte virtual
+// row, so the word offset wraps at 128 words instead of carrying into the
+// next physical row.
+assign ROW_OFFSET_Y0 = {1'b0, ROW_OFFSET} + {3'b000, HOR_OFFSET};
+assign ROW_OFFSET_Z0 = (!HVEN) ? ROW_OFFSET_Y0 :
+										 {3'b000, ROW_OFFSET_Y0[6:0]};
+assign ROW_OFFSET_Y = ROW_OFFSET_X + {3'b000, HOR_OFFSET} + FETCH_INC;
+assign ROW_OFFSET_Z = (!HVEN) ? ROW_OFFSET_Y :
+									 {3'b000, ROW_OFFSET_Y[6:0]};
+assign RAM_ADDRESS_X = ROW_ADD[20:1] + ROW_OFFSET_Z0;
 
 assign ROW_OFFSET =																			//9 bits of two byte reads = 1024 max bytes
 // CoCo1 low res graphics (64 pixels / 2 bytes)
@@ -276,12 +292,15 @@ begin
 		case (PIXEL_COUNT[3:0])
 		4'b0000:
 		begin
+			ROW_OFFSET_X <= ROW_OFFSET;
+			FETCH_INC <= 3'b001;
 			RAM_ADDRESS <= RAM_ADDRESS_X;
 			CHAR_LATCH_7 <= RAM_DATA[15:0];
 		end
 		4'b0010:
 		begin
-			RAM_ADDRESS <= RAM_ADDRESS + 1'b1;
+			FETCH_INC <= 3'b010;
+			RAM_ADDRESS <= ROW_ADD[20:1] + ROW_OFFSET_Z;
 			if(({PIXEL_COUNT[5],PIXEL_COUNT[4]} !=2'b00)
 			&(({COCO,V[0]}==2'b11)											// CoCo1 16 byte / line mode
          |({COCO,BP,HRES[3],HRES[2],HRES[1]}==5'b01000)))		// CoCo3 16/20 bytes/line
@@ -317,12 +336,14 @@ begin
 		end
 		4'b0100:
 		begin
-			RAM_ADDRESS <= RAM_ADDRESS + 1'b1;
+			FETCH_INC <= 3'b011;
+			RAM_ADDRESS <= ROW_ADD[20:1] + ROW_OFFSET_Z;
 			CHAR_LATCH_1 <= RAM_DATA[15:0];
 		end
 		4'b0110:
 		begin
-			RAM_ADDRESS <= RAM_ADDRESS + 1'b1;
+			FETCH_INC <= 3'b100;
+			RAM_ADDRESS <= ROW_ADD[20:1] + ROW_OFFSET_Z;
 			CHAR_LATCH_2 <= RAM_DATA[15:0];
 // Underline
 			if({COCO,CRES[0],CHAR_LATCH_0[14],UNDERLINE} == 4'b0111)				// Removed BP because we ignore characters during BP
@@ -334,12 +355,14 @@ begin
 		end
 		4'b1000:
 		begin
-			RAM_ADDRESS <= RAM_ADDRESS + 1'b1;
+			FETCH_INC <= 3'b101;
+			RAM_ADDRESS <= ROW_ADD[20:1] + ROW_OFFSET_Z;
 			CHAR_LATCH_3 <= RAM_DATA[15:0];
 		end
 		4'b1010:
 		begin
-			RAM_ADDRESS <= RAM_ADDRESS + 1'b1;
+			FETCH_INC <= 3'b110;
+			RAM_ADDRESS <= ROW_ADD[20:1] + ROW_OFFSET_Z;
 			CHAR_LATCH_4 <= RAM_DATA[15:0];
 //XTEXT only, so no underline
 			CHARACTER1 <=	ROM_DATA1;
@@ -347,12 +370,14 @@ begin
 		end
 		4'b1100:
 		begin
-			RAM_ADDRESS <= RAM_ADDRESS + 1'b1;
+			FETCH_INC <= 3'b111;
+			RAM_ADDRESS <= ROW_ADD[20:1] + ROW_OFFSET_Z;
 			CHAR_LATCH_5 <= RAM_DATA[15:0];			// last read from the previous series
 		end
 		4'b1110:
 		begin
-			RAM_ADDRESS <= RAM_ADDRESS + 1'b1;
+			FETCH_INC <= 3'b000;
+			RAM_ADDRESS <= ROW_ADD[20:1] + ROW_OFFSET_Z;
 			CHAR_LATCH_6 <= RAM_DATA[15:0];			// First read of this series
 // Underline
 			if({COCO,BP,CRES[0],CHAR_LATCH_1[14],UNDERLINE} == 5'b00111)
@@ -369,12 +394,15 @@ begin
 		case (PIXEL_COUNT[3:0])
 		4'b0000:
 		begin
+			ROW_OFFSET_X <= ROW_OFFSET;
+			FETCH_INC <= 3'b001;
 			RAM_ADDRESS <= RAM_ADDRESS_X;
 			CHAR_LATCH_3 <= RAM_DATA[15:0];
 		end
 		4'b0100:
 		begin
-			RAM_ADDRESS <= RAM_ADDRESS + 1'b1;
+			FETCH_INC <= 3'b010;
+			RAM_ADDRESS <= ROW_ADD[20:1] + ROW_OFFSET_Z;
 			if(({PIXEL_COUNT[5],PIXEL_COUNT[4]} !=2'b00)
 			&(({COCO,V[0]}==2'b11)											// CoCo1 16 byte / line mode
          |({COCO,BP,HRES[3],HRES[2],HRES[1]}==5'b01000)))		// CoCo3 16/20 bytes/line
@@ -410,7 +438,8 @@ begin
 		end
 		4'b1000:
 		begin
-			RAM_ADDRESS <= RAM_ADDRESS + 1'b1;
+			FETCH_INC <= 3'b011;
+			RAM_ADDRESS <= ROW_ADD[20:1] + ROW_OFFSET_Z;
 			CHAR_LATCH_1 <= RAM_DATA[15:0];
 // Underline
 			if({COCO,CRES[0],CHAR_LATCH_0[14],UNDERLINE} == 4'b0111)				// Removed BP because we ignore characters during BP
@@ -428,7 +457,8 @@ begin
 		end
 		4'b1100:
 		begin
-			RAM_ADDRESS <= RAM_ADDRESS + 1'b1;
+			FETCH_INC <= 3'b000;
+			RAM_ADDRESS <= ROW_ADD[20:1] + ROW_OFFSET_Z;
 			CHAR_LATCH_2 <= RAM_DATA[15:0];
 			if({COCO,BP,CRES[0],CHAR_LATCH_1[14],UNDERLINE} == 5'b00111)
 				CHARACTER2 <=	8'hFF;
@@ -2055,7 +2085,7 @@ begin
 		COCO1_VLPR <= 4'h0;
 		if(~COCO)
 		begin
-			ROW_ADD <= {SCRN_START_HSB,SCRN_START_MSB,SCRN_START_LSB,3'h0} + {HOR_OFFSET, 1'b0};
+			ROW_ADD <= {SCRN_START_HSB,SCRN_START_MSB,SCRN_START_LSB,3'h0};
 			if(BP)						// Vertical Fine Scroll not in graphics modes
 			begin
 				VLPR <= 4'h0;
@@ -2079,7 +2109,7 @@ begin
 		else
 		begin
 			VLPR <= 4'h0;
-			ROW_ADD <= {SCRN_START_HSB,SCRN_START_MSB[7:5],VERT,SCRN_START_LSB[5:0],3'h0} + {HOR_OFFSET, 1'b0};
+			ROW_ADD <= {SCRN_START_HSB,SCRN_START_MSB[7:5],VERT,SCRN_START_LSB[5:0],3'h0};
 		end
 	end
 	else

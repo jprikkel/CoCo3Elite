@@ -1,20 +1,21 @@
 ////////////////////////////////////////////////////////////////////////////////
-// Project Name:	CoCo3FPGA Version 3.0
-// File Name:		sound.v
+// Project Name:	CoCo3FPGA Version 4.0
+// File Name:		coco3fpga.v
 //
 // CoCo3 in an FPGA
 //
-// Revision: 3.0 08/15/15
+// Revision: 4.0 07/10/16
 ////////////////////////////////////////////////////////////////////////////////
 //
 // CPU section copyrighted by John Kent
 // The FDC co-processor copyrighted Daniel Wallner.
+// SDRAM Controller copyrighted by XESS Corp.
 //
 ////////////////////////////////////////////////////////////////////////////////
 //
 // Color Computer 3 compatible system on a chip
 //
-// Version : 3.0
+// Version : 4.0
 //
 // Copyright (c) 2008 Gary Becker (gary_l_becker@yahoo.com)
 //
@@ -55,9 +56,12 @@
 //
 // File history :
 //
-//  1.0		Full Release
-//  2.0		Partial Release
-//  3.0		Full Release
+//  1.0			Full Release
+//  2.0			Partial Release
+//  3.0			Full Release
+//  3.0.0.1		Update to fix DoD interrupt issue
+//	3.0.1.0		Update to fix 32/40 CoCO3 Text issue and add 2 Meg max memory
+//	4.0.X.X		Full Release
 ////////////////////////////////////////////////////////////////////////////////
 // Gary Becker
 // gary_L_becker@yahoo.com
@@ -65,9 +69,10 @@
 
 // Internal Sound generation
 assign SOUND		=	{1'b0, SBS, SOUND_DTOA};
-
-assign DAC_LEFT	=	{2'b00, ORCH_LEFT,  ORCH_LEFT_EXT, 1'b0}	+ {2'b00, SOUND, 9'h000};
-assign DAC_RIGHT	=	{2'b00, ORCH_RIGHT, ORCH_RIGHT_EXT, 1'b0}	+ {2'b00, SOUND, 9'h000};
+//assign SOUND		=	({SOUND_EN, SEL} == 3'b100)	?	{SBS, DTOA_CODE,1'b0}:
+//																		SOUND;
+assign DAC_LEFT	=	{2'b00, ORCH_LEFT,  ORCH_LEFT_EXT, 1'b0}	+ {1'b0, SOUND, 10'h000};
+assign DAC_RIGHT	=	{2'b00, ORCH_RIGHT, ORCH_RIGHT_EXT, 1'b0}	+ {1'b0, SOUND, 10'h000};
 
 assign AUD_XCK = CLK24MHZ_2;
 
@@ -77,10 +82,15 @@ begin
 	DACLRCLK <= AUD_DACLRCK;
 	ADCLRCLK <= AUD_ADCLRCK;
 end
+//Double Buffer Left and Right
 always @(negedge AUD_DACLRCK)
 begin
-	LEFT <= DAC_LEFT;
-	RIGHT <= DAC_RIGHT;
+	LEFT_BUF2 <= DAC_LEFT;
+	RIGHT_BUF2 <= DAC_RIGHT;
+	LEFT_BUF <= LEFT_BUF2;
+	RIGHT_BUF <= RIGHT_BUF2;
+	LEFT <= LEFT_BUF;
+	RIGHT <= RIGHT_BUF;
 end
 always @(negedge AUD_BCLK or negedge RESET_N)
 begin

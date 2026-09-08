@@ -65,6 +65,7 @@ if {$mode eq "COCO3_ELITE"} {
         [file join $repo_dir rtl core sd_spi_read_sector0.v] \
         [file join $repo_dir rtl core coco3_fdc.v] \
         [file join $repo_dir rtl core coco3_gime_timer.v] \
+        [file join $repo_dir rtl core coco3_gime_interrupt.v] \
         [file join $repo_dir rtl core coco3_boot_machine.v] \
         [file join $rtl_dir uart_tx.v] \
         [file join $rtl_dir coco3_uart_debug.v] \

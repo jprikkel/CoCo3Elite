@@ -1,20 +1,21 @@
 ////////////////////////////////////////////////////////////////////////////////
-// Project Name:	CoCo3FPGA Version 3.0
-// File Name:		paddles.v
+// Project Name:	CoCo3FPGA Version 4.0
+// File Name:		coco3fpga.v
 //
 // CoCo3 in an FPGA
 //
-// Revision: 3.0 08/15/15
+// Revision: 4.0 07/10/16
 ////////////////////////////////////////////////////////////////////////////////
 //
 // CPU section copyrighted by John Kent
 // The FDC co-processor copyrighted Daniel Wallner.
+// SDRAM Controller copyrighted by XESS Corp.
 //
 ////////////////////////////////////////////////////////////////////////////////
 //
 // Color Computer 3 compatible system on a chip
 //
-// Version : 3.0
+// Version : 4.0
 //
 // Copyright (c) 2008 Gary Becker (gary_l_becker@yahoo.com)
 //
@@ -55,9 +56,12 @@
 //
 // File history :
 //
-//  1.0		Full Release
-//  2.0		Partial Release
-//  3.0		Full Release
+//  1.0			Full Release
+//  2.0			Partial Release
+//  3.0			Full Release
+//  3.0.0.1		Update to fix DoD interrupt issue
+//	3.0.1.0		Update to fix 32/40 CoCO3 Text issue and add 2 Meg max memory
+//	4.0.X.X		Full Release
 ////////////////////////////////////////////////////////////////////////////////
 // Gary Becker
 // gary_L_becker@yahoo.com
@@ -66,42 +70,51 @@
 /*****************************************************************************
 * Joystick to CoCo compatable
 ******************************************************************************/
-assign PADDLE_MCLK = MCLOCK[10];
-always @(negedge MCLOCK[10] or negedge RESET_N)
+
+assign PADDLE_MCLK = MCLOCK[6];
+//Cycle through this State Machine 1 time for each reading
+//
+always @(negedge MCLOCK[6] or negedge RESET_N)
 begin
 	if(~RESET_N)
 	begin
-		JOY_CLK <= 13'h000;
-		JOY_TRIGGER <= 1'b0;
+		JOY_CLK0 <= 13'h0000;
+		JOY_TRIGGER0 <= 1'b0;
+		JCASE0 <= 1'b0;
 	end
 	else
-		case(JOY_CLK)
-		13'd0000:
+	begin
+		case(JCASE0)
+		1'b0:
 		begin
-			JOY_CLK <= 13'd0001;
-			JOY_TRIGGER <= 1'b0;
+			JOY_CLK0 <= JOY_CLK0 + 1'b1;
+			if(JOY_CLK0 == 13'h1893)							// 4096/(0.7/5*4.65)=6291
+			begin
+				JOY_TRIGGER0 <= 1'b1;
+				JCASE0 <= 1'b1;
+			end
 		end
-		13'd5883:
+		1'b1:
 		begin
-			JOY_CLK <= 13'd5884;
-			JOY_TRIGGER <= 1'b1;
+			if(JOY_CLK0 == 13'h18B5)							// 6325
+			begin
+				JOY_CLK0 <= 13'h0000;
+				JCASE0 <= 1'b0;
+				JOY_TRIGGER0 <= 1'b0;
+			end
+			else
+				JOY_CLK0 <= JOY_CLK0 + 1'b1;
 		end
-		13'd8191:
-		begin
-			JOY_CLK <= 13'd0000;
-			JOY_TRIGGER <= 1'b0;
-		end
-		default:
-			JOY_CLK <= JOY_CLK + 1'b1;
 		endcase
+	end
 end
 
 always @(negedge PADDLE_CLK[0] or negedge RESET_N)
 begin
 	if(~RESET_N)
 	begin
-		PADDLE_ZERO_0 <= 10'd0000;
-		PADDLE_VAL_0 <= 12'd0000;
+		PADDLE_ZERO_0 <= 10'h000;
+		PADDLE_VAL_0 <= 12'h000;
 		PADDLE_STATE_0 <= 2'b00;
 		JOY1_COUNT <= 6'h00;
 	end
@@ -111,19 +124,23 @@ begin
 		2'b00:
 		begin
 			PADDLE_ZERO_0 <= PADDLE_ZERO_0 + 1'b1;
-			PADDLE_VAL_0 <= 12'd0000;
-			if(PADDLE_ZERO_0 == 10'd611)
+			PADDLE_VAL_0 <= 12'h000;
+			if(PADDLE_ZERO_0 == 10'h3AE)						// 6291*0.15=943-1
 				PADDLE_STATE_0 <= 2'b01;
+			else
+				if(JOY_TRIGGER0)
+					PADDLE_STATE_0 <= 2'b10;
+				else
+					PADDLE_STATE_0 <= 2'b00;
 		end
 		2'b01:
 		begin
-			PADDLE_ZERO_0 <= 10'd000;
 			PADDLE_VAL_0 <= PADDLE_VAL_0 + 1'b1;
-			if(PADDLE_VAL_0 == 12'd4094)
+			if(PADDLE_VAL_0 == 12'hFFE)						// 4096-2
 				PADDLE_STATE_0 <= 2'b10;
 			else
 			begin
-				if(JOY_TRIGGER)
+				if(JOY_TRIGGER0)
 					PADDLE_STATE_0 <= 2'b10;
 				else
 					PADDLE_STATE_0 <= 2'b01;
@@ -131,15 +148,51 @@ begin
 		end
 		2'b10:
 		begin
+			PADDLE_ZERO_0 <= 10'h000;
 			JOY1_COUNT <= PADDLE_VAL_0[11:6];
 			PADDLE_LATCH_0 <= PADDLE_VAL_0;
-			if(JOY_TRIGGER)
+			if(JOY_TRIGGER0)
 					PADDLE_STATE_0 <= 2'b11;
 		end
 		2'b11:
 		begin
-			if(!JOY_TRIGGER)
+			if(!JOY_TRIGGER0)
 				PADDLE_STATE_0 <= 2'b00;
+		end
+		endcase
+	end
+end
+
+always @(negedge MCLOCK[6] or negedge RESET_N)
+begin
+	if(~RESET_N)
+	begin
+		JOY_CLK1 <= 13'h0000;
+		JOY_TRIGGER1 <= 1'b0;
+		JCASE1 <= 1'b0;
+	end
+	else
+	begin
+		case(JCASE1)
+		1'b0:
+		begin
+			JOY_CLK1 <= JOY_CLK1 + 1'b1;
+			if(JOY_CLK1 == 13'h1893)							// 4096/(0.7/5*4.65)=6291
+			begin
+				JOY_TRIGGER1 <= 1'b1;
+				JCASE1 <= 1'b1;
+			end
+		end
+		1'b1:
+		begin
+			if(JOY_CLK1 == 13'h18B5)							// 6325
+			begin
+				JOY_CLK1 <= 13'h0000;
+				JCASE1 <= 1'b0;
+				JOY_TRIGGER1 <= 1'b0;
+			end
+			else
+				JOY_CLK1 <= JOY_CLK1 + 1'b1;
 		end
 		endcase
 	end
@@ -149,8 +202,8 @@ always @(negedge PADDLE_CLK[1] or negedge RESET_N)
 begin
 	if(~RESET_N)
 	begin
-		PADDLE_ZERO_1 <= 10'd0000;
-		PADDLE_VAL_1 <= 12'd0000;
+		PADDLE_ZERO_1 <= 10'h000;
+		PADDLE_VAL_1 <= 12'h000;
 		PADDLE_STATE_1 <= 2'b00;
 		JOY2_COUNT <= 6'h00;
 	end
@@ -160,19 +213,23 @@ begin
 		2'b00:
 		begin
 			PADDLE_ZERO_1 <= PADDLE_ZERO_1 + 1'b1;
-			PADDLE_VAL_1 <= 12'd0000;
-			if(PADDLE_ZERO_1 == 10'd611)
+			PADDLE_VAL_1 <= 12'h000;
+			if(PADDLE_ZERO_1 == 10'h3AE)						// 6291*0.15=943-1
 				PADDLE_STATE_1 <= 2'b01;
+			else
+				if(JOY_TRIGGER1)
+					PADDLE_STATE_1 <= 2'b10;
+				else
+					PADDLE_STATE_1 <= 2'b00;
 		end
 		2'b01:
 		begin
-			PADDLE_ZERO_1 <= 10'd000;
 			PADDLE_VAL_1 <= PADDLE_VAL_1 + 1'b1;
-			if(PADDLE_VAL_1 == 12'd4094)
+			if(PADDLE_VAL_1 == 12'hFFE)						// 4096-2
 				PADDLE_STATE_1 <= 2'b10;
 			else
 			begin
-				if(JOY_TRIGGER)
+				if(JOY_TRIGGER1)
 					PADDLE_STATE_1 <= 2'b10;
 				else
 					PADDLE_STATE_1 <= 2'b01;
@@ -180,15 +237,51 @@ begin
 		end
 		2'b10:
 		begin
+			PADDLE_ZERO_1 <= 10'h000;
 			JOY2_COUNT <= PADDLE_VAL_1[11:6];
 			PADDLE_LATCH_1 <= PADDLE_VAL_1;
-			if(JOY_TRIGGER)
+			if(JOY_TRIGGER1)
 					PADDLE_STATE_1 <= 2'b11;
 		end
 		2'b11:
 		begin
-			if(!JOY_TRIGGER)
+			if(!JOY_TRIGGER1)
 				PADDLE_STATE_1 <= 2'b00;
+		end
+		endcase
+	end
+end
+
+always @(negedge MCLOCK[6] or negedge RESET_N)
+begin
+	if(~RESET_N)
+	begin
+		JOY_CLK2 <= 13'h0000;
+		JOY_TRIGGER2 <= 1'b0;
+		JCASE2 <= 1'b0;
+	end
+	else
+	begin
+		case(JCASE2)
+		1'b0:
+		begin
+			JOY_CLK2 <= JOY_CLK2 + 1'b1;
+			if(JOY_CLK2 == 13'h1893)							// 4096/(0.7/5*4.65)=6291
+			begin
+				JOY_TRIGGER2 <= 1'b1;
+				JCASE2 <= 1'b1;
+			end
+		end
+		1'b1:
+		begin
+			if(JOY_CLK2 == 13'h18B5)							// 6325
+			begin
+				JOY_CLK2 <= 13'h0000;
+				JCASE2 <= 1'b0;
+				JOY_TRIGGER2 <= 1'b0;
+			end
+			else
+				JOY_CLK2 <= JOY_CLK2 + 1'b1;
 		end
 		endcase
 	end
@@ -198,8 +291,8 @@ always @(negedge PADDLE_CLK[2] or negedge RESET_N)
 begin
 	if(~RESET_N)
 	begin
-		PADDLE_ZERO_2 <= 10'd0000;
-		PADDLE_VAL_2 <= 12'd0000;
+		PADDLE_ZERO_2 <= 10'h000;
+		PADDLE_VAL_2 <= 12'h000;
 		PADDLE_STATE_2 <= 2'b00;
 		JOY3_COUNT <= 6'h00;
 	end
@@ -209,19 +302,23 @@ begin
 		2'b00:
 		begin
 			PADDLE_ZERO_2 <= PADDLE_ZERO_2 + 1'b1;
-			PADDLE_VAL_2 <= 12'd0000;
-			if(PADDLE_ZERO_2 == 10'd611)
+			PADDLE_VAL_2 <= 12'h000;
+			if(PADDLE_ZERO_2 == 10'h3AE)						// 6291*0.15=943-1
 				PADDLE_STATE_2 <= 2'b01;
+			else
+				if(JOY_TRIGGER2)
+					PADDLE_STATE_2 <= 2'b10;
+				else
+					PADDLE_STATE_2 <= 2'b00;
 		end
 		2'b01:
 		begin
-			PADDLE_ZERO_2 <= 10'd000;
 			PADDLE_VAL_2 <= PADDLE_VAL_2 + 1'b1;
-			if(PADDLE_VAL_2 == 12'd4094)
+			if(PADDLE_VAL_2 == 12'hFFE)						// 4096-2
 				PADDLE_STATE_2 <= 2'b10;
 			else
 			begin
-				if(JOY_TRIGGER)
+				if(JOY_TRIGGER2)
 					PADDLE_STATE_2 <= 2'b10;
 				else
 					PADDLE_STATE_2 <= 2'b01;
@@ -229,15 +326,51 @@ begin
 		end
 		2'b10:
 		begin
+			PADDLE_ZERO_2 <= 10'h000;
 			JOY3_COUNT <= PADDLE_VAL_2[11:6];
 			PADDLE_LATCH_2 <= PADDLE_VAL_2;
-			if(JOY_TRIGGER)
+			if(JOY_TRIGGER2)
 					PADDLE_STATE_2 <= 2'b11;
 		end
 		2'b11:
 		begin
-			if(!JOY_TRIGGER)
+			if(!JOY_TRIGGER2)
 				PADDLE_STATE_2 <= 2'b00;
+		end
+		endcase
+	end
+end
+
+always @(negedge MCLOCK[6] or negedge RESET_N)
+begin
+	if(~RESET_N)
+	begin
+		JOY_CLK3 <= 13'h0000;
+		JOY_TRIGGER3 <= 1'b0;
+		JCASE3 <= 1'b0;
+	end
+	else
+	begin
+		case(JCASE3)
+		1'b0:
+		begin
+			JOY_CLK3 <= JOY_CLK3 + 1'b1;
+			if(JOY_CLK3 == 13'h1893)							// 4096/(0.7/5*4.65)=6291
+			begin
+				JOY_TRIGGER3 <= 1'b1;
+				JCASE3 <= 1'b1;
+			end
+		end
+		1'b1:
+		begin
+			if(JOY_CLK3 == 13'h18B5)							// 6325
+			begin
+				JOY_CLK3 <= 13'h0000;
+				JCASE3 <= 1'b0;
+				JOY_TRIGGER3 <= 1'b0;
+			end
+			else
+				JOY_CLK3 <= JOY_CLK3 + 1'b1;
 		end
 		endcase
 	end
@@ -247,8 +380,8 @@ always @(negedge PADDLE_CLK[3] or negedge RESET_N)
 begin
 	if(~RESET_N)
 	begin
-		PADDLE_ZERO_3 <= 10'd0000;
-		PADDLE_VAL_3 <= 12'd0000;
+		PADDLE_ZERO_3 <= 10'h000;
+		PADDLE_VAL_3 <= 12'h000;
 		PADDLE_STATE_3 <= 2'b00;
 		JOY4_COUNT <= 6'h00;
 	end
@@ -258,19 +391,23 @@ begin
 		2'b00:
 		begin
 			PADDLE_ZERO_3 <= PADDLE_ZERO_3 + 1'b1;
-			PADDLE_VAL_3 <= 12'd0000;
-			if(PADDLE_ZERO_3 == 10'd611)
+			PADDLE_VAL_3 <= 12'h000;
+			if(PADDLE_ZERO_3 == 10'h3AE)						// 6291*0.15=943-1
 				PADDLE_STATE_3 <= 2'b01;
+			else
+				if(JOY_TRIGGER3)
+					PADDLE_STATE_3 <= 2'b10;
+				else
+					PADDLE_STATE_3 <= 2'b00;
 		end
 		2'b01:
 		begin
-			PADDLE_ZERO_3 <= 10'd000;
 			PADDLE_VAL_3 <= PADDLE_VAL_3 + 1'b1;
-			if(PADDLE_VAL_3 == 12'd4094)
+			if(PADDLE_VAL_3 == 12'hFFE)						// 4096-2
 				PADDLE_STATE_3 <= 2'b10;
 			else
 			begin
-				if(JOY_TRIGGER)
+				if(JOY_TRIGGER3)
 					PADDLE_STATE_3 <= 2'b10;
 				else
 					PADDLE_STATE_3 <= 2'b01;
@@ -278,29 +415,25 @@ begin
 		end
 		2'b10:
 		begin
+			PADDLE_ZERO_3 <= 10'h000;
 			JOY4_COUNT <= PADDLE_VAL_3[11:6];
 			PADDLE_LATCH_3 <= PADDLE_VAL_3;
-			if(JOY_TRIGGER)
+			if(JOY_TRIGGER3)
 					PADDLE_STATE_3 <= 2'b11;
 		end
 		2'b11:
 		begin
-			if(!JOY_TRIGGER)
+			if(!JOY_TRIGGER3)
 				PADDLE_STATE_3 <= 2'b00;
 		end
 		endcase
 	end
 end
 
-assign JSTICK =	(SEL == 2'b11)		?	JOY3:			// Left Y
-						(SEL == 2'b10)		?	JOY4:			// Left X
-						(SEL == 2'b01)		?	JOY1:			// Right Y
-//						(SEL == 2'b000)		?	JOY2:			// Right X
-//						(SEL == 2'b111)		?	JOY1:			// Right Y
-//						(SEL == 2'b110)		?	JOY2:			// Right X
-//						(SEL == 2'b101)		?	JOY3:			// Left Y
-//																		JOY4;			// Left X
-																		JOY2;			// Right X
+assign JSTICK =	(SEL == 2'b11)		?	JOY4:			// Left Y
+						(SEL == 2'b10)		?	JOY3:			// Left X
+						(SEL == 2'b01)		?	JOY2:			// Right Y
+													JOY1;			// Right X
 
 assign JOY1 = (JOY1_COUNT >= DTOA_CODE)	?	1'b1:
 															1'b0;

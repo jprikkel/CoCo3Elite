@@ -316,6 +316,8 @@ module coco3_boot_system (
         .cpu_read_data(cpu_read_data), .cpu_write_data(cpu_data),
         .keyboard_active(|keyboard_keys),
         .cartridge_enabled(diagnostic_cartridge_enabled),
+        .video_state({gime_video_mode,gime_video_resolution,{6'b0,start_hsb},
+                      gime_video_offset,gime_horizontal_offset,machine_palette,video_data}),
         .uart_tx_o(uart_debug_tx)
     );
 

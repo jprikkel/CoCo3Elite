@@ -51,11 +51,15 @@ module coco3_boot_machine #(
 );
     reg [4:0] divider;
     reg hold;
+    reg sam_fast_mode;
+    reg fast_divide_phase;
     reg all_ram;
     reg mmu_enable;
     reg mmu_task;
     reg [7:0] gime_init0;
     reg [7:0] gime_init1;
+    reg [5:0] gime_irq_enable;
+    reg [5:0] gime_firq_enable;
     reg [7:0] pia0_ddra;
     reg [7:0] pia0_ddrb;
     reg [7:0] pia0_outa;
@@ -93,6 +97,11 @@ module coco3_boot_machine #(
     reg [7:0] gime_video_horizontal_offset;
     reg [4:0] boot_palette_write_count;
     reg hdmi_palette_initialized;
+    reg previous_video_hsync;
+    reg previous_video_vsync;
+    reg previous_keyboard_active;
+    reg pia0_hsync_pending;
+    reg pia0_vsync_pending;
     integer index;
     genvar palette_index;
 
@@ -117,6 +126,9 @@ module coco3_boot_machine #(
     wire [7:0] diagnostic_rom_data;
     wire [3:0] gime_timer_msb;
     wire [7:0] gime_timer_lsb;
+    wire gime_timer_expire;
+    wire [5:0] gime_irq_status;
+    wire [5:0] gime_firq_status;
     wire [7:0] fdc_read_data;
     wire fdc_nmi;
     wire io_select = address[15:8] == 8'hFF && address[7:4] != 4'hF;
@@ -145,16 +157,33 @@ module coco3_boot_machine #(
     wire [16:0] physical_address = {mapped_page[3:0], address[12:0]};
     wire active = !hold && vma;
     wire io_read = active && read_cycle && io_select;
-    wire pia0_hsync_event = (~video_hsync) ^ pia0_cra[1];
-    wire pia0_vsync_event = (~video_vsync) ^ pia0_crb[1];
-    wire cpu_irq = (pia0_cra[0] && pia0_hsync_event) ||
-                   (pia0_crb[0] && pia0_vsync_event);
+    wire pia0_hsync_event = (previous_video_hsync != video_hsync) &&
+                           (video_hsync == pia0_cra[1]);
+    wire pia0_vsync_event = (previous_video_vsync != video_vsync) &&
+                           (video_vsync == pia0_crb[1]);
+    wire legacy_irq = (pia0_cra[0] && pia0_hsync_pending) ||
+                      (pia0_crb[0] && pia0_vsync_pending);
     // An autostart ROM-Pak boots through the normal system ROM.  Its CART
     // edge is then latched by PIA1 CB1 and presented as FIRQ once software
     // enables that interrupt in $FF23.  Starting the cartridge through the
     // RESET vector skips ROM/GIME/PIA initialization and corrupts video.
-    wire cpu_firq = diagnostic_cartridge_enabled &&
-                    pia1_crb[0] && cartridge_irq_latch;
+    wire legacy_firq = diagnostic_cartridge_enabled &&
+                       pia1_crb[0] && cartridge_irq_latch;
+    wire keyboard_active = |keyboard_keys;
+    wire hborder_event = previous_video_hsync && !video_hsync;
+    wire vborder_event = previous_video_vsync && !video_vsync;
+    wire keyboard_event = !previous_keyboard_active && keyboard_active;
+    wire cartridge_event = diagnostic_cartridge_enabled &&
+                           !cartridge_start_sent &&
+                           cartridge_start_count == CARTRIDGE_START_DELAY;
+    wire [5:0] gime_event_pulse = {
+        gime_timer_expire, hborder_event, vborder_event,
+        1'b0, keyboard_event, cartridge_event
+    };
+    wire gime_irq_ack = io_read && address == 16'hFF92;
+    wire gime_firq_ack = io_read && address == 16'hFF93;
+    wire cpu_irq;
+    wire cpu_firq;
     wire ram_write = active && !read_cycle && !io_select && !rom_select;
     wire io_write = active && !read_cycle && io_select;
     wire [7:0] keyboard_columns =
@@ -174,7 +203,12 @@ module coco3_boot_machine #(
          keyboard_rows[1] & ~joystick_left_fire,
          keyboard_rows[0] & ~joystick_right_fire};
     reg [7:0] io_read_data;
-    wire [7:0] read_data = io_select ? io_read_data :
+    reg [7:0] gime_status_read_data;
+    // The bus service strobe precedes the core's falling-E sample. Preserve
+    // read-to-clear status until the CPU has consumed the original value.
+    wire [7:0] read_data = io_select ?
+                             ((address == 16'hFF92 || address == 16'hFF93)
+                              ? gime_status_read_data : io_read_data) :
                              (diagnostic_rom_select ? diagnostic_rom_data :
                              (disk_rom_select ? disk_rom_data :
                              (rom_select ? rom_data : ram_data)));
@@ -188,10 +222,10 @@ module coco3_boot_machine #(
             // output mask here makes the diagnostic ROM see every row low.
             16'hFF00: io_read_data = pia0_cra[2]
                 ? keyboard_joystick_rows : pia0_ddra;
-            16'hFF01: io_read_data = {pia0_hsync_event, 3'b011, pia0_cra[3:0]};
+            16'hFF01: io_read_data = {pia0_hsync_pending, 1'b0, pia0_cra};
             16'hFF02: io_read_data = pia0_crb[2]
                 ? pia0_outb : pia0_ddrb;
-            16'hFF03: io_read_data = {pia0_vsync_event, 3'b011, pia0_crb[3:0]};
+            16'hFF03: io_read_data = {pia0_vsync_pending, 1'b0, pia0_crb};
             16'hFF20: io_read_data = pia1_cra[2]
                 ? ((pia1_outa & pia1_ddra) | (~pia1_ddra)) : pia1_ddra;
             16'hFF21: io_read_data = {2'b00, pia1_cra};
@@ -209,6 +243,8 @@ module coco3_boot_machine #(
             16'hFF73: io_read_data = 8'hC3;
             16'hFF90: io_read_data = gime_init0;
             16'hFF91: io_read_data = gime_init1;
+            16'hFF92: io_read_data = {2'b00, gime_irq_status};
+            16'hFF93: io_read_data = {2'b00, gime_firq_status};
             16'hFF94: io_read_data = {4'h0, gime_timer_msb};
             16'hFF95: io_read_data = gime_timer_lsb;
             16'hFF98: io_read_data = gime_video_mode;
@@ -237,12 +273,18 @@ module coco3_boot_machine #(
         if (reset) begin
             divider <= 0;
             hold <= 1'b1;
+            fast_divide_phase <= 1'b0;
         // The MC6809E wrapper consumes four enabled pixel-clock edges per E
-        // cycle.  Release it every 4 clocks in fast mode and every 7 clocks
-        // in normal mode, producing approximately 1.6 MHz and 0.9 MHz E.
-        end else if (divider == (cpu_fast_mode ? 5'd3 : 5'd6)) begin
+        // cycle. Normal mode releases every 7 clocks. Fast mode alternates
+        // 4- and 3-clock intervals, producing approximately 0.9 and 1.8 MHz
+        // E clocks from the 25.2 MHz pixel clock.
+        end else if (divider == ((cpu_fast_mode || sam_fast_mode)
+                                 ? (fast_divide_phase ? 5'd2 : 5'd3)
+                                 : 5'd6)) begin
             divider <= 0;
             hold <= 1'b0;
+            if (cpu_fast_mode || sam_fast_mode)
+                fast_divide_phase <= ~fast_divide_phase;
         end else begin
             divider <= divider + 1'b1;
             hold <= 1'b1;
@@ -256,6 +298,9 @@ module coco3_boot_machine #(
             mmu_task <= 1'b0;
             gime_init0 <= 8'h00;
             gime_init1 <= 8'h00;
+            sam_fast_mode <= 1'b0;
+            gime_irq_enable <= 6'b000000;
+            gime_firq_enable <= 6'b000000;
             pia0_ddra <= 8'h00;
             pia0_ddrb <= 8'h00;
             pia0_outa <= 8'h00;
@@ -275,6 +320,12 @@ module coco3_boot_machine #(
             diagnostic_probe_address <= 13'd0;
             boot_palette_write_count <= 5'd0;
             hdmi_palette_initialized <= 1'b0;
+            previous_video_hsync <= 1'b1;
+            previous_video_vsync <= 1'b1;
+            previous_keyboard_active <= 1'b0;
+            pia0_hsync_pending <= 1'b0;
+            pia0_vsync_pending <= 1'b0;
+            gime_status_read_data <= 8'h00;
             for (index = 0; index < 16; index = index + 1)
                 mmu[index] <= 8'h00;
             palette[4'h0] <= 6'h12;
@@ -301,6 +352,21 @@ module coco3_boot_machine #(
             gime_video_offset <= 16'h0000;
             gime_video_horizontal_offset <= 8'h00;
         end else begin
+            previous_video_hsync <= video_hsync;
+            previous_video_vsync <= video_vsync;
+            previous_keyboard_active <= keyboard_active;
+            if (gime_irq_ack || gime_firq_ack)
+                gime_status_read_data <= io_read_data;
+            // PIA CA1/CB1 flags survive the sync pulse and are acknowledged
+            // by peripheral-data reads, independently of interrupt enables.
+            if (io_read && address == 16'hFF00 && pia0_cra[2])
+                pia0_hsync_pending <= 1'b0;
+            else if (pia0_hsync_event)
+                pia0_hsync_pending <= 1'b1;
+            if (io_read && address == 16'hFF02 && pia0_crb[2])
+                pia0_vsync_pending <= 1'b0;
+            else if (pia0_vsync_event)
+                pia0_vsync_pending <= 1'b1;
             // Extended Color BASIC starts with its PALETTE CMP preset.  HDMI
             // is an RGB output, so apply the ROM's PALETTE RGB preset once,
             // after the complete 16-entry startup write has arrived.  This
@@ -383,6 +449,17 @@ module coco3_boot_machine #(
                 gime_init1 <= write_data;
                 mmu_task <= write_data[0];
             end
+            if (address == 16'hFF92)
+                gime_irq_enable <= write_data[5:0];
+            if (address == 16'hFF93)
+                gime_firq_enable <= write_data[5:0];
+            // SAM RATE strobes select the CoCo 3 CPU's normal and double
+            // speeds. The board's F6 setting remains an independent turbo
+            // override through cpu_fast_mode.
+            if (address == 16'hFFD8)
+                sam_fast_mode <= 1'b0;
+            if (address == 16'hFFD9)
+                sam_fast_mode <= 1'b1;
             if (address == 16'hFF98)
                 gime_video_mode <= write_data;
             if (address == 16'hFF99)
@@ -448,7 +525,20 @@ module coco3_boot_machine #(
         .write_msb(io_write && address == 16'hFF94),
         .write_lsb(io_write && address == 16'hFF95),
         .write_data(write_data), .timer_msb(gime_timer_msb),
-        .timer_lsb(gime_timer_lsb), .blink(video_blink)
+        .timer_lsb(gime_timer_lsb), .blink(video_blink),
+        .expire_pulse(gime_timer_expire)
+    );
+
+    coco3_gime_interrupt gime_interrupt_i (
+        .clock(clock), .reset(reset),
+        .irq_master_enable(gime_init0[5]),
+        .firq_master_enable(gime_init0[4]),
+        .irq_enable(gime_irq_enable), .firq_enable(gime_firq_enable),
+        .event_pulse(gime_event_pulse),
+        .irq_ack(gime_irq_ack), .firq_ack(gime_firq_ack),
+        .legacy_irq(legacy_irq), .legacy_firq(legacy_firq),
+        .irq_status(gime_irq_status), .firq_status(gime_firq_status),
+        .cpu_irq(cpu_irq), .cpu_firq(cpu_firq)
     );
 
     coco3_128k_ram #(.INIT_VALUE(8'h00)) ram_i (
