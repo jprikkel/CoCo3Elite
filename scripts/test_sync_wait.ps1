@@ -13,13 +13,19 @@ foreach($item in @(@{Name='hven_harness';Source='HVENHARNESS'},@{Name='hven_help
  $hex=[System.IO.File]::ReadAllBytes("$runDir\$($item.Name).bin") | ForEach-Object {$_.ToString('x2')}
  [System.IO.File]::WriteAllLines("$runDir\$($item.Name).mem",[string[]]$hex)
 }
+foreach($item in @(@{Name='zen_harness';Source='ZENHARNESS'},@{Name='zen_helper';Source='ZENFILL'})) {
+ & "$repoRoot\tools\asm6809\asm6809.exe" -B -d ORIGIN=24576 -o "$runDir\$($item.Name).bin" "$repoRoot\tb\asm\$($item.Source).asm"
+ if($LASTEXITCODE){throw 'Zenix helper assembly failed'}
+ $hex=[System.IO.File]::ReadAllBytes("$runDir\$($item.Name).bin") | ForEach-Object {$_.ToString('x2')}
+ [System.IO.File]::WriteAllLines("$runDir\$($item.Name).mem",[string[]]$hex)
+}
 Push-Location $runDir
 try {
  $sources=@('rtl\third-party\MC6809\mc6809i.v','rtl\core\cpu09.v',
  'rtl\core\coco3_128k_ram.v','rtl\core\coco3_system_rom.v','rtl\core\coco3_disk_rom.v',
  'rtl\core\coco3_diagnostic_cartridge.v','rtl\core\coco3_disk_image.v','rtl\core\coco3_fdc.v',
  'rtl\core\coco3_keyboard_matrix.v','rtl\core\coco3_gime_timer.v','rtl\core\coco3_gime_interrupt.v',
- 'rtl\core\coco3_boot_machine.v','tb\sync_wait_tb.v','tb\hven_fill_tb.v') | ForEach-Object {Join-Path $repoRoot $_}
+ 'rtl\core\coco3_boot_machine.v','tb\sync_wait_tb.v','tb\hven_fill_tb.v','tb\zenix_fill_tb.v') | ForEach-Object {Join-Path $repoRoot $_}
  & "$VivadoBin\xvlog.bat" @sources
  if($LASTEXITCODE){throw 'xvlog failed'}
  & "$VivadoBin\xelab.bat" sync_wait_tb -s sync_wait_sim
@@ -32,4 +38,8 @@ try {
  if($LASTEXITCODE){throw 'HVEN elaboration failed'}
  & "$VivadoBin\xsim.bat" hven_fill_sim -runall
  if($LASTEXITCODE -or -not (Select-String -Path xsim.log -SimpleMatch 'PASS: HVEN helper')) {throw 'HVEN helper regression failed'}
+ & "$VivadoBin\xelab.bat" zenix_fill_tb -s zenix_fill_sim
+ if($LASTEXITCODE){throw 'Zenix helper elaboration failed'}
+ & "$VivadoBin\xsim.bat" zenix_fill_sim -runall
+ if($LASTEXITCODE -or -not (Select-String -Path xsim.log -SimpleMatch 'PASS: Zenix CPU/MMU fill')) {throw 'Zenix helper regression failed'}
 } finally {Pop-Location}

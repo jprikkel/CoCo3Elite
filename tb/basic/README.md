@@ -28,6 +28,14 @@ With Zenix on drive 0 and the diagnostics on drive 1, enter `DRIVE 1` before
 `RUN "HVEN"` so its helper also loads from drive 1. F7 right-joystick mode
 must be off for A/D to reach BASIC; that mode captures those keys.
 
+`ZENVID.BAS` is a black-box Zenix video-path diagnostic. Its assembly helper
+uses the game's `$35-$3C` MMU mappings to fill the framebuffer, then programs
+the Zenix gameplay mode (`$FF99=$7E`), display start (`$FF9D/$FF9E=$D620`),
+and HVEN offset (`$FF9F=$98`). A colored grid demonstrates that CPU writes
+through the 128K page aliases reach the bytes fetched by video. The helper
+relocates itself and its stack outside Zenix's framebuffer before filling the
+complete range, then continuously scrolls the window. Use Ctrl-Alt-Del to exit.
+
 The disk also contains `MEMT2023.BIN` and `SYSINFO.BIN` as Disk BASIC binary
 files. These are sourced from the ignored local `roms` directory when the disk
 is generated. MemTest2023+ intentionally runs continuously until reset. These

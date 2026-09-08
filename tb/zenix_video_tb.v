@@ -65,6 +65,11 @@ module zenix_video_tb;
   release dut.PIXEL_COUNT;
   release dut.ROW_ADD;
   reset=1; repeat(4) @(posedge clk); #1; reset=0;
+  // The HDMI wrapper pulses raster reset every transport frame. Native
+  // 225-line mode starts at line zero and must not remain vertically blanked
+  // until the internal counter reaches its next wrap.
+  repeat(800) @(posedge clk);
+  if(dut.VBLANKING) $fatal(1,"225-line video stayed blank after HDMI raster resync");
   // Exercise the unforced raster after a full startup frame.
   repeat(800*525) @(posedge clk);
   for(n=0;n<800*525;n=n+1) begin

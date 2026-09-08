@@ -2405,6 +2405,15 @@ begin
 	end
 	else
 	case (LINE)
+// The HDMI wrapper realigns this raster once per 525-line transport frame.
+// Native 225-line video begins at the top, so release blanking at the first
+// line boundary after reset instead of waiting for the next frame wrap.
+	10'd0:
+	begin
+		LINE <= 10'd1;
+		if((LPF == 2'b11) && (COCO == 1'b0))
+			VBLANKING <= 1'b0;
+	end
 // Center each GIME display height in the 225-line CoCo viewport. Each CoCo
 // line is emitted twice, so the required top offsets are 32, 24, 14, and 0
 // scanlines for the 192-, 200-, 210-, and 225-line modes respectively.
