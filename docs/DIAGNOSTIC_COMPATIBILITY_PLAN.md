@@ -21,6 +21,37 @@ physical interfaces that the Wukong implementation does not provide. The
 onboard CH340N UART is a passive FPGA debug console, not the CoCo bit-banged
 serial port.
 
+## Future feature options
+
+These are possible follow-on projects rather than changes that must be copied
+directly from the CoCo3FPGA 4.1 source. The original DE1/Quartus memory and I/O
+controllers are board-specific and require Wukong integration or replacement.
+
+1. **512 KiB system RAM** — Highest-value compatibility extension. Expand the
+   active 128 KiB physical address path and RAM while preserving the existing
+   GIME MMU behavior. Using FPGA block RAM would reduce the space available for
+   embedded disk images; using Wukong DDR3 requires a new controller and safe
+   arbitration between CPU and video accesses.
+2. **Writable or physical disk support** — Extend the current read-only
+   embedded-disk controller with write operations, or add an interface for
+   physical floppy hardware.
+3. **SD-card filesystem mounting** — Add FAT32 parsing and mount named `.DSK`
+   files from MicroSD instead of embedding disk images into the bitstream.
+4. **CoCo peripheral interfaces** — Add cassette, printer, RS-232 PAK, and
+   physical analog-joystick support if suitable Wukong pins or external
+   hardware are assigned.
+5. **8 MiB video/system addressing** — Optional CoCo3FPGA extension, not a
+   feature of a stock CoCo 3. Keep it separate from the 512 KiB compatibility
+   work and require software that can exercise the extended registers.
+6. **Widest 256-color video modes** — Restore the 512- and 640-byte-per-line
+   CoCo3FPGA extension by designing a fetch schedule with enough memory
+   bandwidth under `NEW_SRAM`. These modes are also nonstandard and should not
+   take priority over normal CoCo 3 compatibility.
+
+Recommended order: implement 512 KiB RAM first, then SD-mounted writable disk
+images. Add physical peripherals only when there is a concrete hardware target;
+treat 8 MiB addressing and the widest 256-color modes as optional extensions.
+
 ## Phase 1: make failures reproducible
 
 1. Record the exact cocodiag version and SHA-256 of every ROM used by a test.
