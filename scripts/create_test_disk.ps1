@@ -20,7 +20,7 @@ if (Test-Path -LiteralPath $output) {
 & $decb dskini $output -3
 if ($LASTEXITCODE -ne 0) { throw "decb dskini failed with exit code $LASTEXITCODE" }
 
-$programs = @('TESTMENU', 'CPURAM', 'ROMTEST', 'CARTTEST', 'VIDEO', 'VID2', 'VID3', 'PALTEST', 'GIMETEST', 'GIMETMR', 'VECTEST', 'VIDPROBE', 'AUDIO', 'WIDTHS', 'INPUT')
+$programs = @('TESTMENU', 'CPURAM', 'ROMTEST', 'CARTTEST', 'VIDEO', 'VID2', 'VID3', 'PALTEST', 'GIMETEST', 'GIMETMR', 'VECTEST', 'VIDPROBE', 'AUDIO', 'WIDTHS', 'INPUT', 'HVEN', 'ZENVID')
 foreach ($program in $programs) {
     $source = Join-Path $sourceDir "$program.BAS"
     $destination = "$output,$program.BAS"
@@ -41,5 +41,11 @@ foreach ($binary in @('MEMT2023.BIN', 'SYSINFO.BIN')) {
 & $decb copy -2 -b (Join-Path $repoRoot 'build\tests\vidhelp.bin') "$output,VIDHELP.BIN"
 if ($LASTEXITCODE -ne 0) { throw 'decb copy failed for VIDHELP.BIN' }
 Write-Host "Created CoCo 3 FPGA diagnostic disk: $output"
+& (Join-Path $PSScriptRoot 'build_hven_fill.ps1')
+& $decb copy -2 -b (Join-Path $repoRoot 'build\tests\hvenfill.bin') "$output,HVENFILL.BIN"
+if ($LASTEXITCODE -ne 0) { throw 'decb copy failed for HVENFILL.BIN' }
+& (Join-Path $PSScriptRoot 'build_zenix_fill.ps1')
+& $decb copy -2 -b (Join-Path $repoRoot 'build\tests\zenfill.bin') "$output,ZENFILL.BIN"
+if ($LASTEXITCODE -ne 0) { throw 'decb copy failed for ZENFILL.BIN' }
 & $decb dir "$output,"
 if ($LASTEXITCODE -ne 0) { throw "decb dir failed with exit code $LASTEXITCODE" }

@@ -43,6 +43,7 @@ try {
         (Join-Path $repoRoot 'rtl\core\coco3_fdc.v'),
         (Join-Path $repoRoot 'rtl\core\coco3_keyboard_matrix.v'),
         (Join-Path $repoRoot 'rtl\core\coco3_gime_timer.v'),
+        (Join-Path $repoRoot 'rtl\core\coco3_gime_interrupt.v'),
         (Join-Path $repoRoot 'rtl\core\coco3_boot_machine.v'),
         (Join-Path $repoRoot 'tb\diagnostic_cartridge_trace_tb.v')
     )

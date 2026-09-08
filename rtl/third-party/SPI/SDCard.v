@@ -1,20 +1,21 @@
 ////////////////////////////////////////////////////////////////////////////////
-// Project Name:	CoCo3FPGA Version 3.0
-// File Name:		SDCard.v
+// Project Name:	CoCo3FPGA Version 4.0
+// File Name:		sdcard.v
 //
 // CoCo3 in an FPGA
 //
-// Revision: 3.0 08/15/15
+// Revision: 4.0 07/10/16
 ////////////////////////////////////////////////////////////////////////////////
 //
 // CPU section copyrighted by John Kent
 // The FDC co-processor copyrighted Daniel Wallner.
+// SDRAM Controller copyrighted by XESS Corp.
 //
 ////////////////////////////////////////////////////////////////////////////////
 //
 // Color Computer 3 compatible system on a chip
 //
-// Version : 3.0
+// Version : 4.0
 //
 // Copyright (c) 2008 Gary Becker (gary_l_becker@yahoo.com)
 //
@@ -55,9 +56,12 @@
 //
 // File history :
 //
-//  1.0		Full Release
-//  2.0		Partial Release
-//  3.0		Full Release
+//  1.0			Full Release
+//  2.0			Partial Release
+//  3.0			Full Release
+//  3.0.0.1		Update to fix DoD interrupt issue
+//	3.0.1.0		Update to fix 32/40 CoCO3 Text issue and add 2 Meg max memory
+//	4.0.X.X		Full Release
 ////////////////////////////////////////////////////////////////////////////////
 // Gary Becker
 // gary_L_becker@yahoo.com
@@ -71,7 +75,7 @@ module SDCard(
 	input		wire			cs_i,				// Chip Select (active high)
 	input		wire			adr_i,         // Address 0
 	input		wire			rw_n_i,			// Read (active high) Write_N (active low)
-	output	reg			halt_o,				// Halt to CPU for sync / testing
+	output	wire			halt_o,				// Halt to CPU for sync / testing
 	input		wire	[7:0]	dat_i,			// data input
 	output	wire	[7:0]	dat_o,
 	output	wire			irq_n_o,			// irq output (low active)
@@ -90,7 +94,7 @@ reg							en_spi;
 reg					[2:0]	state;
 reg					[3:0]	bcnt;
 reg							wffull;
-reg					[1:0]	wffull_buf;
+reg					[2:0]	wffull_buf;
 reg					[7:0]	rreg1;
 reg					[7:0]	buffer1;
 reg							wffull_reset;
@@ -101,6 +105,8 @@ wire							irq_reset_n;
 reg							halt_buf0;
 reg							halt_buf1;
 reg					[1:0]	halt_state;
+reg							halt_1;
+
 
 assign dat_o = (!adr_i)	?	{!irq_n, 5'b00000, wp_locked_i, !card_detect_n_i}:	// Address=0
 									rreg1;																// Address=1
@@ -109,6 +115,7 @@ assign irq_reset_n =	~reset_n_i							?	1'b0:							// system reset
 							~en_spi								?	1'b0:							// SPI disabled
 							~en_irq								?	1'b0:
 																		1'b1;
+assign halt_o = halt_1 | wffull;
 
 assign irq_n_o = 			irq_n;
 
@@ -119,18 +126,18 @@ begin
 	if(wffull_reset)
 		wffull <= 1'b0;
 	else
-		if({cs_i, adr_i} == 2'b11)										// Read / Write data register
+		if({cs_i, adr_i, en_spi} == 3'b111)										// Read / Write data register
 		begin
 			wffull <= 1'b1;
 		end
 end
-
+/*
 always @(negedge cpuclk_n_i or negedge reset_n_i)
 begin
 	if(!reset_n_i)
 	begin
-		halt_buf0 <= 1'b0; 
-		halt_buf1 <= 1'b0;
+//		halt_buf0 <= 1'b0;
+//		halt_buf1 <= 1'b0;
 		halt_state <= 2'b00;
 		halt_o <= 1'b0;
 	end
@@ -167,7 +174,7 @@ begin
 		endcase
 	end
 end
-
+*/
 always @(negedge cpuclk_n_i or negedge reset_n_i)
 begin
 	if(!reset_n_i)
@@ -220,40 +227,49 @@ begin
 		state <= 3'b001; 				// idle
 		bcnt  <= 4'h0;
 		sclk_o <= 1'b0;
-		wffull_buf <= 2'b00;
+		wffull_buf <= 3'b000;
 		wffull_reset <= 1'b1;		// if SPI is not enabled, then keep write buffer empty
 		rreg1 <= 8'h00;
+		halt_1 <= 1'b0;				// Halt off
 	end
 	else
 	begin
-		wffull_buf <= {wffull_buf[0], wffull};
+		wffull_buf <= {wffull_buf[1],wffull_buf[0], wffull};
 		case (state)
 		3'b001:								// idle state
 		begin
 			sclk_o <= 1'b0;				// set sck
-			wffull_reset <= 1'b0;
-			if (wffull_buf[1])
+			if (wffull_buf[2])
 			begin
 				bcnt  <= 4'h0;				// set transfer counter
 				rreg1 <= buffer1;
 				state <= 3'b010;
+				halt_1 <= 1'b1;			// Turn on Halt
+				wffull_reset <= 1'b1;
+			end
+			else
+			begin
+				wffull_reset <= 1'b0;
+				halt_1 <= 1'b0;			// Turn off Halt
+				state <= 3'b001;
 			end
 		end
 		3'b010:								// clock-phase2, next data
 		begin
 			sclk_o   <= 1'b0;
-			wffull_reset <= 1'b1;
+			wffull_reset <= 1'b0;		// Turn off reset
 			state   <= 3'b100;
 			if (bcnt[3])
 			begin
 				state <= 3'b001;
-				wffull_reset <= 1'b0;
+//				wffull_reset <= 1'b0;
 				mosi_o <= 1'b1;
+//				halt_o <= 1'b0;			// Turn off halt
 			end
 			else
 			begin
 				state <= 3'b100;
-				wffull_reset <= 1'b1;
+//				wffull_reset <= 1'b1;
 				mosi_o <= rreg1[7];
 			end
 		end
@@ -268,6 +284,7 @@ begin
 		default:
 		begin
 			state <= 3'b001;
+			halt_1 <= 1'b1;
 		end
 		endcase
 	end

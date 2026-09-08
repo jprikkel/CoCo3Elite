@@ -1,20 +1,21 @@
 ////////////////////////////////////////////////////////////////////////////////
-// Project Name:	CoCo3FPGA Version 3.0
+// Project Name:	CoCo3FPGA Version 4.0
 // File Name:		6551rx.v
 //
 // CoCo3 in an FPGA
 //
-// Revision: 3.0 08/15/15
+// Revision: 4.0 07/10/16
 ////////////////////////////////////////////////////////////////////////////////
 //
 // CPU section copyrighted by John Kent
 // The FDC co-processor copyrighted Daniel Wallner.
+// SDRAM Controller copyrighted by XESS Corp.
 //
 ////////////////////////////////////////////////////////////////////////////////
 //
 // Color Computer 3 compatible system on a chip
 //
-// Version : 3.0
+// Version : 4.0
 //
 // Copyright (c) 2008 Gary Becker (gary_l_becker@yahoo.com)
 //
@@ -55,9 +56,12 @@
 //
 // File history :
 //
-//  1.0		Full Release
-//  2.0		Partial Release
-//  3.0		Full Release
+//  1.0			Full Release
+//  2.0			Partial Release
+//  3.0			Full Release
+//  3.0.0.1		Update to fix DoD interrupt issue
+//	3.0.1.0		Update to fix 32/40 CoCO3 Text issue and add 2 Meg max memory
+//	4.0.X.X		Full Release
 ////////////////////////////////////////////////////////////////////////////////
 // Gary Becker
 // gary_L_becker@yahoo.com
@@ -66,33 +70,82 @@
 module uart51_rx(
 RESET_N,
 BAUD_CLK,
+//E,
+//REG_READ,
 RX_DATA,
 RX_BUFFER,
+// RX_READY,
 RX_WORD,
 RX_PAR_DIS,
 RX_PARITY,
 PARITY_ERR,
+// OVERRUN,
 FRAME,
 READY
 );
 input					RESET_N;
 input					BAUD_CLK;
+//input					E;
+//input					REG_READ;
 input					RX_DATA;
 output	[7:0]		RX_BUFFER;
 reg		[7:0]		RX_BUFFER;
+// input					RX_READY;
+// reg					RX_READY;
 input		[1:0]		RX_WORD;
 input					RX_PAR_DIS;
 input		[1:0]		RX_PARITY;
 output				PARITY_ERR;
 reg					PARITY_ERR;
+// output				OVERRUN;
+// reg					OVERRUN;
 output				FRAME;
 reg					FRAME;
 output				READY;
 reg					READY;
 reg		[5:0]		STATE;
 reg		[2:0]		BIT;
+// reg		[1:0]		READ_STATE;
 reg					RX_DATA0;
 reg					RX_DATA1;
+
+// Even though we are checking the state machine using the E clock
+// The clock can be up to 1/3 the speed of the bit clock
+// Only the first three bits are checks and the state machine
+// has three states that will compare
+//always @ (negedge E or negedge RESET_N)
+//begin
+//	if(~RESET_N)
+//	begin
+//		RX_READY <= 1'b0;
+//		READ_STATE <= 2'b00;
+//	end
+//	else
+//		case (READ_STATE)
+//		2'b00:
+//		begin
+//			if(STATE[5:2] == 4'b1110)			//Stop bit
+//			begin
+//				RX_READY <= 1'b1;
+//				READ_STATE <= 2'b01;
+//			end
+//		end
+//		2'b01:
+//		begin
+//			if(REG_READ)
+//			begin
+//				RX_READY <= 1'b0;
+//				READ_STATE <= 2'b10;
+//			end
+//		end
+//		2'b10:
+//		begin
+//			if(STATE[5:3] != 3'b111)
+//				READ_STATE <= 2'b00;
+//		end
+//		endcase
+//end
+
 
 always @ (posedge BAUD_CLK or negedge RESET_N)
 begin
@@ -100,6 +153,7 @@ begin
 	begin
 		RX_BUFFER <= 8'h00;
 		STATE <= 6'b000000;
+//		OVERRUN <= 1'b0;
 		FRAME <= 1'b0;
 		BIT <= 3'b000;
 		RX_DATA0 <= 1'b1;
@@ -125,6 +179,7 @@ begin
 		6'b010111:										// Each data bit is states 16-31, the middle is 23
 		begin
 			RX_BUFFER[BIT] <= RX_DATA1;
+//			OVERRUN <= RX_READY;
 			STATE <= 6'b011000;
 		end
 		6'b011111:										// End of the data bits
@@ -153,7 +208,7 @@ begin
 						end
 						else
 						begin
-							BIT <= BIT + 1'b1;
+							BIT <= BIT + 1;
 							STATE <= 6'b010000;
 						end
 					end
@@ -182,6 +237,7 @@ begin
 		end
 		6'b110111:										// first stop bit is 32 or 48 then 49 - 63
 		begin
+//			OVERRUN <= 1'b0;
 			FRAME <= !RX_DATA1;			// if data != 1 then not stop bit
 			READY <= 1'b1;
 			STATE <= 6'b111000;
@@ -194,7 +250,7 @@ begin
 			if(RX_DATA1)
 				STATE <= 6'b000000;
 		end
-		default: STATE <= STATE + 1'b1;
+		default: STATE <= STATE + 1;
 		endcase
 	end
 end

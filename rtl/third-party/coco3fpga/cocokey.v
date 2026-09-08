@@ -1,22 +1,22 @@
 `timescale 1ns/1ps
-
 ////////////////////////////////////////////////////////////////////////////////
-// Project Name:	CoCo3FPGA Version 3.0
-// File Name:		cocokey.v
+// Project Name:	CoCo3FPGA Version 4.0
+// File Name:		coco3fpga.v
 //
 // CoCo3 in an FPGA
 //
-// Revision: 3.0 08/15/15
+// Revision: 4.0 07/10/16
 ////////////////////////////////////////////////////////////////////////////////
 //
 // CPU section copyrighted by John Kent
 // The FDC co-processor copyrighted Daniel Wallner.
+// SDRAM Controller copyrighted by XESS Corp.
 //
 ////////////////////////////////////////////////////////////////////////////////
 //
 // Color Computer 3 compatible system on a chip
 //
-// Version : 3.0
+// Version : 4.0
 //
 // Copyright (c) 2008 Gary Becker (gary_l_becker@yahoo.com)
 //
@@ -57,9 +57,12 @@
 //
 // File history :
 //
-//  1.0		Full Release
-//  2.0		Partial Release
-//  3.0		Full Release
+//  1.0			Full Release
+//  2.0			Partial Release
+//  3.0			Full Release
+//  3.0.0.1		Update to fix DoD interrupt issue
+//	3.0.1.0		Update to fix 32/40 CoCO3 Text issue and add 2 Meg max memory
+//	4.0.X.X		Full Release
 ////////////////////////////////////////////////////////////////////////////////
 // Gary Becker
 // gary_L_becker@yahoo.com
@@ -175,13 +178,29 @@ wire					EXTENDED;
 47			/						?							 \
 
 48			cr						CR							^cr
-49			tab					TAB						^tab
+49			HOME
 50			esc					ESC						^esc
 51			alt					ALT						^alt
 52			ctrl					CTRL						^
 53			f1						F1							^f1
 54			f2						F2							^f2
 55			lsh rsh				LSH RSH					^lsh ^rsh
+
+56			F3
+57			F4
+58			F5
+59			F6
+60			F7
+61			F8
+62			F9
+63			F10
+64			F11
+65			INS
+66			DEL
+67			tab					TAB						^tab
+68			END
+69			PgUp
+70			PgDn
 */
 
 always @ (negedge SLO_CLK or negedge RESET_N)

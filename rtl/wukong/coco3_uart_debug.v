@@ -15,6 +15,8 @@ module coco3_uart_debug (
     input  wire [7:0]  cpu_write_data,
     input  wire        keyboard_active,
     input  wire        cartridge_enabled,
+    // Mode, resolution, bank, base(16), horizontal offset, palettes(96), RAM word.
+    input  wire [159:0] video_state,
     output wire        uart_tx_o
 );
     localparam [1:0] MSG_READY = 2'd0;
@@ -28,7 +30,8 @@ module coco3_uart_debug (
     reg cart_entry_seen;
     reg message_active;
     reg [1:0] message_kind;
-    reg [4:0] message_index;
+    reg [6:0] message_index;
+    reg [159:0] captured_video;
     reg [15:0] captured_pc;
     reg captured_cart;
     reg captured_key;
@@ -48,26 +51,27 @@ module coco3_uart_debug (
         end
     endfunction
 
-    function [5:0] message_length;
+    function [6:0] message_length;
         input [1:0] kind;
         begin
             case (kind)
                 MSG_READY: message_length = 18;
                 MSG_CART:  message_length = 9;
                 MSG_ENTRY: message_length = 17;
-                default:   message_length = 23;
+                default:   message_length = 66;
             endcase
         end
     endfunction
 
     function [7:0] message_byte;
         input [1:0] kind;
-        input [4:0] index;
+        input [6:0] index;
         input [15:0] pc;
         input cart;
         input key;
         input [7:0] row;
         input [7:0] column;
+        input [159:0] video;
         begin
             message_byte = 8'h20;
             case (kind)
@@ -118,7 +122,12 @@ module coco3_uart_debug (
                     18:message_byte=8'h3d;
                     19:message_byte=hex_digit(column[7:4]);
                     20:message_byte=hex_digit(column[3:0]);
-                    21:message_byte=8'h0d; default:message_byte=8'h0a;
+                    21:message_byte=8'h20;
+                    22:message_byte=8'h56;
+                    23:message_byte=8'h3d;
+                    64:message_byte=8'h0d;
+                    65:message_byte=8'h0a;
+                    default:message_byte=hex_digit(video[159-(index-24)*4 -: 4]);
                 endcase
             endcase
         end
@@ -139,6 +148,7 @@ module coco3_uart_debug (
             message_kind <= MSG_READY;
             message_index <= 5'd0;
             captured_pc <= 16'd0;
+            captured_video <= 160'd0;
             captured_cart <= 1'b0;
             captured_key <= 1'b0;
             captured_row <= 8'hff;
@@ -182,6 +192,7 @@ module coco3_uart_debug (
                     message_active <= 1'b1;
                 end else if (second_count == 25'd25199999) begin
                     captured_pc <= last_opcode_pc;
+                    captured_video <= video_state;
                     captured_cart <= cartridge_enabled;
                     captured_key <= keyboard_active;
                     captured_row <= last_keyboard_row;
@@ -193,7 +204,7 @@ module coco3_uart_debug (
             end else if (!tx_busy && !tx_start) begin
                 tx_data <= message_byte(message_kind, message_index,
                                         captured_pc, captured_cart, captured_key,
-                                        captured_row, captured_column);
+                                        captured_row, captured_column, captured_video);
                 tx_start <= 1'b1;
                 if (message_index + 1'b1 == message_length(message_kind)) begin
                     message_active <= 1'b0;

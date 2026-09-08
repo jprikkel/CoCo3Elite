@@ -5,6 +5,8 @@ module native_text_fetch_tb;
  reg clk=0; always #5 clk=~clk;
  reg [3:0] hres=1;
  reg [1:0] cres=0;
+ reg hven=0;
+ reg [6:0] hor_offset=0;
  reg [9:0] pixel=0;
  reg [20:0] rowaddr=21'h70200;
  wire [19:0] addr; wire [15:0] data;
@@ -19,7 +21,7 @@ module native_text_fetch_tb;
  COCO3VIDEO dut(.PIX_CLK(clk),.RESET_N(1'b1),.RAM_ADDRESS(addr),.RAM_DATA(data),
  .COCO(1'b0),.V(3'd0),.BP(1'b0),.VERT(7'd0),.VID_CONT(4'd0),.CSS(1'b0),
  .LPF(2'd1),.VERT_FIN_SCRL(4'd0),.HLPR(1'b0),.LPR(3'd3),.HRES(hres),
- .CRES(cres),.HVEN(1'b0),.HOR_OFFSET(7'd0),.SCRN_START_HSB(2'd0),
+ .CRES(cres),.HVEN(hven),.HOR_OFFSET(hor_offset),.SCRN_START_HSB(2'd0),
  .SCRN_START_MSB(8'hE0),.SCRN_START_LSB(8'h40),.BLINK(1'b0),.SWITCH5(1'b0));
  initial begin
   force dut.PIXEL_COUNT=pixel;
@@ -63,7 +65,24 @@ module native_text_fetch_tb;
    end
    $display("Completed width=%0d attr=%0d",width,cres);
   end
+  // The horizontal offset is in 16-bit words. Without HVEN it carries into
+  // the following memory; with HVEN it wraps within a 256-byte/128-word row.
+  hres=4'b1001; cres=0; hor_offset=7'd126; rowaddr=21'h00200;
+  hven=0;
+  for(p=0;p<16;p=p+4) begin
+   pixel=p; @(negedge clk); #1;
+   expected=20'h00100+126+(p/4);
+   if(addr!==expected[19:0])
+    $fatal(1,"Normal horizontal offset address mismatch p=%0d expected=%h got=%h",p,expected[19:0],addr);
+  end
+  hven=1;
+  for(p=0;p<16;p=p+4) begin
+   pixel=p; @(negedge clk); #1;
+   expected=20'h00100+((126+(p/4))&127);
+   if(addr!==expected[19:0])
+    $fatal(1,"HVEN horizontal wrap mismatch p=%0d expected=%h got=%h",p,expected[19:0],addr);
+  end
   if(failures) $fatal(1,"Native text fetch failures=%0d",failures);
-  $display("PASS: native text fetch eight modes, 25 rows each"); $finish;
+  $display("PASS: native text fetch eight modes, 25 rows each, HVEN wrap"); $finish;
  end
 endmodule

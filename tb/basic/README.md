@@ -6,9 +6,9 @@ These ASCII Extended Color BASIC programs are packaged into the local
 Generate the disk from the repository root after supplying local
 `roms/MEMT2023.BIN` and `roms/SYSINFO.BIN`. The generator replaces
 `disks/fpgatest.dsk` and assembles `VIDHELP.BIN` using bundled asm6809.
-To use it on hardware, supply `disks/games.dsk` too and build with
-`-EmbeddedTestDisks`; drive 0 is the diagnostic disk. All DSK inputs are
-optional, read-only when embedded, and untracked. MicroSD cannot mount them yet.
+To use it on hardware, supply the requested local disk images and build with
+`-EmbeddedTestDisks`. All DSK inputs are optional, read-only when embedded,
+and untracked. MicroSD cannot mount them yet.
 
 From Disk Extended Color BASIC on drive 0, run the menu with:
 
@@ -20,6 +20,21 @@ The tests cover CPU arithmetic, BASIC array RAM, non-destructive installed-RAM
 capacity detection from 64K through 512K, all five legacy PMODE graphics
 modes, all four CoCo 3 HSCREEN graphics modes, HDMI audio, 32/40/80-column
 display positioning, keyboard input, both joystick axes, and both fire buttons.
+`HVEN.BAS` V2 loads `HVENFILL.BIN` to quickly fill 96 virtual 256-byte rows
+inside BASIC's graphics allocation, displayed twice each for 192 scanlines.
+A/D step left/right by 32 pixels, Space toggles automatic scrolling, and Q
+returns to the menu. The title screen identifies V2 before entering graphics.
+With Zenix on drive 0 and the diagnostics on drive 1, enter `DRIVE 1` before
+`RUN "HVEN"` so its helper also loads from drive 1. F7 right-joystick mode
+must be off for A/D to reach BASIC; that mode captures those keys.
+
+`ZENVID.BAS` is a black-box Zenix video-path diagnostic. Its assembly helper
+uses the game's `$35-$3C` MMU mappings to fill the framebuffer, then programs
+the Zenix gameplay mode (`$FF99=$7E`), display start (`$FF9D/$FF9E=$D620`),
+and HVEN offset (`$FF9F=$98`). A colored grid demonstrates that CPU writes
+through the 128K page aliases reach the bytes fetched by video. The helper
+relocates itself and its stack outside Zenix's framebuffer before filling the
+complete range, then continuously scrolls the window. Use Ctrl-Alt-Del to exit.
 
 The disk also contains `MEMT2023.BIN` and `SYSINFO.BIN` as Disk BASIC binary
 files. These are sourced from the ignored local `roms` directory when the disk
