@@ -5,7 +5,12 @@
 // with CMD17 and validates its 55 AA signature. The FAT32 mount state machine
 // will reuse this byte engine once physical block reads are proven on J13.
 module sd_spi_read_sector0 #(
-    parameter HALF_PERIOD = 7'd8
+    parameter HALF_PERIOD = 7'd8,
+    // With no card-detect signal on the Pmod, periodically repeat this
+    // harmless read-only probe.  At the 25.2 MHz pixel clock the default is
+    // one second between probes; a failed command is reported to the boot
+    // supervisor, which restarts card initialization.
+    parameter [24:0] RETRY_CYCLES = 25'd25200000
 ) (
     input  wire      clock,
     input  wire      reset,
@@ -29,6 +34,7 @@ module sd_spi_read_sector0 #(
     reg crc_index;
     reg [7:0] signature_lo;
     reg [7:0] signature_hi;
+    reg [24:0] retry_count;
 
     reg [7:0] tx_byte;
     reg [7:0] rx_byte;
@@ -109,12 +115,14 @@ module sd_spi_read_sector0 #(
             crc_index <= 0;
             signature_lo <= 0;
             signature_hi <= 0;
+            retry_count <= 0;
             tx_byte <= 8'hff;
         end else if (!transfer && !start_byte) begin
             case (state)
                 ST_IDLE: if (enable) begin
                     status <= 8'h10;
                     detail <= 8'hff;
+                    retry_count <= 0;
                     cs_n <= 1'b1;
                     tx_byte <= 8'hff;
                     start_byte <= 1'b1;
@@ -202,6 +210,17 @@ module sd_spi_read_sector0 #(
                             state <= ST_ERROR;
                         end
                     end
+                end
+                ST_DONE: if (!enable) begin
+                    state <= ST_IDLE;
+                    retry_count <= 0;
+                end else if (retry_count == RETRY_CYCLES - 1'b1) begin
+                    // Repeat CMD17 rather than treating a former success as
+                    // a permanent card-present indication.
+                    retry_count <= 0;
+                    state <= ST_IDLE;
+                end else begin
+                    retry_count <= retry_count + 1'b1;
                 end
                 default: begin end
             endcase

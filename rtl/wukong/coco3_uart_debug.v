@@ -15,6 +15,8 @@ module coco3_uart_debug (
     input  wire [7:0]  cpu_write_data,
     input  wire        keyboard_active,
     input  wire        cartridge_enabled,
+    input  wire [7:0]  sd_status,
+    input  wire [7:0]  sd_detail,
     // Mode, resolution, bank, base(16), horizontal offset, palettes(96), RAM word.
     input  wire [159:0] video_state,
     output wire        uart_tx_o
@@ -37,6 +39,8 @@ module coco3_uart_debug (
     reg captured_key;
     reg [7:0] captured_row;
     reg [7:0] captured_column;
+    reg [7:0] captured_sd_status;
+    reg [7:0] captured_sd_detail;
     reg [15:0] last_opcode_pc;
     reg [7:0] last_keyboard_row;
     reg [7:0] last_keyboard_column;
@@ -58,7 +62,7 @@ module coco3_uart_debug (
                 MSG_READY: message_length = 18;
                 MSG_CART:  message_length = 9;
                 MSG_ENTRY: message_length = 17;
-                default:   message_length = 66;
+                default:   message_length = 76;
             endcase
         end
     endfunction
@@ -71,6 +75,8 @@ module coco3_uart_debug (
         input key;
         input [7:0] row;
         input [7:0] column;
+        input [7:0] sd_status_value;
+        input [7:0] sd_detail_value;
         input [159:0] video;
         begin
             message_byte = 8'h20;
@@ -122,12 +128,19 @@ module coco3_uart_debug (
                     18:message_byte=8'h3d;
                     19:message_byte=hex_digit(column[7:4]);
                     20:message_byte=hex_digit(column[3:0]);
-                    21:message_byte=8'h20;
-                    22:message_byte=8'h56;
+                    21:message_byte=8'h20; 22:message_byte=8'h53;
                     23:message_byte=8'h3d;
-                    64:message_byte=8'h0d;
-                    65:message_byte=8'h0a;
-                    default:message_byte=hex_digit(video[159-(index-24)*4 -: 4]);
+                    24:message_byte=hex_digit(sd_status_value[7:4]);
+                    25:message_byte=hex_digit(sd_status_value[3:0]);
+                    26:message_byte=8'h20; 27:message_byte=8'h44;
+                    28:message_byte=8'h3d;
+                    29:message_byte=hex_digit(sd_detail_value[7:4]);
+                    30:message_byte=hex_digit(sd_detail_value[3:0]);
+                    31:message_byte=8'h20; 32:message_byte=8'h56;
+                    33:message_byte=8'h3d;
+                    74:message_byte=8'h0d;
+                    75:message_byte=8'h0a;
+                    default:message_byte=hex_digit(video[159-(index-34)*4 -: 4]);
                 endcase
             endcase
         end
@@ -153,6 +166,8 @@ module coco3_uart_debug (
             captured_key <= 1'b0;
             captured_row <= 8'hff;
             captured_column <= 8'hff;
+            captured_sd_status <= 8'hff;
+            captured_sd_detail <= 8'hff;
             last_opcode_pc <= 16'h0000;
             last_keyboard_row <= 8'hff;
             last_keyboard_column <= 8'hff;
@@ -197,6 +212,8 @@ module coco3_uart_debug (
                     captured_key <= keyboard_active;
                     captured_row <= last_keyboard_row;
                     captured_column <= last_keyboard_column;
+                    captured_sd_status <= sd_status;
+                    captured_sd_detail <= sd_detail;
                     message_kind <= MSG_PC;
                     message_index <= 5'd0;
                     message_active <= 1'b1;
@@ -204,7 +221,8 @@ module coco3_uart_debug (
             end else if (!tx_busy && !tx_start) begin
                 tx_data <= message_byte(message_kind, message_index,
                                         captured_pc, captured_cart, captured_key,
-                                        captured_row, captured_column, captured_video);
+                                        captured_row, captured_column, captured_sd_status,
+                                        captured_sd_detail, captured_video);
                 tx_start <= 1'b1;
                 if (message_index + 1'b1 == message_length(message_kind)) begin
                     message_active <= 1'b0;

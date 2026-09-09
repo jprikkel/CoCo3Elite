@@ -23,6 +23,7 @@ Hardware interface documentation is maintained under [`hardware/`](hardware/):
 - [QMTECH Wukong V3 board overview](hardware/wukong-board.md)
 - [Wukong V3 PMOD pinout](hardware/wukong-pmod-pinout.md)
 - [PS/2 keyboard interface](hardware/keyboard-ps2.md)
+- [USB host prototype and proposed wiring](hardware/usb-host-interface.md)
 
 ![Extended Color BASIC running on the QMTECH Wukong V3](docs/images/wukong-coco3-basic.png)
 
@@ -34,6 +35,10 @@ MicroSD currently supports initialization and sector-zero reads only; it does
 not mount FAT32 `.DSK` files. Optional embedded DSK files are local, read-only,
 and untracked. The onboard USB connection is a passive UART diagnostic link,
 not DriveWire or a USB host.
+
+The [SD-card and USB support plan](docs/SDCARD_SUPPORT_PLAN.md) describes the
+proposed filesystem browser, writable DSK images, cartridge/BAS/BIN loading,
+FPGA management processor, and USB storage/input expansion.
 
 ## Repository layout
 

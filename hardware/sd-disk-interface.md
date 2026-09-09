@@ -1,12 +1,22 @@
 # CoCo3Elite SD-card disk interface
 
+The [SD-card and USB support plan](../docs/SDCARD_SUPPORT_PLAN.md) is the current
+implementation roadmap. It supersedes the scope, order, and architecture choices
+in the earlier proposal below, including its root-only/read-only restrictions.
+It includes writable DSKs, cartridge/BAS/BIN loading, an FPGA management
+processor, and USB storage/input expansion. Registers below remain proposals.
+
 ## Current implementation
 
 MicroSD currently supports SPI initialization and physical sector-zero reads
 only—not FAT32 DSK mounting. `rtl/core/sd_spi_init.v` initializes the card;
 `sd_spi_read_sector0.v` issues CMD17 for sector zero and checks its final
 `55 AA` signature. A successful signature check is not filesystem recognition.
-The current probe does not expose a general block-device or mounted file backend.
+The probe repeats the read approximately once per second. A failed command is
+reported as an error, then the SPI engines retry initialization, so removing
+and reinserting a card can be observed without reconfiguring the FPGA. This is
+still only a diagnostic checkpoint, not a general block-device or mounted-file
+backend.
 
 The Digilent Pmod MicroSD is on J13: pin 1/N22 chip select, pin 2/N21 MOSI,
 pin 3/R20 MISO, pin 4/T22 clock, pin 5 ground, pin 6 3.3 V. See the
@@ -243,5 +253,8 @@ on the SD card.
 Write support requires more than accepting WD1773 write-sector commands. The
 backend must update data sectors without altering the image length, complete
 the SD write before reporting success, reject writes after media removal, and
-never modify FAT metadata for an already allocated fixed-size image. Until
-those conditions are tested, the controller reports write-protect status.
+preserve unrelated bytes and filesystem consistency. Fixed-size images avoid
+allocation changes, but ordinary filesystem writes may still update directory
+metadata. Flush filesystem and block-device buffers before reporting success;
+see the current plan for reset/removal and power-loss limits. Until those
+conditions are tested, the controller reports write-protect status.

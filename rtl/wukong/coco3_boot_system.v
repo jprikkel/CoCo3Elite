@@ -125,32 +125,37 @@ module coco3_boot_system (
                                   joystick_right_up_only ? 6'd0 :
                                   joystick_right_down_only ? 6'd63 : 6'd32;
     wire joystick_right_fire = keyboard_right_joystick_enabled && keyboard_keys[6];
-    wire [7:0] sd_init_status;
-    wire [7:0] sd_init_detail;
-    wire [7:0] sd_read_status;
-    wire [7:0] sd_read_detail;
-    wire sd_init_cs_n, sd_init_sck, sd_init_mosi;
-    wire sd_read_cs_n, sd_read_sck, sd_read_mosi;
-    wire sd_initialized = sd_init_status == 8'h80;
-    wire [7:0] sd_status = sd_initialized ? sd_read_status : sd_init_status;
-    wire [7:0] sd_detail = sd_initialized ? sd_read_detail : sd_init_detail;
+    // The manager owns the SD pins and filesystem.  The CoCo sees only a
+    // WD1773-like sector service, preserving Disk BASIC's normal protocol.
+    wire manager_uart_tx, manager_ready, manager_done_toggle, manager_success;
+    wire [2:0] manager_drive_present;
+    wire [1:0] manager_fdc_drive;
+    wire [7:0] manager_fdc_track, manager_fdc_sector, manager_fdc_last_type1, manager_fdc_data,
+               manager_fdc_data_address;
+    wire [31:0] manager_fdc_debug_word;
+    wire [31:0] manager_fdc_completed_debug_word;
+    wire manager_fdc_read_complete_toggle;
+    wire manager_fdc_request_toggle;
+    wire [7:0] sd_status = {4'b1010, manager_ready, manager_drive_present};
+    wire [7:0] sd_detail = {5'b0, manager_drive_present};
+    wire coco_uart_debug_tx;
 
-    assign sd_cs_n = sd_initialized ? sd_read_cs_n : sd_init_cs_n;
-    assign sd_sck  = sd_initialized ? sd_read_sck  : sd_init_sck;
-    assign sd_mosi = sd_initialized ? sd_read_mosi : sd_init_mosi;
-
-    sd_spi_init sd_i (
-        .clock(pixel_clk), .reset(reset), .miso(sd_miso),
-        .cs_n(sd_init_cs_n), .sck(sd_init_sck), .mosi(sd_init_mosi),
-        .status(sd_init_status), .detail(sd_init_detail)
+    ultraembedded_manager_sd_mount manager_i (
+        .clock(pixel_clk), .reset(reset), .uart_tx(manager_uart_tx),
+        .sd_cs_n(sd_cs_n), .sd_sck(sd_sck), .sd_mosi(sd_mosi), .sd_miso(sd_miso),
+        .fdc_drive(manager_fdc_drive), .fdc_track(manager_fdc_track),
+        .fdc_sector(manager_fdc_sector), .fdc_request_toggle(manager_fdc_request_toggle),
+        .fdc_last_type1(manager_fdc_last_type1),
+        .fdc_debug_word(manager_fdc_debug_word), .fdc_read_complete_toggle(manager_fdc_read_complete_toggle),
+        .fdc_completed_debug_word(manager_fdc_completed_debug_word),
+        .fdc_buffer_address(manager_fdc_data_address), .fdc_buffer_data(manager_fdc_data),
+        .fdc_done_toggle(manager_done_toggle), .fdc_success(manager_success),
+        .fdc_present(manager_drive_present), .manager_ready(manager_ready)
     );
-
-    sd_spi_read_sector0 sd_sector0_i (
-        .clock(pixel_clk), .reset(reset), .enable(sd_initialized),
-        .miso(sd_miso), .cs_n(sd_read_cs_n), .sck(sd_read_sck),
-        .mosi(sd_read_mosi), .status(sd_read_status),
-        .detail(sd_read_detail)
-    );
+    // Keep manager output selected while qualifying FDC streaming.  It emits
+    // one compact line per requested sector; restore the CoCo stream after
+    // this hardware diagnostic is complete.
+    assign uart_debug_tx = manager_uart_tx;
 
     COCOKEY keyboard_i (
         .RESET_N(~reset),
@@ -285,6 +290,13 @@ module coco3_boot_system (
         .joystick_right_y(joystick_right_y),
         .joystick_right_fire(joystick_right_fire),
         .sd_status(sd_status), .sd_detail(sd_detail),
+        .sd_drive_present(manager_drive_present),
+        .sd_fdc_done_toggle(manager_done_toggle), .sd_fdc_success(manager_success),
+        .sd_fdc_data(manager_fdc_data), .sd_fdc_buffer_address(manager_fdc_data_address),
+        .sd_fdc_drive(manager_fdc_drive), .sd_fdc_track(manager_fdc_track),
+        .sd_fdc_sector(manager_fdc_sector), .sd_fdc_last_type1(manager_fdc_last_type1),
+        .sd_fdc_debug_word(manager_fdc_debug_word), .sd_fdc_read_complete_toggle(manager_fdc_read_complete_toggle), .sd_fdc_request_toggle(manager_fdc_request_toggle),
+        .sd_fdc_completed_debug_word(manager_fdc_completed_debug_word),
         .video_hsync(raw_hsync), .video_vsync(raw_vsync),
         .video_address(video_address), .video_read_data(video_data),
         .audio_dac(audio_dac), .video_vdg_control(vid_cont),
@@ -316,9 +328,10 @@ module coco3_boot_system (
         .cpu_read_data(cpu_read_data), .cpu_write_data(cpu_data),
         .keyboard_active(|keyboard_keys),
         .cartridge_enabled(diagnostic_cartridge_enabled),
+        .sd_status(sd_status), .sd_detail(sd_detail),
         .video_state({gime_video_mode,gime_video_resolution,{6'b0,start_hsb},
                       gime_video_offset,gime_horizontal_offset,machine_palette,video_data}),
-        .uart_tx_o(uart_debug_tx)
+        .uart_tx_o(coco_uart_debug_tx)
     );
 
     generate

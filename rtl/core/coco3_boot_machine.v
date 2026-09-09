@@ -47,7 +47,20 @@ module coco3_boot_machine #(
     output wire [3:0]  video_scroll,
     output wire [15:0] video_offset,
     output wire [7:0]  video_horizontal_offset,
-    output wire        video_blink
+    output wire        video_blink,
+    input  wire [2:0]  sd_drive_present,
+    input  wire        sd_fdc_done_toggle,
+    input  wire        sd_fdc_success,
+    input  wire [7:0]  sd_fdc_data,
+    output wire [7:0]  sd_fdc_buffer_address,
+    output wire [1:0]  sd_fdc_drive,
+    output wire [7:0]  sd_fdc_track,
+    output wire [7:0]  sd_fdc_sector,
+    output wire [7:0]  sd_fdc_last_type1,
+    output wire [31:0] sd_fdc_debug_word,
+    output wire [31:0] sd_fdc_completed_debug_word,
+    output wire        sd_fdc_read_complete_toggle,
+    output wire        sd_fdc_request_toggle
 );
     reg [4:0] divider;
     reg hold;
@@ -516,7 +529,17 @@ module coco3_boot_machine #(
     coco3_fdc fdc_i (
         .clock(clock), .reset(reset), .io_read(io_read), .io_write(io_write),
         .address(address), .write_data(write_data),
-        .read_data(fdc_read_data), .nmi(fdc_nmi)
+        .read_data(fdc_read_data), .nmi(fdc_nmi),
+        .backend_present(sd_drive_present),
+        .backend_done_toggle(sd_fdc_done_toggle),
+        .backend_success(sd_fdc_success), .backend_data(sd_fdc_data),
+        .backend_buffer_address(sd_fdc_buffer_address),
+        .backend_drive(sd_fdc_drive), .backend_track(sd_fdc_track),
+        .backend_sector(sd_fdc_sector), .backend_last_type1(sd_fdc_last_type1),
+        .backend_debug_word(sd_fdc_debug_word),
+        .backend_completed_debug_word(sd_fdc_completed_debug_word),
+        .backend_read_complete_toggle(sd_fdc_read_complete_toggle),
+        .backend_request_toggle(sd_fdc_request_toggle)
     );
 
     coco3_gime_timer gime_timer_i (

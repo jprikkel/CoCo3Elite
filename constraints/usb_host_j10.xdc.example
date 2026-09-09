@@ -1,0 +1,19 @@
+# WIRING TEMPLATE ONLY. Not loaded by any build. Confirm the actual module,
+# pin-1 orientation, logic voltage, power switching and connector conflicts first.
+# usb_vbus_en is a 3.3 V logic enable for an external current-limited 5 V switch;
+# it is NOT a power output. Never connect 5 V to any PMOD pin.
+set_property -dict {PACKAGE_PIN D5 IOSTANDARD LVCMOS33 DRIVE 4 SLEW SLOW} [get_ports usb_cs_n]
+set_property -dict {PACKAGE_PIN G5 IOSTANDARD LVCMOS33 DRIVE 4 SLEW SLOW} [get_ports usb_mosi]
+set_property -dict {PACKAGE_PIN G7 IOSTANDARD LVCMOS33 PULLUP TRUE} [get_ports usb_miso]
+set_property -dict {PACKAGE_PIN G8 IOSTANDARD LVCMOS33 DRIVE 4 SLEW SLOW} [get_ports usb_sck]
+set_property -dict {PACKAGE_PIN E5 IOSTANDARD LVCMOS33 PULLUP TRUE} [get_ports usb_int_n]
+set_property -dict {PACKAGE_PIN E6 IOSTANDARD LVCMOS33 DRIVE 4 SLEW SLOW} [get_ports usb_reset_n]
+set_property -dict {PACKAGE_PIN D6 IOSTANDARD LVCMOS33 DRIVE 4 SLEW SLOW} [get_ports usb_vbus_en]
+# Pull down so missing/disconnected fault wiring cannot enable VBUS.
+set_property -dict {PACKAGE_PIN G6 IOSTANDARD LVCMOS33 PULLDOWN TRUE} [get_ports usb_overcurrent_n]
+# Only the asynchronous input -> first synchronizer paths are false paths.
+# Synchronizer inter-stage timing MUST remain constrained by the system clock.
+# Adapt the cell hierarchy if the instance is renamed.
+set_false_path -from [get_ports usb_miso] -to [get_pins {usb/miso_sync_reg[0]/D}]
+set_false_path -from [get_ports usb_int_n] -to [get_pins {usb/int_sync_reg[0]/D}]
+set_false_path -from [get_ports usb_overcurrent_n] -to [get_pins {usb/oc_sync_reg[0]/D}]

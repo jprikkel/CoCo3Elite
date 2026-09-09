@@ -53,6 +53,8 @@ if {$mode eq "COCO3_ELITE"} {
         error "Prepared Disk BASIC ROM not found at $disk_rom_mem; run scripts/prepare_disk_rom.ps1"
     }
     lappend sources \
+        {*}[lsort [glob [file join $repo_dir rtl third-party ultraembedded-riscv core riscv *.v]]] \
+        {*}[lsort [glob [file join $repo_dir rtl third-party ultraembedded-riscv top_tcm_axi src_v *.v]]] \
         [file join $repo_dir rtl third-party PS2_Key ps2_keyboard.v] \
         [file join $repo_dir rtl third-party coco3fpga cocokey.v] \
         [file join $repo_dir rtl core coco3_keyboard_matrix.v] \
@@ -60,9 +62,8 @@ if {$mode eq "COCO3_ELITE"} {
         [file join $repo_dir rtl core coco3_system_rom.v] \
         [file join $repo_dir rtl core coco3_disk_rom.v] \
         [file join $repo_dir rtl core coco3_diagnostic_cartridge.v] \
-        [file join $repo_dir rtl core coco3_disk_image.v] \
-        [file join $repo_dir rtl core sd_spi_init.v] \
-        [file join $repo_dir rtl core sd_spi_read_sector0.v] \
+        [file join $repo_dir rtl management manager_sd_mmio.v] \
+        [file join $repo_dir rtl management ultraembedded_manager_sd_mount.v] \
         [file join $repo_dir rtl core coco3_fdc.v] \
         [file join $repo_dir rtl core coco3_gime_timer.v] \
         [file join $repo_dir rtl core coco3_gime_interrupt.v] \
@@ -73,6 +74,7 @@ if {$mode eq "COCO3_ELITE"} {
         [file join $rtl_dir crt_filter.v] \
         [file join $rtl_dir coco3_boot_system.v]
     set coco3_defines {NEW_SRAM HDMI_TEST_PATTERN HDMI_LIBRARY_COCO HDMI_LIBRARY_AUDIO HDMI_RASTER_800X525}
+    set_property include_dirs [list [file join $repo_dir rtl third-party ultraembedded-riscv core riscv] $output_dir] [current_fileset]
     if {$embedded_test_disks} {
         lappend coco3_defines EMBEDDED_TEST_DISKS
     }
