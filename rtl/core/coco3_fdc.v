@@ -1,7 +1,7 @@
 `timescale 1ns/1ps
 `default_nettype none
 
-// Minimal read-only WD1773-compatible interface for the standard CoCo disk
+// Minimal WD1773-compatible interface for the standard CoCo disk
 // controller. The former BRAM-backed DSK images have been removed so they
 // cannot conflict with the external SD-card backend. Until that backend is
 // connected, sector operations report not-ready.
@@ -20,6 +20,8 @@ module coco3_fdc (
     input  wire [2:0]  backend_present,
     input  wire        backend_done_toggle,
     input  wire        backend_success,
+    input  wire        backend_write_done_toggle,
+    input  wire        backend_write_success,
     input  wire [7:0]  backend_data,
     output wire [7:0]  backend_buffer_address,
     output reg  [1:0]  backend_drive,
@@ -29,6 +31,9 @@ module coco3_fdc (
     output reg  [31:0] backend_debug_word,
     output reg  [31:0] backend_completed_debug_word,
     output reg         backend_read_complete_toggle,
+    output wire        backend_write_strobe,
+    output wire [7:0]  backend_write_data,
+    output reg         backend_write_complete_toggle,
     output reg         backend_request_toggle
 );
     reg [7:0] drive_latch;
@@ -39,6 +44,8 @@ module coco3_fdc (
     reg [7:0] byte_index;
     reg       read_active;
     reg       read_waiting;
+    reg       write_active;
+    reg       write_waiting;
     reg       first_data_access;
     reg       nmi_pending;
     reg       last_step_in;
@@ -79,6 +86,10 @@ module coco3_fdc (
     wire data_read = io_read && address == 16'hFF4B;
     wire status_read = io_read && address == 16'hFF48;
     assign backend_buffer_address = byte_index;
+    // The manager owns the write port of the cache.  The FDC holds its byte
+    // index stable for the complete CPU write cycle, including byte FF.
+    assign backend_write_strobe = write_active && io_write && address == 16'hFF4B;
+    assign backend_write_data = write_data;
 
     always @* begin
         case (address)
@@ -105,6 +116,8 @@ module coco3_fdc (
             byte_index <= 8'h00;
             read_active <= 1'b0;
             read_waiting <= 1'b0;
+            write_active <= 1'b0;
+            write_waiting <= 1'b0;
             first_data_access <= 1'b0;
             nmi_pending <= 1'b0;
             last_step_in <= 1'b0;
@@ -115,6 +128,7 @@ module coco3_fdc (
             backend_debug_word <= 32'd0;
             backend_completed_debug_word <= 32'd0;
             backend_read_complete_toggle <= 1'b0;
+            backend_write_complete_toggle <= 1'b0;
             backend_request_toggle <= 1'b0;
             debug_byte_count <= 8'd0;
         end else begin
@@ -133,6 +147,19 @@ module coco3_fdc (
                     read_active <= 1'b0;
                     nmi_pending <= 1'b1;
                 end
+            end
+            // A write remains busy until firmware has copied the completed
+            // 256-byte cache sector into its containing FAT32 512-byte block
+            // and CMD24 has accepted it.  This prevents a later write from
+            // overwriting the shared flush buffer.
+            if (write_waiting && backend_write_done_toggle == backend_write_complete_toggle) begin
+                write_waiting <= 1'b0;
+                if (backend_write_success) begin
+                    status <= 8'h00;
+                end else begin
+                    status <= 8'h40;
+                end
+                nmi_pending <= 1'b1;
             end
 `endif
             if (status_read)
@@ -171,7 +198,19 @@ module coco3_fdc (
                     16'hFF40: drive_latch <= write_data;
                     16'hFF49: track <= write_data;
                     16'hFF4A: sector <= write_data;
-                    16'hFF4B: data_register <= write_data;
+                    16'hFF4B: begin
+                        data_register <= write_data;
+                        if (write_active) begin
+                            if (byte_index == 8'hFF) begin
+                                write_active <= 1'b0;
+                                write_waiting <= 1'b1;
+                                status <= 8'h01;
+                                backend_write_complete_toggle <= ~backend_write_complete_toggle;
+                            end else begin
+                                byte_index <= byte_index + 1'b1;
+                            end
+                        end
+                    end
                     16'hFF48: begin
                         nmi_pending <= 1'b0;
                         case (write_data[7:4])
@@ -182,6 +221,8 @@ module coco3_fdc (
                                 status <= 8'h00;
                                 read_active <= 1'b0;
                                 read_waiting <= 1'b0;
+                                write_active <= 1'b0;
+                                write_waiting <= 1'b0;
                                 first_data_access <= 1'b0;
                             end
                             4'h1: begin // seek to data register
@@ -190,6 +231,8 @@ module coco3_fdc (
                                 status <= 8'h00;
                                 read_active <= 1'b0;
                                 read_waiting <= 1'b0;
+                                write_active <= 1'b0;
+                                write_waiting <= 1'b0;
                                 first_data_access <= 1'b0;
                             end
                             // Disk BASIC walks from track zero to the DECB
@@ -203,6 +246,8 @@ module coco3_fdc (
                                 status <= 8'h00;
                                 read_active <= 1'b0;
                                 read_waiting <= 1'b0;
+                                write_active <= 1'b0;
+                                write_waiting <= 1'b0;
                                 first_data_access <= 1'b0;
                             end
                             4'h4, 4'h5: begin // step in
@@ -212,6 +257,8 @@ module coco3_fdc (
                                 status <= 8'h00;
                                 read_active <= 1'b0;
                                 read_waiting <= 1'b0;
+                                write_active <= 1'b0;
+                                write_waiting <= 1'b0;
                                 first_data_access <= 1'b0;
                             end
                             4'h6, 4'h7: begin // step out
@@ -221,6 +268,8 @@ module coco3_fdc (
                                 status <= 8'h00;
                                 read_active <= 1'b0;
                                 read_waiting <= 1'b0;
+                                write_active <= 1'b0;
+                                write_waiting <= 1'b0;
                                 first_data_access <= 1'b0;
                             end
                             4'h8, 4'h9: begin // read single sector
@@ -250,6 +299,8 @@ module coco3_fdc (
                                     status <= !valid_position ? 8'h10 : 8'h80;
                                     read_active <= 1'b0;
                                     read_waiting <= 1'b0;
+                                    write_active <= 1'b0;
+                                    write_waiting <= 1'b0;
                                     nmi_pending <= 1'b1;
                                 end else begin
                                     backend_drive <= drive0_selected ? 2'd0 :
@@ -263,23 +314,57 @@ module coco3_fdc (
                                 end
 `endif
                             end
-                            4'hA, 4'hB: begin // write sector: read-only media
+                            4'hA, 4'hB: begin // write single sector
+`ifdef EMBEDDED_TEST_DISKS
                                 status <= 8'h40;
                                 read_active <= 1'b0;
                                 read_waiting <= 1'b0;
+                                write_active <= 1'b0;
+                                write_waiting <= 1'b0;
                                 first_data_access <= 1'b0;
                                 nmi_pending <= 1'b1;
+`else
+                                if (!drive_selected || !drive0_selected ||
+                                    (drive0_selected && !backend_present[0]) ||
+                                    (drive1_selected && !backend_present[1]) ||
+                                    (drive2_selected && !backend_present[2]) ||
+                                    !valid_position) begin
+                                    status <= !valid_position ? 8'h10 :
+                                              (!drive0_selected && drive_selected) ? 8'h40 : 8'h80;
+                                    read_active <= 1'b0;
+                                    read_waiting <= 1'b0;
+                                    write_active <= 1'b0;
+                                    write_waiting <= 1'b0;
+                                    nmi_pending <= 1'b1;
+                                end else begin
+                                    backend_drive <= drive0_selected ? 2'd0 :
+                                                     drive1_selected ? 2'd1 : 2'd2;
+                                    backend_track <= track;
+                                    backend_sector <= sector;
+                                    byte_index <= 8'h00;
+                                    read_active <= 1'b0;
+                                    read_waiting <= 1'b0;
+                                    write_active <= 1'b1;
+                                    write_waiting <= 1'b0;
+                                    first_data_access <= 1'b0;
+                                    status <= 8'h03;
+                                end
+`endif
                             end
                             4'hD: begin // force interrupt
                                 status <= 8'h00;
                                 read_active <= 1'b0;
                                 read_waiting <= 1'b0;
+                                write_active <= 1'b0;
+                                write_waiting <= 1'b0;
                                 first_data_access <= 1'b0;
                             end
                             default: begin
                                 status <= 8'h00;
                                 read_active <= 1'b0;
                                 read_waiting <= 1'b0;
+                                write_active <= 1'b0;
+                                write_waiting <= 1'b0;
                                 first_data_access <= 1'b0;
                             end
                         endcase

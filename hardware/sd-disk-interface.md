@@ -8,15 +8,11 @@ processor, and USB storage/input expansion. Registers below remain proposals.
 
 ## Current implementation
 
-MicroSD currently supports SPI initialization and physical sector-zero reads
-only—not FAT32 DSK mounting. `rtl/core/sd_spi_init.v` initializes the card;
-`sd_spi_read_sector0.v` issues CMD17 for sector zero and checks its final
-`55 AA` signature. A successful signature check is not filesystem recognition.
-The probe repeats the read approximately once per second. A failed command is
-reported as an error, then the SPI engines retry initialization, so removing
-and reinserting a card can be observed without reconfiguring the FPGA. This is
-still only a diagnostic checkpoint, not a general block-device or mounted-file
-backend.
+The integrated `COCO3_ELITE` image uses an ultraembedded RV32 management CPU to
+initialize the J13 MicroSD interface, parse FAT32, discover compatible root-level
+8.3 `.DSK` files, and load the selected 161,280-byte image into a dual-port
+drive-0 cache. The WD1773-compatible FDC reads and writes that cache. Firmware
+flushes completed sector writes back to the existing mounted FAT32 file.
 
 The Digilent Pmod MicroSD is on J13: pin 1/N22 chip select, pin 2/N21 MOSI,
 pin 3/R20 MISO, pin 4/T22 clock, pin 5 ground, pin 6 3.3 V. See the
@@ -24,16 +20,17 @@ pin 3/R20 MISO, pin 4/T22 clock, pin 5 ground, pin 6 3.3 V. See the
 at `$FF60` and detail at `$FF61`; after initialization these reflect the
 sector-zero reader. No card-detect input is wired.
 
-The minimal FDC already exposes `$FF40` and `$FF48-$FF4B`. Its only image
-backend is optional read-only block ROM: `-EmbeddedTestDisks` embeds local,
-untracked `disks/fpgatest.dsk` as drive 0 and `disks/games.dsk` as drive 1.
-Without that switch sector operations report not-ready. See
-[disk preparation](../disks/README.md). Neither path implements writes.
+The FDC exposes `$FF40` and `$FF48-$FF4B`, performs complete 256-byte read and
+write transfers, and exchanges ownership/completion state with the management
+cache. The optional `-EmbeddedTestDisks` path remains useful for simulation and
+fallback testing but is no longer the only mounted-image backend.
 
-Everything below is a future design proposal. FAT32 parsing, named-file
-mounting, four mount slots, a management CPU, F12 overlay, mount registers,
-BASIC syntax extensions, and the physical-floppy backend are not implemented.
-F12 currently maps to CoCo `@`. Copying a DSK to an SD card does not mount it.
+F12 now opens a firmware-populated HDMI file browser. Up/Down select a compatible
+DSK, Enter assigns it to drive 0, and Esc/F12 closes the browser. The hardware
+test on 2026-09-10 successfully mounted every compatible DSK on the test card,
+ran ZENIX and other programs, and retained a saved file after reset. Four mount
+slots, long filenames, subdirectories, BASIC syntax extensions, safe eject, and
+the physical-floppy backend remain future work.
 
 ## Proposed goal
 
@@ -234,6 +231,37 @@ The physical backend will add read-data separation/PLL, FM/MFM decoding and
 encoding, CRC handling, index synchronization, head-step timing, and guarded
 write support. Pin assignment and adapter design follow completion of the
 read-only SD-image milestone.
+
+### Candidate adapter: Adafruit Floppy FeatherWing (Product 5679)
+
+The [Adafruit Floppy FeatherWing][adafruit-floppy] is a candidate drive-side
+adapter for this milestone. It exposes a 34-pin IDC connector for common 3.5-
+and 5.25-inch drives and includes level shifting between Feather-safe 3.3 V
+signals and the drive-side 5 V logic. It is designed to be controlled by a
+Feather M4 or RP2040, so it is not a direct Wukong PMOD peripheral. The Wukong
+connection would require a custom PMOD-to-FeatherWing interposer/breakout and
+an FPGA-side pin assignment, or a small bridge board that presents the needed
+signals on two PMODs.
+
+The drive must have a separate power supply: Adafruit specifies a 5 V supply
+capable of approximately 2 A for typical drives, with 12 V additionally needed
+by some 5.25-inch mechanisms. PMOD 3.3 V must not power the motor or be wired
+directly to the 5 V floppy signals. The Wing's write-disable switch should be
+used as an additional safeguard while the FPGA read path is being validated.
+
+Backlog acceptance sequence:
+
+1. Produce the interposer schematic and verify voltage domains, grounds,
+   connector orientation, drive-select/motor polarity, and PMOD pin conflicts.
+2. Implement a read-only physical backend using one selected drive and a
+   bounded raw read-data capture path; report index, track, CRC, and timeout
+   diagnostics over the management serial stream.
+3. Read known CoCo sectors and compare them with ToolShed/emulator fixtures,
+   including missing-media, wrong-track, index-loss, and write-protect cases.
+4. Add guarded writes only after read qualification, with write-disable as the
+   power-on/default state and explicit eject/reset recovery.
+
+[adafruit-floppy]: https://www.adafruit.com/product/5679
 
 ## Sector translation
 

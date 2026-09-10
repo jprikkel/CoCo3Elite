@@ -12,6 +12,7 @@ module fdc_sd_buffer_tb;
     wire [1:0] drive; wire [7:0] track, sector;
     integer n; reg request_seen=0;
     always #5 clock=~clock;
+    // The firmware fills this owned buffer completely before acknowledging.
     always @* buffer_data = buffer[buffer_address];
     coco3_fdc dut(.clock(clock),.reset(reset),.io_read(io_read),.io_write(io_write),.address(address),.write_data(write_data),.read_data(read_data),.nmi(nmi),.backend_present(3'b001),.backend_done_toggle(done_toggle),.backend_success(success),.backend_data(buffer_data),.backend_buffer_address(buffer_address),.backend_drive(drive),.backend_track(track),.backend_sector(sector),.backend_request_toggle(request_toggle));
     task wr(input[15:0] a,input[7:0] d);begin @(negedge clock);address=a;write_data=d;io_write=1;@(negedge clock);io_write=0;end endtask
@@ -31,9 +32,11 @@ module fdc_sd_buffer_tb;
         repeat(3)@(posedge clock);
         if(request_toggle!==1 || drive!==0 || track!==17 || sector!==2)begin $display("FAIL: bad manager request");$finish;end
         success=1;done_toggle=request_toggle;
-        repeat(2)@(posedge clock);rd(16'hff48,value);if(value!==8'h03)begin $display("FAIL: status %02h",value);$finish;end
+        repeat(2)@(posedge clock);rd(16'hff48,value);if(value!==8'h03)begin $display("FAIL: initial status %02h",value);$finish;end
         rd(16'hff4b,value); // cpu09's FDC prefetch observation
-        for(n=0;n<4;n=n+1)rd(16'hff4b,got[n]);
+        for(n=0;n<4;n=n+1)begin
+            rd(16'hff4b,got[n]);
+        end
         if({got[0],got[1],got[2],got[3]}!==32'h8d0b0c16)begin $display("FAIL: bytes %02h %02h %02h %02h",got[0],got[1],got[2],got[3]);$finish;end
         $display("PASS: SD manager direct buffer preserves FDC byte 0");$finish;
     end

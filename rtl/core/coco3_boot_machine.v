@@ -11,6 +11,7 @@ module coco3_boot_machine #(
     input  wire        clock,
     input  wire        reset,
     input  wire        cpu_fast_mode,
+    input  wire        cpu_halt,
     input  wire        diagnostic_cartridge_enabled,
     output wire [15:0] debug_address,
     output wire [15:0] debug_pc,
@@ -51,6 +52,8 @@ module coco3_boot_machine #(
     input  wire [2:0]  sd_drive_present,
     input  wire        sd_fdc_done_toggle,
     input  wire        sd_fdc_success,
+    input  wire        sd_fdc_write_done_toggle,
+    input  wire        sd_fdc_write_success,
     input  wire [7:0]  sd_fdc_data,
     output wire [7:0]  sd_fdc_buffer_address,
     output wire [1:0]  sd_fdc_drive,
@@ -60,6 +63,9 @@ module coco3_boot_machine #(
     output wire [31:0] sd_fdc_debug_word,
     output wire [31:0] sd_fdc_completed_debug_word,
     output wire        sd_fdc_read_complete_toggle,
+    output wire        sd_fdc_write_strobe,
+    output wire [7:0]  sd_fdc_write_data,
+    output wire        sd_fdc_write_complete_toggle,
     output wire        sd_fdc_request_toggle
 );
     reg [4:0] divider;
@@ -509,7 +515,7 @@ module coco3_boot_machine #(
         .opfetch(opfetch), .ba(), .bs(), .addr(address), .rw(read_cycle),
         .debug_pc(debug_pc),
         .data_out(write_data), .data_in(read_data), .irq(cpu_irq),
-        .firq(cpu_firq), .nmi(fdc_nmi), .halt(1'b0), .hold(hold)
+        .firq(cpu_firq), .nmi(fdc_nmi), .halt(cpu_halt), .hold(hold)
     );
 
     coco3_system_rom rom_i (
@@ -532,13 +538,18 @@ module coco3_boot_machine #(
         .read_data(fdc_read_data), .nmi(fdc_nmi),
         .backend_present(sd_drive_present),
         .backend_done_toggle(sd_fdc_done_toggle),
-        .backend_success(sd_fdc_success), .backend_data(sd_fdc_data),
+        .backend_success(sd_fdc_success),
+        .backend_write_done_toggle(sd_fdc_write_done_toggle),
+        .backend_write_success(sd_fdc_write_success), .backend_data(sd_fdc_data),
         .backend_buffer_address(sd_fdc_buffer_address),
         .backend_drive(sd_fdc_drive), .backend_track(sd_fdc_track),
         .backend_sector(sd_fdc_sector), .backend_last_type1(sd_fdc_last_type1),
         .backend_debug_word(sd_fdc_debug_word),
         .backend_completed_debug_word(sd_fdc_completed_debug_word),
         .backend_read_complete_toggle(sd_fdc_read_complete_toggle),
+        .backend_write_strobe(sd_fdc_write_strobe),
+        .backend_write_data(sd_fdc_write_data),
+        .backend_write_complete_toggle(sd_fdc_write_complete_toggle),
         .backend_request_toggle(sd_fdc_request_toggle)
     );
 

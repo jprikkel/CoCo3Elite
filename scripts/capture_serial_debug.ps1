@@ -1,6 +1,6 @@
 param(
     [string]$PortName = 'COM5',
-    [ValidateRange(1, 60)]
+    [ValidateRange(1, 600)]
     [int]$Seconds = 8
 )
 

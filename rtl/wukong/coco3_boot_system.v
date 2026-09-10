@@ -4,12 +4,14 @@
 module coco3_boot_system (
     input wire pixel_clk, input wire reset,
     input wire raster_resync,
+    input wire [9:0] screen_x, input wire [9:0] screen_y,
     input wire ps2_clk, input wire ps2_data,
     output wire sd_cs_n, output wire sd_sck, output wire sd_mosi,
     input wire sd_miso,
     output wire hsync, output wire vsync, output wire video_enable,
     output wire [5:0] audio_dac,
     output wire narrow_video_mode,
+    output wire menu_active,
     output wire uart_debug_tx,
     output wire [7:0] red, output wire [7:0] green, output wire [7:0] blue
 );
@@ -66,6 +68,7 @@ module coco3_boot_system (
     wire keyboard_f9;
     wire keyboard_f11;
     wire keyboard_f10;
+    wire keyboard_f12;
     reg [1:0] keyboard_f6_sync;
     reg [1:0] keyboard_f3_sync;
     reg [1:0] keyboard_f7_sync;
@@ -73,6 +76,7 @@ module coco3_boot_system (
     reg [1:0] keyboard_f8_sync;
     reg [1:0] keyboard_f9_sync;
     reg [1:0] keyboard_f11_sync;
+    reg [1:0] keyboard_f12_sync;
     reg [1:0] keyboard_reset_sync;
     reg keyboard_f11_previous;
     reg keyboard_f6_previous;
@@ -98,7 +102,7 @@ module coco3_boot_system (
     wire [55:0] keyboard_right_joystick_mask = keyboard_right_joystick_enabled
         ? ((56'b1 << 23) | (56'b1 << 19) | (56'b1 << 1) |
            (56'b1 << 4) | (56'b1 << 6)) : 56'b0;
-    wire [55:0] machine_keyboard_keys = soft_reset_active ? 56'b0 :
+    wire [55:0] machine_keyboard_keys = (soft_reset_active | menu_active) ? 56'b0 :
         (keyboard_keys & ~keyboard_joystick_mask & ~keyboard_right_joystick_mask);
     wire machine_keyboard_shift = soft_reset_active ? 1'b0 : keyboard_shift;
     wire machine_keyboard_shift_override = soft_reset_active ? 1'b0 :
@@ -128,6 +132,7 @@ module coco3_boot_system (
     // The manager owns the SD pins and filesystem.  The CoCo sees only a
     // WD1773-like sector service, preserving Disk BASIC's normal protocol.
     wire manager_uart_tx, manager_ready, manager_done_toggle, manager_success;
+    wire manager_write_done_toggle, manager_write_success;
     wire [2:0] manager_drive_present;
     wire [1:0] manager_fdc_drive;
     wire [7:0] manager_fdc_track, manager_fdc_sector, manager_fdc_last_type1, manager_fdc_data,
@@ -135,7 +140,16 @@ module coco3_boot_system (
     wire [31:0] manager_fdc_debug_word;
     wire [31:0] manager_fdc_completed_debug_word;
     wire manager_fdc_read_complete_toggle;
+    wire manager_fdc_write_strobe, manager_fdc_write_complete_toggle;
+    wire [7:0] manager_fdc_write_data;
     wire manager_fdc_request_toggle;
+    wire [9:0] manager_osd_char_address;
+    wire [7:0] manager_osd_char_data;
+    wire [4:0] manager_osd_selected_row;
+    wire manager_osd_active;
+    wire [4:0] manager_menu_key_state = {
+        keyboard_keys[50], keyboard_keys[48], keyboard_keys[28],
+        keyboard_keys[27], keyboard_f12_sync[1]};
     wire [7:0] sd_status = {4'b1010, manager_ready, manager_drive_present};
     wire [7:0] sd_detail = {5'b0, manager_drive_present};
     wire coco_uart_debug_tx;
@@ -148,8 +162,16 @@ module coco3_boot_system (
         .fdc_last_type1(manager_fdc_last_type1),
         .fdc_debug_word(manager_fdc_debug_word), .fdc_read_complete_toggle(manager_fdc_read_complete_toggle),
         .fdc_completed_debug_word(manager_fdc_completed_debug_word),
+        .fdc_write_complete_toggle(manager_fdc_write_complete_toggle),
         .fdc_buffer_address(manager_fdc_data_address), .fdc_buffer_data(manager_fdc_data),
+        .fdc_write_strobe(manager_fdc_write_strobe), .fdc_write_data(manager_fdc_write_data),
+        .menu_key_state(manager_menu_key_state),
+        .osd_char_address(manager_osd_char_address),
+        .osd_char_data(manager_osd_char_data),
+        .osd_active(manager_osd_active),
+        .osd_selected_row(manager_osd_selected_row),
         .fdc_done_toggle(manager_done_toggle), .fdc_success(manager_success),
+        .fdc_write_done_toggle(manager_write_done_toggle), .fdc_write_success(manager_write_success),
         .fdc_present(manager_drive_present), .manager_ready(manager_ready)
     );
     // Keep manager output selected while qualifying FDC streaming.  It emits
@@ -173,6 +195,7 @@ module coco3_boot_system (
         .F9(keyboard_f9),
         .F10(keyboard_f10),
         .F11(keyboard_f11),
+        .F12(keyboard_f12),
         .RESET(keyboard_reset)
     );
 
@@ -184,6 +207,7 @@ module coco3_boot_system (
             keyboard_f3_sync <= 2'b00;
             keyboard_f7_sync <= 2'b00;
             keyboard_f11_sync <= 2'b00;
+            keyboard_f12_sync <= 2'b00;
             keyboard_f10_sync <= 2'b00;
             keyboard_f8_sync <= 2'b00;
             keyboard_f9_sync <= 2'b00;
@@ -206,6 +230,7 @@ module coco3_boot_system (
             keyboard_f3_sync <= {keyboard_f3_sync[0], keyboard_f3};
             keyboard_f7_sync <= {keyboard_f7_sync[0], keyboard_f7};
             keyboard_f11_sync <= {keyboard_f11_sync[0], keyboard_f11};
+            keyboard_f12_sync <= {keyboard_f12_sync[0], keyboard_f12};
             keyboard_f10_sync <= {keyboard_f10_sync[0], keyboard_f10};
             keyboard_f8_sync <= {keyboard_f8_sync[0], keyboard_f8};
             keyboard_f9_sync <= {keyboard_f9_sync[0], keyboard_f9};
@@ -275,6 +300,7 @@ module coco3_boot_system (
         .clock(pixel_clk), .reset(system_reset), .debug_address(cpu_address),
         .debug_pc(cpu_pc),
         .cpu_fast_mode(cpu_fast_mode),
+        .cpu_halt(menu_active),
         .diagnostic_cartridge_enabled(diagnostic_cartridge_enabled),
         .debug_vma(cpu_vma), .debug_read(cpu_read),
         .debug_opfetch(cpu_opfetch), .debug_read_data(cpu_read_data),
@@ -292,11 +318,14 @@ module coco3_boot_system (
         .sd_status(sd_status), .sd_detail(sd_detail),
         .sd_drive_present(manager_drive_present),
         .sd_fdc_done_toggle(manager_done_toggle), .sd_fdc_success(manager_success),
+        .sd_fdc_write_done_toggle(manager_write_done_toggle), .sd_fdc_write_success(manager_write_success),
         .sd_fdc_data(manager_fdc_data), .sd_fdc_buffer_address(manager_fdc_data_address),
         .sd_fdc_drive(manager_fdc_drive), .sd_fdc_track(manager_fdc_track),
         .sd_fdc_sector(manager_fdc_sector), .sd_fdc_last_type1(manager_fdc_last_type1),
         .sd_fdc_debug_word(manager_fdc_debug_word), .sd_fdc_read_complete_toggle(manager_fdc_read_complete_toggle), .sd_fdc_request_toggle(manager_fdc_request_toggle),
         .sd_fdc_completed_debug_word(manager_fdc_completed_debug_word),
+        .sd_fdc_write_strobe(manager_fdc_write_strobe), .sd_fdc_write_data(manager_fdc_write_data),
+        .sd_fdc_write_complete_toggle(manager_fdc_write_complete_toggle),
         .video_hsync(raw_hsync), .video_vsync(raw_vsync),
         .video_address(video_address), .video_read_data(video_data),
         .audio_dac(audio_dac), .video_vdg_control(vid_cont),
@@ -467,6 +496,7 @@ module coco3_boot_system (
         .out_red(artifact_red), .out_green(artifact_green), .out_blue(artifact_blue)
     );
 
+    wire [7:0] filtered_red, filtered_green, filtered_blue;
     crt_filter crt_i (
         .pixel_clk(pixel_clk), .reset(video_pipeline_reset),
         .enable(crt_enabled | scanlines_enabled),
@@ -479,8 +509,21 @@ module coco3_boot_system (
         .corner_radius(7'd0), .vignette_size(7'd0),
         .vignette_strength(8'd0), .black_level(8'd0), .white_level(8'd255),
         .out_hsync(hsync), .out_vsync(vsync), .out_video_enable(video_enable),
-        .out_red(red), .out_green(green), .out_blue(blue)
+        .out_red(filtered_red), .out_green(filtered_green), .out_blue(filtered_blue)
     );
+    wire [7:0] osd_red, osd_green, osd_blue;
+    manager_osd osd_i (
+        .clock(pixel_clk), .reset(reset), .active(manager_osd_active),
+        .screen_x(screen_x), .screen_y(screen_y),
+        .selected_row(manager_osd_selected_row),
+        .char_address(manager_osd_char_address),
+        .char_data(manager_osd_char_data),
+        .red(osd_red), .green(osd_green), .blue(osd_blue)
+    );
+    assign menu_active = manager_osd_active;
+    assign red = manager_osd_active ? osd_red : filtered_red;
+    assign green = manager_osd_active ? osd_green : filtered_green;
+    assign blue = manager_osd_active ? osd_blue : filtered_blue;
     wire _unused = sync_flag;
     // Matches COCO3VIDEO's MODE_256 selection. In text modes this identifies
     // the 32-column/narrow raster that needs separate HDMI centering.

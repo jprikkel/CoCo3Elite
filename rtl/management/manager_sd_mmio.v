@@ -9,7 +9,8 @@
 // its 256-byte shared read buffer.  The delayed write response is intentional:
 // it makes one MMIO store exactly one synchronous SPI byte transaction.
 module manager_sd_mmio #(
-    parameter integer UART_CLKS_PER_BIT = 434
+    parameter integer UART_CLKS_PER_BIT = 434,
+    parameter integer DISK_CACHE_BYTES = 161280
 ) (
     input wire clock, input wire reset,
     input wire axi_awvalid, output wire axi_awready, input wire [31:0] axi_awaddr,
@@ -22,9 +23,16 @@ module manager_sd_mmio #(
     output wire uart_tx, output reg sd_cs_n, output reg sd_sck, output reg sd_mosi,
     input wire sd_miso,
     input wire [1:0] fdc_drive, input wire [7:0] fdc_track,
-    input wire [7:0] fdc_sector, input wire [7:0] fdc_last_type1, input wire [31:0] fdc_debug_word, input wire [31:0] fdc_completed_debug_word, input wire fdc_read_complete_toggle, input wire fdc_request_toggle,
+    input wire [7:0] fdc_sector, input wire [7:0] fdc_last_type1, input wire [31:0] fdc_debug_word, input wire [31:0] fdc_completed_debug_word, input wire fdc_read_complete_toggle, input wire fdc_write_complete_toggle, input wire fdc_request_toggle,
     input wire [7:0] fdc_buffer_address, output wire [7:0] fdc_buffer_data,
+    input wire fdc_write_strobe, input wire [7:0] fdc_write_data,
+    input wire [4:0] menu_key_state,
+    input wire [9:0] osd_char_address,
+    output wire [7:0] osd_char_data,
+    output reg osd_active,
+    output reg [4:0] osd_selected_row,
     output reg fdc_done_toggle, output reg fdc_success,
+    output reg fdc_write_done_toggle, output reg fdc_write_success,
     output reg [2:0] fdc_present, output reg manager_ready
 );
     localparam UART_DATA = 32'h80000000, UART_STATUS = 32'h80000004,
@@ -33,8 +41,15 @@ module manager_sd_mmio #(
                FDC_INFO = 32'h80000204, FDC_BUFFER_RESET = 32'h80000208,
                FDC_BUFFER_DATA = 32'h8000020c, FDC_ACK = 32'h80000210,
                MOUNT_STATUS = 32'h80000214, FDC_BUFFER_PEEK = 32'h80000218, FDC_DEBUG_WORD = 32'h8000021c,
-               FDC_BUFFER_DEBUG_ADDRESS = 32'h80000220, FDC_BUFFER_DEBUG_DATA = 32'h80000224, FDC_COMPLETED_DEBUG_WORD = 32'h80000228,
-               DISK_CACHE_RESET = 32'h80000230, DISK_CACHE_DATA = 32'h80000234, DISK_CACHE_COMMIT = 32'h80000238, DISK_CACHE_STATUS = 32'h8000023c;
+               FDC_BUFFER_DEBUG_ADDRESS = 32'h80000220, FDC_BUFFER_DEBUG_DATA = 32'h80000224, FDC_COMPLETED_DEBUG_WORD = 32'h80000228, FDC_WRITE_ACK = 32'h8000022c,
+               DISK_CACHE_RESET = 32'h80000230, DISK_CACHE_DATA = 32'h80000234, DISK_CACHE_COMMIT = 32'h80000238, DISK_CACHE_STATUS = 32'h8000023c,
+               FDC_WRITE_BUFFER_DEBUG_DATA = 32'h80000240,
+               DISK_CACHE_DEBUG_ADDRESS = 32'h80000244,
+               DISK_CACHE_DEBUG_DATA = 32'h80000248,
+               OSD_ADDRESS = 32'h8000024c,
+               OSD_DATA = 32'h80000250,
+               OSD_CONTROL = 32'h80000254,
+               MENU_KEY_STATE = 32'h80000258;
     reg have_address, have_data, transaction_active, await_spi, spi_seen_busy;
     reg [31:0] write_address, write_data;
     reg [7:0] spi_tx, spi_rx, spi_tx_shift, spi_rx_shift;
@@ -43,16 +58,27 @@ module manager_sd_mmio #(
     reg spi_busy, spi_start;
     reg [7:0] uart_data;
     reg uart_start;
-    reg [7:0] fdc_buffer [0:255];
+    (* ram_style = "distributed" *) reg [7:0] osd_chars [0:1023];
+    reg [9:0] osd_write_address;
+    // These banks require asynchronous reads at the CoCo bus service edge.
+    // Force LUT RAM so implementation cannot silently turn the FDC-facing
+    // port into a clocked block-RAM read and retain the preceding sector.
+    (* ram_style = "distributed" *) reg [7:0] fdc_buffer0 [0:255];
+    (* ram_style = "distributed" *) reg [7:0] fdc_buffer1 [0:255];
+    reg [7:0] fdc_write_buffer [0:255];
     reg [7:0] fdc_buffer_write_address, fdc_buffer_debug_address;
-    // One raw DECB 35-track image.  Firmware loads ZENIX.DSK at boot; the
-    // FDC reads this synchronous BRAM directly, with no per-sector mailbox
-    // buffer ownership or FAT32 activity while Disk BASIC is transferring.
-    localparam integer DISK_CACHE_BYTES = 161280;
-    (* ram_style = "block", cascade_height = 1 *) reg [7:0] disk_cache [0:DISK_CACHE_BYTES-1];
+    reg [8:0] fdc_buffer_fill_count;
+    reg [1:0] fdc_ack_delay;
+    reg fdc_ack_pending, fdc_ack_success_pending, fdc_ack_toggle_pending;
+    reg fdc_buffer_read_bank, fdc_buffer_write_bank;
+    // Drive 0 is the known-good reference path: firmware loads the complete
+    // 35-track image once, then the FDC reads it directly from block RAM.
+    // The two small sector banks above are reserved for later drive 1/2
+    // demand paging and are never selected for a mounted drive 0.
     reg [17:0] disk_cache_write_address;
+    reg [17:0] disk_cache_debug_address;
     reg disk_cache_ready;
-    reg [7:0] disk_cache_fdc_data;
+    wire [7:0] disk_cache_fdc_data;
     wire [10:0] disk_cache_linear_sector = ({3'b000, fdc_track} << 4) +
                                             ({3'b000, fdc_track} << 1) +
                                             {3'b000, fdc_sector} - 11'd1;
@@ -60,13 +86,15 @@ module manager_sd_mmio #(
     wire disk_cache_fdc_valid = disk_cache_ready && fdc_drive == 2'd0 &&
                                 fdc_track < 8'd35 && fdc_sector >= 8'd1 && fdc_sector <= 8'd18;
     wire uart_busy;
-    // Match the registered read behavior of the former BRAM-backed disk
-    // image.  coco3_fdc advances its byte index on the service edge; a
-    // combinational buffer would expose byte N+1 before the 6809 samples N.
-    // The WD1773 data register is read by the 6809 between its FDC service
-    // enables.  This must therefore track the FDC byte address directly;
-    // registering this port repeated byte zero after the required prefetch.
-    assign fdc_buffer_data = disk_cache_fdc_valid ? disk_cache_fdc_data : fdc_buffer[fdc_buffer_address];
+    // The firmware owns FAT32 and fills this sector buffer completely before
+    // acknowledging an FDC read.  The FDC then consumes a stable, asynchronous
+    // 256-byte buffer, preserving normal CoCo Disk BASIC timing.
+    wire [7:0] sector_cache_data = fdc_buffer_read_bank
+                                 ? fdc_buffer1[fdc_buffer_address]
+                                 : fdc_buffer0[fdc_buffer_address];
+    assign fdc_buffer_data = disk_cache_fdc_valid ? disk_cache_fdc_data
+                                                  : sector_cache_data;
+    assign osd_char_data = osd_chars[osd_char_address];
 
     assign axi_awready = !have_address && !transaction_active;
     assign axi_wready = !have_data && !transaction_active;
@@ -74,10 +102,67 @@ module manager_sd_mmio #(
     assign axi_arready = !axi_rvalid;
     assign axi_rresp = 2'b00;
 
+    wire disk_cache_load_write = !reset && !transaction_active &&
+                                 have_address && have_data &&
+                                 write_address == DISK_CACHE_DATA &&
+                                 disk_cache_write_address < DISK_CACHE_BYTES;
+    wire disk_cache_fdc_write = fdc_write_strobe && disk_cache_fdc_valid;
+    wire disk_cache_port_write = disk_cache_fdc_write || disk_cache_load_write;
+    wire [17:0] disk_cache_port_write_address = disk_cache_fdc_write
+                                                ? disk_cache_fdc_address[17:0]
+                                                : disk_cache_write_address;
+    wire [7:0] disk_cache_port_write_data = disk_cache_fdc_write
+                                           ? fdc_write_data : write_data[7:0];
+    // Firmware may inspect the cache only before it marks the manager ready;
+    // afterward port B belongs exclusively to the live FDC.
+    wire [17:0] disk_cache_read_address = manager_ready
+                                          ? disk_cache_fdc_address[17:0]
+                                          : disk_cache_debug_address;
+
+    // An explicit primitive avoids synthesis-dependent inference for the
+    // boot-loader/runtime-write address mux and guarantees that the 161 KB
+    // image consumes block RAM with a one-clock FDC read latency.
+    xpm_memory_sdpram #(
+        .ADDR_WIDTH_A(18),
+        .ADDR_WIDTH_B(18),
+        .BYTE_WRITE_WIDTH_A(8),
+        .CASCADE_HEIGHT(1),
+        .CLOCKING_MODE("common_clock"),
+        .ECC_MODE("no_ecc"),
+        .MEMORY_INIT_FILE("none"),
+        .MEMORY_INIT_PARAM("0"),
+        .MEMORY_OPTIMIZATION("true"),
+        .MEMORY_PRIMITIVE("block"),
+        .MEMORY_SIZE(DISK_CACHE_BYTES * 8),
+        .READ_DATA_WIDTH_B(8),
+        .READ_LATENCY_B(1),
+        .READ_RESET_VALUE_B("0"),
+        .RST_MODE_B("SYNC"),
+        .WRITE_DATA_WIDTH_A(8),
+        .WRITE_MODE_B("read_first")
+    ) disk_cache_i (
+        .clka(clock), .clkb(clock),
+        .ena(disk_cache_port_write), .wea(disk_cache_port_write),
+        .addra(disk_cache_port_write_address), .dina(disk_cache_port_write_data),
+        .enb(1'b1), .addrb(disk_cache_read_address),
+        .doutb(disk_cache_fdc_data), .regceb(1'b1), .rstb(reset),
+        .sleep(1'b0), .injectdbiterra(1'b0), .injectsbiterra(1'b0),
+        .dbiterrb(), .sbiterrb()
+    );
+
     uart_tx #(.CLKS_PER_BIT(UART_CLKS_PER_BIT)) uart_i (
         .clock(clock), .reset(reset), .data(uart_data), .start(uart_start),
         .tx(uart_tx), .busy(uart_busy)
     );
+
+    // The FDC owns the write staging buffer.  Firmware reads it after the
+    // complete 256-byte sector transfer and merges it into the FAT32 block.
+    always @(posedge clock) begin
+        if (fdc_write_strobe && fdc_present[0] && fdc_drive == 2'd0 &&
+            fdc_track < 8'd35 && fdc_sector >= 8'd1 && fdc_sector <= 8'd18) begin
+            fdc_write_buffer[fdc_buffer_address] <= fdc_write_data;
+        end
+    end
 
     // Mode 0 SPI: sample MISO on rising edges; change MOSI on falling edges.
     always @(posedge clock) begin
@@ -129,18 +214,49 @@ module manager_sd_mmio #(
             spi_start <= 0; uart_data <= 0; uart_start <= 0;
             fdc_buffer_write_address <= 0;
             fdc_buffer_debug_address <= 0;
+            fdc_buffer_fill_count <= 0;
+            fdc_ack_delay <= 0;
+            fdc_ack_pending <= 0;
+            fdc_ack_success_pending <= 0;
+            fdc_ack_toggle_pending <= 0;
+            fdc_buffer_read_bank <= 0;
+            fdc_buffer_write_bank <= 1;
             disk_cache_write_address <= 0;
+            disk_cache_debug_address <= 0;
             disk_cache_ready <= 1'b0;
-            disk_cache_fdc_data <= 8'hff;
+            osd_write_address <= 0;
+            osd_active <= 1'b0;
+            osd_selected_row <= 0;
             fdc_done_toggle <= 0; fdc_success <= 0;
+            fdc_write_done_toggle <= 0; fdc_write_success <= 0;
             fdc_present <= 0; manager_ready <= 0;
         end else begin
-            if (disk_cache_fdc_valid)
-                disk_cache_fdc_data <= disk_cache[disk_cache_fdc_address];
-            else
-                disk_cache_fdc_data <= 8'hff;
+            // Registered block-RAM read matches the proven embedded/full-disk
+            // timing. During a CoCo write, update the cached byte immediately;
+            // firmware separately persists the staged sector to FAT32.
             spi_start <= 0;
             uart_start <= 0;
+            // Publish a filled sector only after the complete 256-byte MMIO
+            // write stream has retired and the buffer has remained stable for
+            // additional clocks.  This prevents the FDC from observing the
+            // previous sector when firmware immediately follows the final
+            // data store with FDC_ACK.
+            if (fdc_ack_pending) begin
+                if (fdc_ack_delay != 0) begin
+                    fdc_ack_delay <= fdc_ack_delay - 1'b1;
+                end else begin
+                    fdc_success <= fdc_ack_success_pending;
+                    fdc_done_toggle <= fdc_ack_toggle_pending;
+                    if (fdc_ack_success_pending) begin
+                        // Atomically publish the completed bank.  Firmware
+                        // fills the other bank on the following request, so
+                        // the FDC read port cannot retain or race stale data.
+                        fdc_buffer_read_bank <= fdc_buffer_write_bank;
+                        fdc_buffer_write_bank <= ~fdc_buffer_write_bank;
+                    end
+                    fdc_ack_pending <= 1'b0;
+                end
+            end
             if (axi_awvalid && axi_awready) begin
                 have_address <= 1'b1;
                 write_address <= axi_awaddr;
@@ -165,10 +281,16 @@ module manager_sd_mmio #(
                     spi_seen_busy <= 1'b0;
                 end else if (write_address == FDC_BUFFER_RESET) begin
                     fdc_buffer_write_address <= 0;
+                    fdc_buffer_fill_count <= 0;
                     axi_bvalid <= 1'b1;
                 end else if (write_address == FDC_BUFFER_DATA) begin
-                    fdc_buffer[fdc_buffer_write_address] <= write_data[7:0];
+                    if (fdc_buffer_write_bank)
+                        fdc_buffer1[fdc_buffer_write_address] <= write_data[7:0];
+                    else
+                        fdc_buffer0[fdc_buffer_write_address] <= write_data[7:0];
                     fdc_buffer_write_address <= fdc_buffer_write_address + 1'b1;
+                    if (fdc_buffer_fill_count != 9'd256)
+                        fdc_buffer_fill_count <= fdc_buffer_fill_count + 1'b1;
                     axi_bvalid <= 1'b1;
                 end else if (write_address == FDC_BUFFER_DEBUG_ADDRESS) begin
                     fdc_buffer_debug_address <= write_data[7:0];
@@ -179,16 +301,40 @@ module manager_sd_mmio #(
                     axi_bvalid <= 1'b1;
                 end else if (write_address == DISK_CACHE_DATA) begin
                     if (disk_cache_write_address < DISK_CACHE_BYTES) begin
-                        disk_cache[disk_cache_write_address] <= write_data[7:0];
                         disk_cache_write_address <= disk_cache_write_address + 1'b1;
                     end
                     axi_bvalid <= 1'b1;
                 end else if (write_address == DISK_CACHE_COMMIT) begin
-                    disk_cache_ready <= write_data[0] && disk_cache_write_address == DISK_CACHE_BYTES;
+                    disk_cache_ready <= write_data[0] &&
+                                        disk_cache_write_address == DISK_CACHE_BYTES;
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == DISK_CACHE_DEBUG_ADDRESS) begin
+                    disk_cache_debug_address <= write_data[17:0];
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == OSD_ADDRESS) begin
+                    osd_write_address <= write_data[9:0];
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == OSD_DATA) begin
+                    osd_chars[osd_write_address] <= write_data[7:0];
+                    osd_write_address <= osd_write_address + 1'b1;
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == OSD_CONTROL) begin
+                    osd_active <= write_data[0];
+                    osd_selected_row <= write_data[12:8];
                     axi_bvalid <= 1'b1;
                 end else if (write_address == FDC_ACK) begin
-                    fdc_success <= write_data[0];
-                    fdc_done_toggle <= fdc_request_toggle;
+                    // Require a complete sector and delay publication.  The
+                    // request toggle is captured here so a later request can
+                    // never be acknowledged by this sector generation.
+                    fdc_ack_success_pending <= write_data[0] &&
+                                               fdc_buffer_fill_count == 9'd256;
+                    fdc_ack_toggle_pending <= fdc_request_toggle;
+                    fdc_ack_delay <= 2'd2;
+                    fdc_ack_pending <= 1'b1;
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == FDC_WRITE_ACK) begin
+                    fdc_write_success <= write_data[0];
+                    fdc_write_done_toggle <= fdc_write_complete_toggle;
                     axi_bvalid <= 1'b1;
                 end else if (write_address == MOUNT_STATUS) begin
                     fdc_present <= write_data[2:0];
@@ -218,15 +364,23 @@ module manager_sd_mmio #(
                     SPI_CTRL: axi_rdata <= {16'b0, spi_divider, 7'b0, sd_cs_n};
                     SPI_XFER: axi_rdata <= {31'b0, spi_busy};
                     SPI_DATA: axi_rdata <= {24'b0, spi_rx};
-                    FDC_STATE: axi_rdata <= {20'b0, fdc_read_complete_toggle, fdc_present, 6'b0,
+                    FDC_STATE: axi_rdata <= {19'b0, fdc_write_complete_toggle, fdc_read_complete_toggle, fdc_present, 6'b0,
                                                fdc_done_toggle, fdc_request_toggle};
                     FDC_INFO: axi_rdata <= {fdc_last_type1, fdc_track, fdc_sector, 6'b0, fdc_drive};
                     MOUNT_STATUS: axi_rdata <= {23'b0, manager_ready, 5'b0, fdc_present};
-                    FDC_BUFFER_PEEK: axi_rdata <= {24'b0, fdc_buffer[fdc_buffer_address]};
+                    FDC_BUFFER_PEEK: axi_rdata <= {24'b0, fdc_buffer_data};
                     FDC_DEBUG_WORD: axi_rdata <= fdc_debug_word;
                     FDC_COMPLETED_DEBUG_WORD: axi_rdata <= fdc_completed_debug_word;
-                    FDC_BUFFER_DEBUG_DATA: axi_rdata <= {24'b0, fdc_buffer[fdc_buffer_debug_address]};
-                    DISK_CACHE_STATUS: axi_rdata <= {13'b0, disk_cache_write_address, disk_cache_ready};
+                    FDC_BUFFER_DEBUG_DATA: axi_rdata <= {24'b0,
+                        fdc_buffer_write_bank
+                        ? fdc_buffer1[fdc_buffer_debug_address]
+                        : fdc_buffer0[fdc_buffer_debug_address]};
+                    FDC_WRITE_BUFFER_DEBUG_DATA: axi_rdata <= {24'b0, fdc_write_buffer[fdc_buffer_debug_address]};
+                    DISK_CACHE_STATUS: axi_rdata <= {13'b0,
+                        disk_cache_write_address, disk_cache_ready};
+                    DISK_CACHE_DEBUG_DATA: axi_rdata <= {24'b0, disk_cache_fdc_data};
+                    OSD_CONTROL: axi_rdata <= {19'b0, osd_selected_row, 7'b0, osd_active};
+                    MENU_KEY_STATE: axi_rdata <= {27'b0, menu_key_state};
                     default: axi_rdata <= 0;
                 endcase
             end else if (axi_rvalid && axi_rready) axi_rvalid <= 1'b0;

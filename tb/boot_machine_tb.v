@@ -28,7 +28,7 @@ module boot_machine_tb;
     always #420000 video_vsync = ~video_vsync;
 
     coco3_boot_machine dut (
-        .clock(clock), .reset(reset), .cpu_fast_mode(1'b0),
+        .clock(clock), .reset(reset), .cpu_fast_mode(1'b0), .cpu_halt(1'b0),
         .diagnostic_cartridge_enabled(1'b0), .debug_address(address),
         .debug_vma(vma), .debug_read(read_cycle),
         .debug_ram_write(ram_write), .debug_io_write(io_write),

@@ -33,6 +33,7 @@ module wukong_top (
     wire [7:0] blue;
     wire [5:0] audio_dac;
     wire narrow_video_mode;
+    wire menu_active;
 
     wukong_clocking clocking_i (
         .clk_50mhz    (clk_50mhz),
@@ -66,7 +67,9 @@ module wukong_top (
     wire [23:0] library_rgb_direct;
     reg [23:0] narrow_rgb_delay [0:63];
     integer narrow_delay_index;
-    wire [23:0] library_rgb = narrow_video_mode
+    // The 64-pixel delay aligns narrow GIME modes.  The management OSD is
+    // already drawn in HDMI raster coordinates and must bypass that delay.
+    wire [23:0] library_rgb = narrow_video_mode && !menu_active
         ? narrow_rgb_delay[63] : library_rgb_direct;
 
 `ifdef HDMI_LIBRARY_AUDIO
@@ -123,19 +126,21 @@ module wukong_top (
                                (library_y == 10'd18);
     coco3_boot_system source_i (
         .pixel_clk(pixel_clk), .reset(video_reset),
-        .raster_resync(library_frame_start), .hsync(hsync),
+        .raster_resync(library_frame_start),
+        .screen_x(library_x), .screen_y(library_y), .hsync(hsync),
         .ps2_clk(ps2_clk), .ps2_data(ps2_data),
         .sd_cs_n(sd_cs_n), .sd_sck(sd_sck),
         .sd_mosi(sd_mosi), .sd_miso(sd_miso),
         .vsync(vsync), .video_enable(video_enable),
         .red(library_red), .green(library_green), .blue(library_blue),
         .audio_dac(audio_dac), .narrow_video_mode(narrow_video_mode),
+        .menu_active(menu_active),
         .uart_debug_tx(uart_tx)
     );
     // The post-processing pipeline can retain non-black RGB values while the
     // GIME is blanked. The previous encoder honored video_enable; preserve
     // that behavior before handing pixels to the library-owned HDMI raster.
-    assign library_rgb_direct = video_enable
+    assign library_rgb_direct = (video_enable || menu_active)
         ? {library_red, library_green, library_blue} : 24'd0;
 
     always @(posedge pixel_clk) begin
@@ -163,6 +168,7 @@ module wukong_top (
     );
     assign library_rgb_direct = {library_red, library_green, library_blue};
     assign narrow_video_mode = 1'b0;
+    assign menu_active = 1'b0;
 `endif
 
     hdmi #(
@@ -198,6 +204,7 @@ module wukong_top (
     assign uart_tx = 1'b1;
     assign audio_dac = 6'd32;
     assign narrow_video_mode = 1'b0;
+    assign menu_active = 1'b0;
     assign sd_cs_n = 1'b1;
     assign sd_sck = 1'b0;
     assign sd_mosi = 1'b1;

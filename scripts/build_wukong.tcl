@@ -64,6 +64,7 @@ if {$mode eq "COCO3_ELITE"} {
         [file join $repo_dir rtl core coco3_diagnostic_cartridge.v] \
         [file join $repo_dir rtl management manager_sd_mmio.v] \
         [file join $repo_dir rtl management ultraembedded_manager_sd_mount.v] \
+        [file join $repo_dir rtl management manager_osd.v] \
         [file join $repo_dir rtl core coco3_fdc.v] \
         [file join $repo_dir rtl core coco3_gime_timer.v] \
         [file join $repo_dir rtl core coco3_gime_interrupt.v] \

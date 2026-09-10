@@ -3,7 +3,7 @@ module gime_vector_page_tb;
  reg clock=0, reset=1; wire [7:0] read_data; wire ram_write;
  always #5 clock=~clock;
  coco3_boot_machine dut(
-  .clock(clock),.reset(reset),.cpu_fast_mode(1'b0),
+  .clock(clock),.reset(reset),.cpu_fast_mode(1'b0),.cpu_halt(1'b0),
   .diagnostic_cartridge_enabled(1'b0),.debug_read_data(read_data),
   .debug_ram_write(ram_write),.keyboard_keys(56'b0),.keyboard_shift(1'b0),
   .keyboard_shift_override(1'b0),.joystick_left_x(6'd32),.joystick_left_y(6'd32),

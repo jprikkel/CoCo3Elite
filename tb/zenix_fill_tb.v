@@ -9,7 +9,7 @@ module zenix_fill_tb;
  integer i,color;
  reg [7:0] actual,expected,first_offset;
  always #5 clock=~clock;
- coco3_boot_machine dut(.clock(clock),.reset(reset),.cpu_fast_mode(1'b1),
+ coco3_boot_machine dut(.clock(clock),.reset(reset),.cpu_fast_mode(1'b1),.cpu_halt(1'b0),
  .diagnostic_cartridge_enabled(1'b0),.keyboard_keys(56'b0),
  .keyboard_shift(1'b0),.keyboard_shift_override(1'b0),
  .joystick_left_x(6'd32),.joystick_left_y(6'd32),.joystick_left_fire(1'b0),

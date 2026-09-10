@@ -4,7 +4,7 @@ module boot_video_tb;
  integer n, active_lines, first_active, last_active;
  always #5 clock=~clock;
  coco3_boot_system dut(.pixel_clk(clock),.reset(reset),
-  .raster_resync(raster_resync),.hsync(hs),.vsync(vs),
+  .raster_resync(raster_resync),.screen_x(10'd0),.screen_y(10'd0),.hsync(hs),.vsync(vs),
   .video_enable(de),.red(r),.green(g),.blue(b));
  initial begin
   repeat(8) @(posedge clock);

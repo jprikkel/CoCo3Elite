@@ -77,6 +77,25 @@ read-only diagnostic is not a CoCo image, file browser, or mount implementation.
 .\scripts\test_manager_sd_fat32_firmware.ps1
 ```
 
+## Integrated CoCo disk browser milestone
+
+The normal `COCO3_ELITE` build now boots the RV32 management firmware alongside
+the CoCo. Firmware owns SD SPI and FAT32 traversal, discovers root-directory
+8.3 `.DSK` files with the supported 161,280-byte geometry, and loads the selected
+image into the drive-0 dual-port cache. The FPGA FDC serves CoCo sector transfers
+from that cache; completed writes are flushed to the existing FAT32 file.
+
+F12 opens a 48-by-20 character HDMI overlay. Up/Down change the selection,
+Enter reloads drive 0 from the selected image, and Esc/F12 closes the overlay.
+The CoCo CPU is halted at its adapter while the menu is open and menu keystrokes
+are not delivered to the CoCo matrix. The overlay bypasses narrow-mode video
+alignment delay and addresses the CoCo font with full seven-bit ASCII.
+
+Hardware validation on 2026-09-10 confirmed correct `DIR`, `LOADM`, execution,
+save/reload persistence, ZENIX operation, and mounting every compatible DSK on
+the test FAT32 card. Long filenames, subdirectories, drives 1-3, safe eject,
+and generalized image geometry remain follow-on work.
+
 ## Import policy
 
 Keep imported HDL in `rtl/third-party`; keep all project-owned wrappers and

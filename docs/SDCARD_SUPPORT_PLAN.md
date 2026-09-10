@@ -1,13 +1,23 @@
 # SD-card, file loading, and USB support plan
 
-Status: proposed implementation on `sdcard-support`, based on `ab27a47` and
-research on 2026-09-08. Capabilities below remain planned except for the
-explicit implementation checkpoint.
+Status: active implementation on `sdcard-support`, based on `ab27a47`.
+The first integrated FAT32/DSK browser milestone was hardware-validated on
+2026-09-10; later capabilities remain planned as identified below.
 User preference: keep management processing inside the FPGA and add only the
 external hardware needed for USB.
 
-Implementation checkpoint: an isolated SPI/MMIO transport, RISC-V driver compile
-check, and MicroBlaze V synthesis prototype now exist. See
+Implementation checkpoint: the open ultraembedded RV32 core now runs the SD and
+FAT32 management firmware in the normal CoCo bitstream. It discovers compatible
+161,280-byte root-directory `.DSK` files, caches the selected drive-0 image,
+services WD1773 reads and writes, and flushes changed sectors back to the mounted
+FAT32 file. F12 opens a centered firmware-populated HDMI menu; Up/Down select an
+image, Enter mounts it as drive 0, and Esc/F12 closes the menu. Menu keys are
+blocked from the CoCo while the overlay is active. Hardware validation confirmed
+correct directory listings, `LOADM`/execution (including ZENIX), saving and
+reloading files, and selection of every compatible DSK present on the test card.
+
+The earlier isolated SPI/MMIO transport, RISC-V driver compile check, and
+MicroBlaze V synthesis prototype also remain available. See
 [USB FPGA-side preparation and wiring](../hardware/usb-host-interface.md) for
 the exact implemented scope and reproduction commands. No module is available;
 USB enumeration, CPU firmware boot, filesystems and CoCo integration remain
@@ -213,11 +223,12 @@ later option, not a hidden substitute for updating the mounted DSK.
 
 ## File browser and cartridge loading
 
-Implement a text overlay in the existing HDMI path. Proposed hotkey: F12,
-currently a CoCo `@` mapping; document and test that intentional reassignment.
-The browser shows SD/USB volumes, directories, four mount slots, write status,
-and actions Mount, Unmount, Load, Run, and Eject. Navigation consumes input while
-open. Track press/release ownership to avoid stuck CoCo keys on menu transitions.
+The first text overlay is implemented in the existing HDMI path. F12 is
+intentionally reassigned from the old CoCo `@` fall-through mapping. The current
+browser lists root-directory 8.3 `.DSK` files and assigns the selection to drive
+0; navigation consumes input while open. The later browser will add SD/USB
+volumes, directories, four mount slots, write status, and Mount, Unmount, Load,
+Run, and Eject actions. Track press/release ownership to avoid stuck CoCo keys.
 The menu itself need not stop the CoCo; memory-changing loaders must coordinate
 with an idle BASIC loader or a controlled bus halt/reset.
 
@@ -346,8 +357,25 @@ Ctrl-Alt-Del. Storage operations must not starve HID polling or the CoCo video.
    bitstream, record resource/timing reports and firmware/RTL versions, and
    document card preparation, wiring, mount/eject, loaders, and recovery.
 
-SD read/write delivery (stages 3-5) can proceed without waiting for final USB
-hardware. The USB feasibility result is a dependency for committing to its
+9. **Physical Shugart floppy backend.** Evaluate the [Adafruit Floppy
+   FeatherWing with 34-pin IDC connector][adafruit-floppy] as the level-shifted
+   drive-side adapter. Define a custom PMOD-to-FeatherWing interposer or
+   equivalent breakout, because it is not a direct PMOD module and the full
+   Shugart signal set exceeds one PMOD. Reserve two PMODs if needed, retain
+   J13/J14 assignments, and provide a separately powered floppy drive. Start
+   with one 3.5-inch drive and read-only operation: drive select, motor, track
+   select/step, side select, index, track-zero, read-data, and write-protect.
+   Add a physical-backend mode to the existing FDC mailbox, then qualify
+   index/track timing, raw read-data capture, FM/MFM decode, sector CRC, and
+   error recovery against real formatted CoCo media. Only after stable reads,
+   add write-gate/write-data with an explicit hardware write-disable default,
+   current limiting, and removable-media recovery tests. Do not connect a
+   floppy drive directly to FPGA pins; the adapter must provide level
+   compatibility and the drive must receive its own 5 V supply (and 12 V when
+   required by a 5.25-inch mechanism).
+
+SD read/write delivery (stages 3-5) and the management UI can proceed without
+waiting for final USB hardware. The USB feasibility result is a dependency for committing to its
 final electrical design and device-support claims, not a prerequisite for SD.
 Every stage is a reviewable commit with its relevant tests and hardware results.
 
@@ -397,3 +425,4 @@ evidence that writes, launchers, or input translation work.
 [xroar]: https://www.6809.org.uk/xroar/doc/xroar.shtml
 [toolshed]: https://github.com/nitros9project/toolshed
 [sd-spec]: https://www.sdcard.org/downloads/pls/
+[adafruit-floppy]: https://www.adafruit.com/product/5679
