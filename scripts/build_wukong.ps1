@@ -25,6 +25,7 @@ New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 $stagedCoreDir = Join-Path $buildDir 'rtl\core'
 $stagedRomDir = Join-Path $buildDir 'build\roms'
 $stagedDiskDir = Join-Path $buildDir 'build\disks'
+New-Item -ItemType Directory -Force -Path (Split-Path $stagedCoreDir), (Split-Path $stagedRomDir), (Split-Path $stagedDiskDir) | Out-Null
 New-Item -ItemType Directory -Force -Path $stagedCoreDir, $stagedRomDir, $stagedDiskDir | Out-Null
 
 if ($Mode -eq 'COCO3_ELITE') {
