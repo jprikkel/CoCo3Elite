@@ -37,6 +37,9 @@ controllers are board-specific and require Wukong integration or replacement.
    physical floppy hardware.
 3. **SD-card filesystem mounting** — Add FAT32 parsing and mount named `.DSK`
    files from MicroSD instead of embedding disk images into the bitstream.
+   The [SD-card and USB implementation plan](SDCARD_SUPPORT_PLAN.md) covers
+   writable images, cartridge/BAS/BIN loading, filesystem formats, an FPGA
+   management processor, and USB storage/keyboard/mouse/joystick expansion.
 4. **GMC cartridge sound support — Important** — Add the Game Master
    Cartridge's TI SN76489AN-compatible digital sound generator alongside the
    existing CoCo DAC. GMC software writes sound data to the cartridge's

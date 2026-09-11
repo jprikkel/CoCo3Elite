@@ -71,3 +71,7 @@ initialization and sector-zero reads only; FAT32 DSK mounting is not implemented
 Reserve connector assignments for audio, joysticks, and I2C only when those
 interfaces are implemented. Record each allocation here to prevent pin
 conflicts between hardware milestones.
+
+J10 is proposed for a MAX3421E USB host adapter (SPI, INT, RES, VBUS enable,
+and overcurrent). This allocation is not enabled in the current top level;
+see [USB host wiring and FPGA prototype](usb-host-interface.md) before using it.

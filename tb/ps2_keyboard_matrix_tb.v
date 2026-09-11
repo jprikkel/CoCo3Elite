@@ -12,6 +12,7 @@ module ps2_keyboard_matrix_tb;
     wire forced_shift;
     wire shift_override;
     wire keyboard_reset;
+    wire keyboard_f12;
     wire [7:0] rows;
     integer parity;
 
@@ -22,6 +23,7 @@ module ps2_keyboard_matrix_tb;
         .RESET_N(reset_n), .CLK50MHZ(system_clock), .SLO_CLK(slow_clock),
         .PS2_CLK(ps2_clk), .PS2_DATA(ps2_data), .KEY(keys),
         .SHIFT(forced_shift), .SHIFT_OVERRIDE(shift_override),
+        .F12(keyboard_f12),
         .RESET(keyboard_reset)
     );
 
@@ -82,7 +84,23 @@ module ps2_keyboard_matrix_tb;
             $finish;
         end
 
-        $display("PASS: PS/2 A press/release and CoCo matrix scan");
+        // F12 is reserved for the management UI and must not leak an @ key
+        // into the CoCo matrix.
+        send_byte(8'h07);
+        #20000;
+        if (!keyboard_f12 || keys[0]) begin
+            $display("FAIL: F12 was not isolated as the management hotkey");
+            $finish;
+        end
+        send_byte(8'hF0);
+        send_byte(8'h07);
+        #20000;
+        if (keyboard_f12) begin
+            $display("FAIL: F12 release was not decoded");
+            $finish;
+        end
+
+        $display("PASS: PS/2 matrix scan and isolated F12 management hotkey");
         $finish;
     end
 endmodule

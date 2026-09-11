@@ -62,8 +62,8 @@ module fdc_read_tb;
             $finish;
         end
 
-        // Model the cpu09 bus value becoming visible to the peripheral one
-        // enable before the read value is consumed by Disk BASIC.
+        // cpu09 exposes the first FDC byte to the peripheral one service
+        // enable before Disk BASIC consumes it.
         read_register(16'hFF4B, value);
 
         for (index = 0; index < 256; index = index + 1)

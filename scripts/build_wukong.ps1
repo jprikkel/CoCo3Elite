@@ -3,6 +3,7 @@ param(
     [string]$Part = 'xc7a100tfgg676-2',
     [ValidateSet('HDMI_TEST_PATTERN', 'COCO3_ELITE', 'BASIC_6809_DVI_TEST')]
     [string]$Mode = 'COCO3_ELITE',
+    [switch]$KeepIntermediates,
     [switch]$EmbeddedTestDisks,
     [string]$Drive0Disk = 'disks\fpgatest.dsk',
     [string]$Drive1Disk = 'disks\games.dsk'
@@ -19,24 +20,47 @@ if (-not (Test-Path -LiteralPath $Vivado)) {
 
 New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 
+# Stage all generated/readmemh inputs beneath this invocation's output tree.
+# This permits independent builds without sharing Vivado-generated files.
+$stagedCoreDir = Join-Path $buildDir 'rtl\core'
+$stagedRomDir = Join-Path $buildDir 'build\roms'
+$stagedDiskDir = Join-Path $buildDir 'build\disks'
+New-Item -ItemType Directory -Force -Path $stagedCoreDir, $stagedRomDir, $stagedDiskDir | Out-Null
+
 if ($Mode -eq 'COCO3_ELITE') {
     & (Join-Path $PSScriptRoot 'prepare_diagnostic_cartridge.ps1') `
         -InputPath (Join-Path $repoRoot 'roms\ziadiag.ccc') `
-        -OutputPath (Join-Path $repoRoot 'build\roms\diagnostic_cart.mem')
+        -OutputPath (Join-Path $stagedRomDir 'diagnostic_cart.mem')
+
+    # The CoCo/FDC image includes a separate RV32 firmware image.  Generate
+    # its loader table inside this build directory so source control contains
+    # only the reviewed C source, never a stale binary blob.
+    $firmwareDir = Join-Path $buildDir 'firmware'
+    New-Item -ItemType Directory -Force -Path $firmwareDir | Out-Null
+    $toolchain = 'C:\AMD\2025.2\gnu\riscv\nt\bin'
+    $gcc = Join-Path $toolchain 'riscv64-unknown-elf-gcc.exe'
+    $objcopy = Join-Path $toolchain 'riscv64-unknown-elf-objcopy.exe'
+    $firmwareElf = Join-Path $firmwareDir 'rv32_sd_mount.elf'
+    $firmwareBin = Join-Path $firmwareDir 'rv32_sd_mount.bin'
+    & $gcc '-march=rv32im_zicsr' '-mabi=ilp32' '-Os' '-ffreestanding' '-fno-builtin' '-nostdlib' `
+        '-Wl,--build-id=none' '-Wl,--gc-sections' '-T' (Join-Path $repoRoot 'firmware\management\rv32_tcm.ld') `
+        (Join-Path $repoRoot 'firmware\management\rv32_start.S') `
+        (Join-Path $repoRoot 'firmware\management\rv32_sd_mount.c') '-o' $firmwareElf
+    if ($LASTEXITCODE) { throw "RV32 SD mount firmware link failed: $LASTEXITCODE" }
+    & $objcopy '-O' 'binary' $firmwareElf $firmwareBin
+    if ($LASTEXITCODE) { throw "RV32 SD mount firmware conversion failed: $LASTEXITCODE" }
+    & (Join-Path $PSScriptRoot 'generate_rv32_program_header.ps1') `
+        -Binary $firmwareBin -Output (Join-Path $buildDir 'rv32_sd_mount_program.vh')
 }
 
 # Vivado resolves $readmemh paths from its process working directory. Mirror
 # the small initialization inputs needed by the selectable build modes so the
 # process can run entirely inside build/wukong instead of polluting repo root.
-$stagedCoreDir = Join-Path $buildDir 'rtl\core'
-$stagedRomDir = Join-Path $buildDir 'build\roms'
-$stagedDiskDir = Join-Path $buildDir 'build\disks'
-New-Item -ItemType Directory -Force -Path $stagedCoreDir, $stagedRomDir, $stagedDiskDir | Out-Null
 foreach ($name in @('coco3gen.mem', 'coco3_diagnostic.mem')) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "rtl\core\$name") `
         -Destination (Join-Path $stagedCoreDir $name) -Force
 }
-foreach ($name in @('coco3.mem', 'disk11.mem', 'diagnostic_cart.mem')) {
+foreach ($name in @('coco3.mem', 'disk11.mem')) {
     $source = Join-Path $repoRoot "build\roms\$name"
     if (Test-Path -LiteralPath $source -PathType Leaf) {
         Copy-Item -LiteralPath $source -Destination (Join-Path $stagedRomDir $name) -Force
@@ -89,4 +113,21 @@ try {
 
 if ($vivadoExitCode -ne 0) {
     throw "Vivado failed with exit code $vivadoExitCode"
+}
+
+if (-not $KeepIntermediates) {
+    $resolvedBuildDir = [System.IO.Path]::GetFullPath($buildDir).TrimEnd('\')
+    foreach ($relativePath in @(
+        '.Xil', 'rtl', 'build', 'firmware', 'rv32_sd_mount_program.vh',
+        'post_synth.dcp', 'routed.dcp', 'clockInfo.txt', 'dfx_runtime.txt'
+    )) {
+        $target = [System.IO.Path]::GetFullPath((Join-Path $resolvedBuildDir $relativePath))
+        if (-not $target.StartsWith($resolvedBuildDir + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Refusing to clean path outside build directory: $target"
+        }
+        if (Test-Path -LiteralPath $target) {
+            Remove-Item -LiteralPath $target -Recurse -Force
+        }
+    }
+    Write-Host "Removed intermediate build files; retained bitstream and reports in $resolvedBuildDir"
 }

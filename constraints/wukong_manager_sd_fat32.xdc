@@ -1,0 +1,12 @@
+# Standalone RV32 firmware-driven SD/FAT32 test: UART and J13 MicroSD only.
+set_property -dict { PACKAGE_PIN M21 IOSTANDARD LVCMOS33 } [get_ports clk_50mhz]
+create_clock -name clk_50mhz -period 20.000 [get_ports clk_50mhz]
+set_property -dict { PACKAGE_PIN E3 IOSTANDARD LVCMOS33 } [get_ports uart_tx]
+set_property -dict { PACKAGE_PIN N22 IOSTANDARD LVCMOS33 } [get_ports sd_cs_n]
+set_property -dict { PACKAGE_PIN N21 IOSTANDARD LVCMOS33 } [get_ports sd_mosi]
+set_property -dict { PACKAGE_PIN R20 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports sd_miso]
+set_property -dict { PACKAGE_PIN T22 IOSTANDARD LVCMOS33 } [get_ports sd_sck]
+set_false_path -from [get_ports sd_miso]
+set_property CFGBVS VCCO [current_design]
+set_property CONFIG_VOLTAGE 3.3 [current_design]
+set_property BITSTREAM.CONFIG.SPI_BUSWIDTH 4 [current_design]
