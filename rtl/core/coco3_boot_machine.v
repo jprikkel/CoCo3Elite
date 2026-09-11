@@ -37,7 +37,7 @@ module coco3_boot_machine #(
     input  wire        video_vsync,
     input  wire [19:0] video_address,
     output wire [15:0] video_read_data,
-    output wire [5:0]  audio_dac,
+    output wire [6:0]  audio_dac,
     output wire [3:0]  video_vdg_control,
     output wire        video_css,
     output wire [95:0] video_palette,
@@ -598,7 +598,11 @@ module coco3_boot_machine #(
     assign debug_ram_write = ram_write;
     assign debug_io_write = io_write;
     assign debug_write_data = write_data;
-    assign audio_dac = sound_dac;
+    // PIA1 PB1 is the CoCo's single-bit sound source.  Keep the six-bit DAC
+    // unchanged in the low bits and combine PB1 exactly as CoCo3FPGA's
+    // {SBS, SOUND_DTOA} path does.  Some games (notably DDEVIL) use PB1
+    // exclusively and are otherwise silent.
+    assign audio_dac = {pia1_outb[1], sound_dac};
     assign video_vdg_control = pia1_outb[7:4];
     assign video_css = pia1_outb[3];
     assign video_border_palette = border_palette;

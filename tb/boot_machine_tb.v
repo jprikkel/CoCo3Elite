@@ -8,6 +8,7 @@ module boot_machine_tb;
     reg video_vsync = 1;
     wire [15:0] address;
     wire vma, read_cycle, ram_write, io_write;
+    wire [6:0] audio_dac;
     integer cycles = 0;
     integer ram_writes = 0;
     integer io_writes = 0;
@@ -40,13 +41,32 @@ module boot_machine_tb;
         .joystick_right_fire(1'b0), .sd_status(8'h00), .sd_detail(8'h00),
         .video_hsync(video_hsync),
         .video_vsync(video_vsync), .video_address(20'h00000),
-        .video_read_data(), .audio_dac(), .video_vdg_control(),
+        .video_read_data(), .audio_dac(audio_dac), .video_vdg_control(),
         .video_css(), .video_palette()
     );
 
     initial begin
         repeat (8) @(posedge clock);
         reset = 0;
+
+        // The six-bit DAC must remain unchanged in bits 5:0 while PIA1 PB1
+        // supplies the independent single-bit sound component in bit 6.
+        @(negedge clock);
+        force dut.sound_dac = 6'h15;
+        force dut.pia1_outb = 8'h02;
+        #1;
+        if (audio_dac !== 7'h55) begin
+            $display("FAIL: PB1 sound mix expected 55, got %02h", audio_dac);
+            $finish;
+        end
+        force dut.pia1_outb = 8'h00;
+        #1;
+        if (audio_dac !== 7'h15) begin
+            $display("FAIL: DAC-only audio expected 15, got %02h", audio_dac);
+            $finish;
+        end
+        release dut.sound_dac;
+        release dut.pia1_outb;
     end
 
     always @(posedge clock) begin

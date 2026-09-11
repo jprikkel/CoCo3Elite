@@ -9,7 +9,7 @@ module coco3_boot_system (
     output wire sd_cs_n, output wire sd_sck, output wire sd_mosi,
     input wire sd_miso,
     output wire hsync, output wire vsync, output wire video_enable,
-    output wire [5:0] audio_dac,
+    output wire [6:0] audio_dac,
     output wire narrow_video_mode,
     output wire menu_active,
     output wire uart_debug_tx,

@@ -31,7 +31,7 @@ module wukong_top (
     wire [7:0] red;
     wire [7:0] green;
     wire [7:0] blue;
-    wire [5:0] audio_dac;
+    wire [6:0] audio_dac;
     wire narrow_video_mode;
     wire menu_active;
 
@@ -61,8 +61,12 @@ module wukong_top (
     reg [8:0] hdmi_audio_divider;
     reg hdmi_audio_clk_unbuffered;
     wire hdmi_audio_clk;
-    wire signed [6:0] centered_audio =
-        $signed({1'b0, audio_dac}) - 7'sd32;
+    // The low six bits are the existing offset-binary DAC. PIA1 PB1 is the
+    // seventh, single-bit sound component used by several CoCo programs.
+    // Center at the DAC's established midpoint so PB1=0 leaves existing
+    // six-bit audio bit-for-bit unchanged.
+    wire signed [7:0] centered_audio =
+        $signed({1'b0, audio_dac}) - 8'sd32;
     wire signed [15:0] scaled_audio = centered_audio <<< 8;
     wire [23:0] library_rgb_direct;
     reg [23:0] narrow_rgb_delay [0:63];
@@ -161,7 +165,7 @@ module wukong_top (
     assign sd_cs_n = 1'b1;
     assign sd_sck = 1'b0;
     assign sd_mosi = 1'b1;
-    assign audio_dac = 6'd32;
+    assign audio_dac = 7'd32;
     test_pattern library_pattern_i (
         .x(library_x), .y(library_y), .video_enable(library_active),
         .red(library_red), .green(library_green), .blue(library_blue)
@@ -202,7 +206,7 @@ module wukong_top (
     assign hdmi_serial = {library_tmds_clock, library_tmds};
 `else
     assign uart_tx = 1'b1;
-    assign audio_dac = 6'd32;
+    assign audio_dac = 7'd32;
     assign narrow_video_mode = 1'b0;
     assign menu_active = 1'b0;
     assign sd_cs_n = 1'b1;
