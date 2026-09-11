@@ -30,7 +30,8 @@ Run these commands from the repository root after preparing the ROMs:
 and `roms/SYSINFO.BIN`, and assembles/packages `VIDHELP.BIN`. It does not create
 `games.dsk`. The build launcher converts and stages both disk memory files.
 
-Without `-EmbeddedTestDisks`, the FDC has no mounted image backend. MicroSD
-currently supports initialization and sector-zero reads only—not FAT32 DSK
-mounting. Copying DSK files to a card does not make them available to Disk BASIC.
-See the [storage status and roadmap](../hardware/sd-disk-interface.md).
+Without `-EmbeddedTestDisks`, the RV32 manager supplies the FDC backend from a
+FAT32 SD card. It discovers root-level 8.3 `.DSK` files with the supported
+161,280-byte geometry. Press F12, select an image with Up/Down, and press Enter
+to mount it as drive 0. Completed sector writes are flushed back to the existing
+file. See the [storage status and roadmap](../hardware/sd-disk-interface.md).

@@ -16,8 +16,9 @@ blocked from the CoCo while the overlay is active. Hardware validation confirmed
 correct directory listings, `LOADM`/execution (including ZENIX), saving and
 reloading files, and selection of every compatible DSK present on the test card.
 
-The earlier isolated SPI/MMIO transport, RISC-V driver compile check, and
-MicroBlaze V synthesis prototype also remain available. See
+The isolated SPI/MMIO transport and RISC-V driver compile check remain
+available. The abandoned MicroBlaze V prototype was removed after the project
+selected the open ultraembedded RV32 core. See
 [USB FPGA-side preparation and wiring](../hardware/usb-host-interface.md) for
 the exact implemented scope and reproduction commands. No module is available;
 USB enumeration, CPU firmware boot, filesystems and CoCo integration remain
@@ -32,10 +33,9 @@ MAX3421E USB host controller over a separate SPI interface when USB work begins.
 Run TinyUSB host firmware on the management processor for USB mass storage,
 keyboards, mice, and supported game controllers.
 
-Evaluate **NEORV32 and AMD MicroBlaze V** before freezing the CPU choice.
-NEORV32 is the provisional preference for a portable open HDL/firmware build;
-MicroBlaze V provides AMD's RISC-V/Vivado/Vitis integration. Use VexRiscv as a
-performance alternative and PicoRV32 as a compact baseline. The companion
+The current implementation uses the open ultraembedded RV32IM core. NEORV32,
+VexRiscv, PicoRV32, and MicroBlaze V remain historical alternatives if a future
+resource or performance requirement justifies reevaluation. The companion
 [processor evaluation](MANAGEMENT_PROCESSOR_EVALUATION.md) compares ARM,
 RISC-V, classic MicroBlaze, and others, and records what the C64 Ultimate uses.
 These are candidate components, not cores already validated in this design.
@@ -64,8 +64,8 @@ joysticks: the USB host hardware and HID firmware do that independently.
 
 ## Current design and constraints
 
-- `rtl/core/sd_spi_init.v` and `sd_spi_read_sector0.v` provide initialization
-  and a sector-zero probe only. A `55 AA` signature is not filesystem detection.
+- The retired HDL-only initialization and sector-zero probe have been removed.
+  The RV32 management firmware now owns SD initialization and FAT32 access.
 - `rtl/core/coco3_fdc.v` has a minimal read-only WD1773-style register interface.
   Under `EMBEDDED_TEST_DISKS` it still instantiates two BRAM disk images despite
   the obsolete introductory comment. It has no asynchronous sector interface,

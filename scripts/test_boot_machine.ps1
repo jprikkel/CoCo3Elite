@@ -43,8 +43,6 @@ try {
         (Join-Path $repoRoot 'rtl\core\coco3_system_rom.v'),
         (Join-Path $repoRoot 'rtl\core\coco3_disk_rom.v'),
         (Join-Path $repoRoot 'rtl\core\coco3_diagnostic_cartridge.v'),
-        (Join-Path $repoRoot 'rtl\core\sd_spi_init.v'),
-        (Join-Path $repoRoot 'rtl\core\sd_spi_read_sector0.v'),
         (Join-Path $repoRoot 'rtl\core\coco3_fdc.v'),
         (Join-Path $repoRoot 'rtl\core\coco3_keyboard_matrix.v'),
         (Join-Path $repoRoot 'rtl\core\coco3_gime_timer.v'),

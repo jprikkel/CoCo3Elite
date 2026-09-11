@@ -10,18 +10,11 @@ has been selected or connected. This is not enabled in the working CoCo image.
   a microsecond timer, synchronized interrupt/fault inputs, and safe reset/abort.
 - A freestanding RISC-V C transport and MAX3421E register/oscillator probe in
   `firmware/management/`. Probe leaves VBUS off; it is not a USB host stack.
-- An isolated MicroBlaze V MCS wrapper and reproducible Vivado IP generation
-  script. The prototype uses a 50 MHz input, 64 KiB local RAM, IO bus, and UART
-  configured for 115200 baud. It is a resource evaluation, not the final CPU
-  selection. AMD-generated files stay in ignored `build/management/`.
 - A pin-constraint **template**, not loaded by any build:
   [`usb_host_j10.xdc.example`](../constraints/usb_host_j10.xdc.example).
 
 The transport regression simulates SPI traffic and fault cases. The C driver
-is compile-checked, **not yet executed on the soft CPU**. The MCS wrapper has
-no project startup code or linked application ELF; generated RAM contains only
-AMD's default boot-loop ELF. Its synthesis checkpoint is not a usable management
-application image. Its USB interrupt is exposed for future
+is compile-checked, **not yet executed on the soft CPU**. The USB interrupt is exposed for future
 integration, not connected to the processor interrupt controller yet. Initial
 firmware can poll the raw status. No FatFs/TinyUSB dependency is vendored yet.
 
@@ -170,39 +163,21 @@ From the repository root, with Vivado and AMD's RISC-V tools installed:
 ```powershell
 .\scripts\test_usb_host_spi.ps1
 .\scripts\check_management_firmware.ps1
-& C:\AMD\2025.2\Vivado\bin\vivado.bat -mode batch -nojournal -nolog -source scripts/synth_management_prototype.tcl
 ```
 
 The simulation checks independent SPI slave TX/RX behavior, command+payload
 and a 64-byte burst under one CS, exact clock count, several dividers, single-ack behavior, rejected
 busy/invalid accesses, level IRQ, fault latching/recovery, timer progression,
 and reset/abort mid-transfer. The script requires a PASS marker and rejects
-error/fatal output. A second test checks the MCS bus wrapper's registered reply,
-full address decoding, unmapped response and byte enables using a bus-functional
-CPU substitute, not real CPU execution. These tests need no ROM, disk, module
-or downloaded HDL.
-
-Synthesis reports are written to `build/management/`. These are **out-of-context,
-pre-place-and-route** results; they are not proof of board timing, boot or USB
-operation. The 64 KiB RAM is a prototype allocation, not an established budget
-for FatFs, TinyUSB, buffers, and UI. The current embedded-disk image has little
-free BRAM; management integration must reclaim disk ROM BRAM or use external
-memory before assuming the complete system fits.
+error/fatal output. These checks need no ROM, disk, module, or downloaded HDL.
+The abandoned Xilinx MicroBlaze management prototype and its resource-only
+synthesis flow were removed after the project selected the open RV32 manager.
 
 Recorded checks, Vivado 2025.2 / XC7A100T-2, 2026-09-08:
 
-- `usb_host_spi_tb`: PASS; `management_bus_tb`: PASS.
+- `usb_host_spi_tb`: PASS.
 - RV32I C driver: compile PASS with warnings treated as errors; object text
   1,100 bytes, no static data/BSS. This excludes startup, stack, USB stack and UI.
-- Isolated CPU + 64 KiB RAM + UART + SPI: synthesis PASS, 1,274 LUTs (2.01%),
-  777 flip-flops, 16 RAMB36 blocks (11.85%), zero DSPs and zero inferred latches.
-- Internal post-synthesis setup estimate: +13.026 ns slack at a 20 ns period.
-  External I/O delays and physical clock placement are intentionally not defined
-  in this resource-only run. This is **not timing signoff or an Fmax measurement**.
-
-Vivado emits unused-port/logic warnings from generated IP and the expected
-out-of-context clock-location warning; synthesis has no critical warnings or
-errors. No generated AMD IP, memory image or checkpoint is committed.
 
 Hardware acceptance after selecting the module: schematic/voltage review,
 safe power-up and reset, SPI trace and probe with VBUS off, controlled VBUS and

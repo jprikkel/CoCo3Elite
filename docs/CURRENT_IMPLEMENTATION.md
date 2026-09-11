@@ -54,8 +54,8 @@ Open hardware issues in the current working implementation are:
   the complete raster again.
 - The ZIA diagnostic cartridge's video tests are substantially improved but
   are not yet a complete substitute for testing every physical CoCo interface.
-- SD hardware initialization and a raw sector-zero probe exist, but FAT32
-  parsing and mounting named `.DSK` files from the card are not implemented.
+- The RV32 manager initializes FAT32 SD cards, lists compatible root-level
+  `.DSK` files, mounts a selected image as drive 0, and flushes sector writes.
 - Printer, cassette, RS-232 PAK, physical floppy, and expanded external memory
   interfaces are not implemented.
 
@@ -212,9 +212,10 @@ With `-EmbeddedTestDisks`, the build converts and embeds:
 These are read-only, 35-track images. Without the option, sector commands do
 not silently fall through to an embedded image.
 
-The J13 SD path currently performs SPI initialization and a diagnostic read of
-physical sector zero. It does not yet connect FAT32 files to the FDC backend,
-so inserting an SD card does not mount drives. The planned architecture is in
+The J13 SD path is owned by the RV32 management firmware. F12 opens the HDMI
+disk browser; firmware discovers compatible root-level FAT32 `.DSK` files,
+loads the selected image into the drive-0 cache, and flushes completed sector
+writes back to that file. See
 [SD-card Disk Interface](../hardware/sd-disk-interface.md).
 
 ## Build modes
@@ -267,7 +268,6 @@ Focused PowerShell launchers under `scripts/` cover the principal boundaries:
 | `test_native_text_fetch.ps1` | Native text byte selection and fetch timing |
 | `test_native_text_scroll.ps1` | Native text rows and vertical scrolling |
 | `test_ps2_keyboard.ps1` | PS/2 reception and CoCo matrix mapping |
-| `test_sd_spi_init.ps1` | SD SPI initialization state machine |
 | `test_system_rom.ps1` | Prepared ROM layout and reset vector |
 | `test_video_probe.ps1` | Diagnostic cartridge video register sequences |
 

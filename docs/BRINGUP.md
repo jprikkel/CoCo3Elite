@@ -38,8 +38,8 @@ DRC before writing a bitstream. Generated files remain under `build/wukong/`.
 This is the default and the complete machine. It instantiates CPU09, 128 KiB
 of dual-port block RAM, the CoCo 3 and Disk BASIC ROMs, GIME/SAM/PIA
 compatibility logic, PS/2 keyboard input, keyboard-emulated joysticks, the
-six-bit sound DAC, diagnostic cartridge support, the minimal read-only FDC,
-the MicroSD initialization and sector-zero probe, and UART diagnostics.
+six-bit sound DAC plus PIA PB1 sound, diagnostic cartridge support, the FDC,
+the RV32-managed FAT32 SD-card path and F12 disk browser, and UART diagnostics.
 
 `COCO3VIDEO` supplies the CoCo raster. The Wukong integration maps its colors,
 optionally applies NTSC artifact color, scanlines, and CRT glow, and aligns it
@@ -51,9 +51,8 @@ CoCo DAC value is centered, scaled to signed 16-bit PCM, duplicated into left
 and right channels, and sent at 48 kHz.
 
 Adding `-EmbeddedTestDisks` includes the configured read-only DSK images.
-They are optional and untracked. The MicroSD interface does not mount FAT32
-DSK files; it currently initializes the card and reads physical sector zero
-only.
+They are optional and untracked. The normal build instead lets the RV32 manager
+mount compatible root-level FAT32 DSK files as drive 0 and persist sector writes.
 
 ### `HDMI_TEST_PATTERN`
 

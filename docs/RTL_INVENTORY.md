@@ -22,7 +22,6 @@ implementation from retained CoCo3FPGA and Quartus reference material.
 | `rtl/core/coco3_keyboard_matrix.v` | CoCo keyboard matrix conversion |
 | `rtl/core/coco3_gime_timer.v` | Partial GIME timer and interrupt behavior |
 | `rtl/core/coco3_fdc.v`, `coco3_disk_image.v` | Minimal WD1773-compatible interface and optional read-only embedded DSK backend |
-| `rtl/core/sd_spi_init.v`, `sd_spi_read_sector0.v` | J13 MicroSD initialization and sector-zero probe only; no FAT32 mounting |
 | `rtl/third-party/CPU09/cpu09l_128.vhd` | Inherited VHDL 6809-compatible CPU used by the full and diagnostic builds |
 | `rtl/third-party/coco3fpga/coco3vid.v`, `cocokey.v` | Inherited CoCo raster and keyboard decoding behavior |
 | `rtl/third-party/PS2_Key/ps2_keyboard.v` | Inherited PS/2 serial decoder |
@@ -48,7 +47,7 @@ the board's physical HDMI connector.
 integration reference. Its retained companion sources include `i2c.v`,
 `paddles.v`, and `sound.v`; they are not selected by the active Wukong build.
 The retained `rtl/third-party/SPI/SDCard.v` is the original CPU-facing SD
-interface, distinct from the current Wukong J13 probe. The retained
+interface, distinct from the current firmware-owned Wukong J13 path. The retained
 `rtl/third-party/UART_6551/` sources are a separate 6551-compatible serial
 subsystem and are not the onboard USB UART implementation.
 
@@ -64,8 +63,8 @@ Keep board adaptation in `rtl/wukong/` and portable machine logic in
 `rtl/core/`. Preserve imported CPU, CoCo3FPGA, PS/2, SPI, UART, and HDMI
 boundaries under `rtl/third-party/`.
 
-The active design has no FAT32 file service, management CPU or GUI, writable
-disks, physical floppy, external-memory controller, physical joystick ADC,
+The active design has an RV32-managed FAT32 file service, F12 disk GUI, and
+writable drive-0 DSK cache. It has no physical floppy, external-memory controller, physical joystick ADC,
 printer/cassette/RS-232 PAK, or DriveWire backend. Optional embedded DSK inputs
 are local, read-only, and untracked. HDMI audio is hardware-verified, although
 some displays remain muted until sustained nonzero samples arrive after a

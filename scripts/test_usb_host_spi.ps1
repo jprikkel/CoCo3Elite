@@ -7,20 +7,17 @@ Push-Location $runDir
 try {
     & (Join-Path $VivadoBin 'xvlog.bat') `
         (Join-Path $repoRoot 'rtl\management\usb_host_spi.v') `
-        (Join-Path $repoRoot 'rtl\management\management_prototype.v') `
-        (Join-Path $repoRoot 'tb\usb_host_spi_tb.v') `
-        (Join-Path $repoRoot 'tb\management_bus_tb.v')
+        (Join-Path $repoRoot 'tb\usb_host_spi_tb.v')
     if ($LASTEXITCODE -ne 0) { throw "xvlog failed: $LASTEXITCODE" }
-    foreach ($testTop in @('usb_host_spi_tb', 'management_bus_tb')) {
-        & (Join-Path $VivadoBin 'xelab.bat') $testTop -s "${testTop}_sim"
-        if ($LASTEXITCODE -ne 0) { throw "xelab failed: $LASTEXITCODE" }
-        $simOutput = & (Join-Path $VivadoBin 'xsim.bat') "${testTop}_sim" -runall 2>&1
-        $simExit = $LASTEXITCODE
-        $simOutput | Out-Host
-        $simText = $simOutput -join "`n"
-        if ($simExit -ne 0 -or $simText -match '(?im)\b(FAIL|FATAL|ERROR)\b' -or
-            $simText -notmatch "PASS: $testTop") {
-            throw "$testTop failed or did not reach its PASS marker (exit $simExit)"
-        }
+    $testTop = 'usb_host_spi_tb'
+    & (Join-Path $VivadoBin 'xelab.bat') $testTop -s "${testTop}_sim"
+    if ($LASTEXITCODE -ne 0) { throw "xelab failed: $LASTEXITCODE" }
+    $simOutput = & (Join-Path $VivadoBin 'xsim.bat') "${testTop}_sim" -runall 2>&1
+    $simExit = $LASTEXITCODE
+    $simOutput | Out-Host
+    $simText = $simOutput -join "`n"
+    if ($simExit -ne 0 -or $simText -match '(?im)\b(FAIL|FATAL|ERROR)\b' -or
+        $simText -notmatch "PASS: $testTop") {
+        throw "$testTop failed or did not reach its PASS marker (exit $simExit)"
     }
 } finally { Pop-Location }

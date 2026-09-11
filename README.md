@@ -1,44 +1,25 @@
-# CoCo3Elite for QMTECH Wukong V3
+# CoCo 3 Elite - A Tandy Color Computer 3 compatible computer
 
-CoCo3Elite is an AMD/Xilinx Vivado port derived from
-[richard42/CoCo3FPGA](https://github.com/richard42/CoCo3FPGA). It preserves the
-original Quartus sources as a reference while targeting the QMTECH Wukong V3
-FPGA development board.
+CoCo 3 Elite is a recreation of the classic Tandy Color Computer 3 with modern
+features such as HDMI video, SD-card storage, Atari joystick ports, modern
+keyboards, and USB support. Original software, games, music, and disk images
+run with minimal changes, and original peripherals such as cartridges,
+cassette, joysticks, serial/RS232 devices, and floppy drives can be supported
+natively.
+
+*Note: The CoCo 3 Elite project is not endorsed by or associated with Tandy(TM)
+or Radio Shack(TM).*
+
+![Extended Color BASIC running on the QMTECH Wukong V3](docs/images/wukong-coco3-basic.png)
+
+CoCo3Elite is currently based on the AMD/Xilinx Vivado FPGA Artix-7 QMTECH
+Wukong V3 board. Hardware peripherals are primarily supported via standard
+PMOD adapters and can be mixed and matched for the desired physical hardware.
 
 The current port targets the Wukong V3 fitted with an Artix-7 `XC7A100T` in
 the FGG676 package. The hardware-verified build boots a 128 KiB CoCo 3 system
 ROM from block RAM and displays Extended Color BASIC over the board's HDMI
 connector with 48 kHz stereo HDMI packets carrying the CoCo's mono DAC output.
-The current build names are `COCO3_ELITE`, `HDMI_TEST_PATTERN`, and
-`BASIC_6809_DVI_TEST`. The last image is hardware-verified and displays
-`CPU09`, `RESET VECTOR PASSED`, and `STAGE 2 RUNNING` in green on black.
-
-The long-term target family includes boards based on the Artix-7 `XC7A15T`,
-`XC7A50T`, and `XC7A100T`. The RTL is being kept portable across those devices;
-the Wukong V3 `XC7A100T` is the currently implemented and hardware-verified
-board target.
-
-Hardware interface documentation is maintained under [`hardware/`](hardware/):
-
-- [QMTECH Wukong V3 board overview](hardware/wukong-board.md)
-- [Wukong V3 PMOD pinout](hardware/wukong-pmod-pinout.md)
-- [PS/2 keyboard interface](hardware/keyboard-ps2.md)
-- [USB host prototype and proposed wiring](hardware/usb-host-interface.md)
-
-![Extended Color BASIC running on the QMTECH Wukong V3](docs/images/wukong-coco3-basic.png)
-
-*Hardware checkpoint: Disk Extended Color BASIC 2.1 with corrected GIME colors and
-vertical centering, running from block RAM and displayed over HDMI on the
-QMTECH Wukong V3.*
-
-MicroSD currently supports initialization and sector-zero reads only; it does
-not mount FAT32 `.DSK` files. Optional embedded DSK files are local, read-only,
-and untracked. The onboard USB connection is a passive UART diagnostic link,
-not DriveWire or a USB host.
-
-The [SD-card and USB support plan](docs/SDCARD_SUPPORT_PLAN.md) describes the
-proposed filesystem browser, writable DSK images, cartridge/BAS/BIN loading,
-FPGA management processor, and USB storage/input expansion.
 
 ## Repository layout
 
@@ -59,6 +40,27 @@ CoCo3Elite/
 ```
 
 Generated content under `build/` is not committed.
+
+Hardware interface documentation is maintained under [`hardware/`](hardware/):
+
+- [QMTECH Wukong V3 board overview](hardware/wukong-board.md)
+- [Wukong V3 PMOD pinout](hardware/wukong-pmod-pinout.md)
+- [PS/2 keyboard interface](hardware/keyboard-ps2.md)
+- [USB host prototype and proposed wiring](hardware/usb-host-interface.md)
+
+*Hardware checkpoint: Disk Extended Color BASIC 2.1 with corrected GIME colors and
+vertical centering, running from block RAM and displayed over HDMI on the
+QMTECH Wukong V3.*
+
+The RV32 manager mounts compatible root-level FAT32 `.DSK` files as drive 0,
+supports selection through the F12 overlay, and flushes completed sector writes
+back to the mounted image. Optional embedded DSK files remain local, read-only,
+and untracked. The onboard USB connection is currently a passive UART
+diagnostic link, not a USB host.
+
+The [SD-card and USB support plan](docs/SDCARD_SUPPORT_PLAN.md) describes the
+proposed filesystem browser, writable DSK images, cartridge/BAS/BIN loading,
+FPGA management processor, and USB storage/input expansion.
 
 ## Requirements
 
@@ -97,6 +99,10 @@ The disk importer validates the canonical Disk BASIC 1.1 SHA-1 and writes
 by Git.
 
 ## Building a bitstream
+
+For the complete ordered workflow—ROM import, disk preparation, RV32
+management firmware, FPGA build, regressions, and JTAG programming—see
+[Building the Wukong bitstream](docs/BUILD_BITSTREAM.md).
 
 Prepare the appropriate ROM first, then build the hardware-verified CoCo 3
 image from the repository root:
@@ -161,3 +167,12 @@ Administrator in PowerShell.
 
 See [LICENSE](LICENSE) for the source-code license. ROM images may have separate
 terms and are intentionally not distributed by this repository.
+
+The long-term target family includes boards based on the Artix-7 `XC7A15T`,
+`XC7A50T`, and `XC7A100T`. The RTL is being kept portable across those devices;
+the Wukong V3 `XC7A100T` is the currently implemented and hardware-verified
+board target.
+
+The current build names are `COCO3_ELITE`, `HDMI_TEST_PATTERN`, and
+`BASIC_6809_DVI_TEST`. The last image is hardware-verified and displays
+`CPU09`, `RESET VECTOR PASSED`, and `STAGE 2 RUNNING` in green on black.

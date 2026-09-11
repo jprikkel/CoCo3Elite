@@ -1,3 +1,0 @@
-Computer:      Color Computer 3 (NTSC)
-Manufacturer:  Tandy Radio Shack
-Year:          1986

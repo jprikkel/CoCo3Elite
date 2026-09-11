@@ -2,11 +2,10 @@
 
 Research date: 2026-09-08. Companion to the
 [SD-card and USB plan](SDCARD_SUPPORT_PLAN.md). The comparison is source-based;
-no CPU has been benchmarked in the running CoCo system. A subsequent isolated
-MicroBlaze V MCS + 64 KiB RAM + UART + USB SPI prototype synthesized at 1,274
-LUTs and 16 RAMB36 blocks in Vivado 2025.2. See the
-[prototype checkpoint](../hardware/usb-host-interface.md) for limitations and
-reproduction commands. This is not a comparative CPU benchmark or final choice.
+no CPU had been benchmarked in the running CoCo system at the time. A subsequent
+isolated MicroBlaze V resource prototype was evaluated, then removed after the
+project selected and integrated the open ultraembedded RV32IM core. The
+historical figures below are not comparative CPU benchmarks.
 
 ## Decision for this project
 
