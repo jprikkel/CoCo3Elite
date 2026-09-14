@@ -50,9 +50,27 @@ void *memcpy(void *dst,const void *src,unsigned long n){unsigned char *d=dst;con
 #define KEY_ESCAPE 16u
 #define MAX_DSK_FILES 32u
 #define MAX_NAME 256u
-#define OSD_COLS 48u
-#define OSD_FIRST_FILE_ROW 4u
-#define OSD_FILE_ROWS 13u
+#define OSD_COLS 72u
+#define OSD_ROWS 28u
+#define OSD_FIRST_FILE_ROW 7u
+#define OSD_FILE_ROWS 17u
+#define OSD_LIST_RIGHT 46u
+#define OSD_DETAIL_COLUMN 50u
+#define OSD_GLYPH_PARENT 0x80u
+#define OSD_GLYPH_FOLDER 0x81u
+#define OSD_GLYPH_DISK 0x82u
+#define OSD_GLYPH_CARTRIDGE 0x83u
+#define OSD_GLYPH_BINARY 0x84u
+#define OSD_GLYPH_HLINE 0x90u
+#define OSD_GLYPH_VLINE 0x91u
+#define OSD_GLYPH_TOP_LEFT 0x92u
+#define OSD_GLYPH_TOP_RIGHT 0x93u
+#define OSD_GLYPH_BOTTOM_LEFT 0x94u
+#define OSD_GLYPH_BOTTOM_RIGHT 0x95u
+#define OSD_GLYPH_T_RIGHT 0x96u
+#define OSD_GLYPH_T_LEFT 0x97u
+#define OSD_GLYPH_T_DOWN 0x98u
+#define OSD_GLYPH_T_UP 0x99u
 
 static uint8_t block_addressed, sectors_per_cluster, spi_divider;
 static uint32_t disk_cache_crc32;
@@ -250,20 +268,26 @@ static void short_name(const struct disk *d,char *text){uint16_t n=0;while(d->na
 static void osd_text(uint8_t row,uint8_t column,const char *text);
 static void entry_line(const struct browser_entry *e,char *line){
     uint8_t at=0;
-    const char *tag=e->parent?"[..] ":e->directory?"[DIR] ":e->cartridge?"[CCC] ":e->binary?"[BIN] ":"      ";
-    while(*tag)line[at++]=*tag++;
-    if(e->parent){line[at]=0;return;}
-    for(uint16_t n=0;e->name[n]&&at<OSD_COLS-1u;n++)line[at++]=e->name[n];
+    const uint8_t width=OSD_LIST_RIGHT-4u;
+    if(e->parent){line[at++]='.';line[at++]='.';line[at]=0;return;}
+    for(uint16_t n=0;e->name[n]&&at<width;n++)line[at++]=e->name[n];
+    if(e->name[at]&&width>=3u){line[width-3u]='.';line[width-2u]='.';line[width-1u]='.';at=width;}
     line[at]=0;
 }
-/* Compact file-type indicators use the existing character ROM and therefore
- * do not require a programmable OSD glyph bank. */
+/* Codes 80-84 select project-owned 8x16 icons in manager_osd.  Keeping the
+ * file type graphical here removes the old [DIR]/[CCC]/[BIN] prefixes and
+ * leaves more of the narrow list pane available for long FAT32 names. */
 static const char *entry_icon(const struct browser_entry *e){
-    if(e->parent) return "^";
-    if(e->directory) return "[ ]";       /* open folder */
-    if(e->cartridge) return "[=]";       /* cartridge: label + pins */
-    if(e->binary) return "( )";          /* short can */
-    return "[o]";                        /* 5.25 disk: hub/read point */
+    static const char parent_icon[]={ (char)OSD_GLYPH_PARENT,0 };
+    static const char folder_icon[]={ (char)OSD_GLYPH_FOLDER,0 };
+    static const char disk_icon[]={ (char)OSD_GLYPH_DISK,0 };
+    static const char cartridge_icon[]={ (char)OSD_GLYPH_CARTRIDGE,0 };
+    static const char binary_icon[]={ (char)OSD_GLYPH_BINARY,0 };
+    if(e->parent)return parent_icon;
+    if(e->directory)return folder_icon;
+    if(e->cartridge)return cartridge_icon;
+    if(e->binary)return binary_icon;
+    return disk_icon;
 }
 static void draw_entry_icon(uint8_t row,const struct browser_entry *e){
     osd_text(row,2,entry_icon(e));
@@ -333,33 +357,89 @@ static int stream_bin(void){
         if(status&(1u<<20))return 2;
     }
 }
-static void osd_clear(void){OSD_ADDRESS=0;for(uint16_t n=0;n<OSD_COLS*20u;++n)OSD_DATA=' ';}
-static void osd_text(uint8_t row,uint8_t column,const char *text){
+static void osd_clear(void){OSD_ADDRESS=0;for(uint16_t n=0;n<OSD_COLS*OSD_ROWS;++n)OSD_DATA=' ';}
+static void osd_char(uint8_t row,uint8_t column,char value){OSD_ADDRESS=(uint32_t)row*OSD_COLS+column;OSD_DATA=(uint8_t)value;}
+static void osd_text_to(uint8_t row,uint8_t column,uint8_t last,const char *text){
     OSD_ADDRESS=(uint32_t)row*OSD_COLS+column;
-    while(*text&&column++<OSD_COLS)OSD_DATA=(uint8_t)*text++;
+    while(*text&&column<=last&&column<OSD_COLS){OSD_DATA=(uint8_t)*text++;column++;}
+}
+static void osd_text(uint8_t row,uint8_t column,const char *text){osd_text_to(row,column,OSD_COLS-2u,text);}
+static void osd_center(uint8_t row,const char *text){
+    uint8_t length=0;while(text[length])length++;
+    osd_text(row,(uint8_t)((OSD_COLS-length)/2u),text);
+}
+static void osd_rule(uint8_t row,uint8_t left,uint8_t right,uint8_t middle){
+    osd_char(row,0,(char)left);
+    for(uint8_t column=1;column<OSD_COLS-1u;column++)osd_char(row,column,(char)OSD_GLYPH_HLINE);
+    osd_char(row,OSD_COLS-1u,(char)right);
+    if(middle)osd_char(row,OSD_LIST_RIGHT+1u,(char)middle);
+}
+static void osd_frame(void){
+    for(uint8_t row=1;row<OSD_ROWS-1u;row++){osd_char(row,0,(char)OSD_GLYPH_VLINE);osd_char(row,OSD_COLS-1u,(char)OSD_GLYPH_VLINE);}
+    for(uint8_t row=OSD_FIRST_FILE_ROW;row<24u;row++)osd_char(row,OSD_LIST_RIGHT+1u,(char)OSD_GLYPH_VLINE);
+    osd_rule(0,OSD_GLYPH_TOP_LEFT,OSD_GLYPH_TOP_RIGHT,0);
+    osd_rule(3,OSD_GLYPH_T_RIGHT,OSD_GLYPH_T_LEFT,0);
+    osd_rule(6,OSD_GLYPH_T_RIGHT,OSD_GLYPH_T_LEFT,OSD_GLYPH_T_DOWN);
+    osd_rule(24,OSD_GLYPH_T_RIGHT,OSD_GLYPH_T_LEFT,OSD_GLYPH_T_UP);
+    osd_rule(OSD_ROWS-1u,OSD_GLYPH_BOTTOM_LEFT,OSD_GLYPH_BOTTOM_RIGHT,0);
+}
+static void osd_tail(uint8_t row,uint8_t column,uint8_t width,const char *text){
+    uint16_t length=0;while(text[length])length++;
+    if(length<=width){osd_text_to(row,column,(uint8_t)(column+width-1u),text);return;}
+    osd_text_to(row,column,(uint8_t)(column+width-1u),"...");
+    osd_text_to(row,(uint8_t)(column+3u),(uint8_t)(column+width-1u),text+length-(width-3u));
+}
+static void osd_size(uint8_t row,uint8_t column,uint32_t value){
+    char text[17];uint8_t at=0;
+    if(!value)text[at++]='0';
+    else {while(value&&at<10u){text[at++]=(char)('0'+value%10u);value/=10u;}for(uint8_t left=0,right=at-1u;left<right;left++,right--){char c=text[left];text[left]=text[right];text[right]=c;}}
+    text[at++]=' ';text[at++]='B';text[at++]='Y';text[at++]='T';text[at++]='E';text[at++]='S';text[at]=0;
+    osd_text_to(row,column,OSD_COLS-2u,text);
+}
+static const char *entry_type(const struct browser_entry *entry){
+    if(entry->parent)return "PARENT";
+    if(entry->directory)return "DIRECTORY";
+    if(entry->cartridge)return "CARTRIDGE";
+    if(entry->binary)return "DECB BIN";
+    return "DSK IMAGE";
+}
+static const char *entry_action(const struct browser_entry *entry){
+    if(entry->parent)return "UP ONE LEVEL";
+    if(entry->directory)return "ENTER TO OPEN";
+    if(entry->cartridge||entry->binary)return "READY TO RUN";
+    if(entry->cluster==mounted_disk.cluster&&mounted_disk.cluster)return "MOUNTED D0";
+    return "READY TO MOUNT";
+}
+static void draw_details(const struct browser_entry *entry){
+    osd_text(7,OSD_DETAIL_COLUMN,"TYPE");osd_text(8,OSD_DETAIL_COLUMN,entry_type(entry));
+    if(!entry->directory){osd_text(10,OSD_DETAIL_COLUMN,"SIZE");osd_size(11,OSD_DETAIL_COLUMN,entry->size);}
+    osd_text(13,OSD_DETAIL_COLUMN,entry_action(entry));
+    if(entry->cartridge)osd_text(14,OSD_DETAIL_COLUMN,"COLD START");
+    else if(entry->binary)osd_text(14,OSD_DETAIL_COLUMN,"CHECK ON RUN");
+    else if(!entry->directory)osd_text(14,OSD_DETAIL_COLUMN,"CRC ON MOUNT");
 }
 static uint8_t menu_selection,menu_top;
 static void draw_menu(const char *status){
     char name[MAX_NAME],line[OSD_COLS];
     if(menu_selection<menu_top)menu_top=menu_selection;
     if(menu_selection>=menu_top+OSD_FILE_ROWS)menu_top=menu_selection-OSD_FILE_ROWS+1u;
-    osd_clear();
-    osd_text(0,2,"COCO3ELITE SD FILE MANAGER");
-    osd_text(1,2,"DRIVE 0:");short_name(&mounted_disk,name);osd_text(1,11,name);
-    osd_text(2,2,"PATH:");osd_text(2,8,current_path);
-    osd_text(3,2,"SELECT DSK, CCC, BIN OR DIRECTORY");
+    osd_clear();osd_frame();
+    osd_center(1,"C O C O  3  E L I T E");osd_center(2,"D I S K  B R O W S E R");
+    osd_text(4,2,"DRIVE 0:");short_name(&mounted_disk,name);osd_text_to(4,11,OSD_COLS-2u,name[0]?name:"<EMPTY>");
+    osd_text(5,2,"PATH:");osd_tail(5,8,OSD_COLS-10u,current_path);
     for(uint8_t row=0;row<OSD_FILE_ROWS;++row){
         uint8_t index=menu_top+row;
         if(index>=browser_count)break;
         entry_line(&browser_entries[index],line);
-        osd_text(OSD_FIRST_FILE_ROW+row,2,
+        osd_text(OSD_FIRST_FILE_ROW+row,1,
                  browser_entries[index].cluster==mounted_disk.cluster?"*":" ");
         draw_entry_icon(OSD_FIRST_FILE_ROW+row,&browser_entries[index]);
         osd_text(OSD_FIRST_FILE_ROW+row,4,line);
     }
-    osd_text(18,2,status);
-    osd_text(19,2,"UP/DOWN SELECT ENTER MOUNT/RUN ESC/F12 EXIT");
-    OSD_CONTROL=((uint32_t)(OSD_FIRST_FILE_ROW+menu_selection-menu_top)<<8)|1u;
+    if(browser_count)draw_details(&browser_entries[menu_selection]);
+    osd_text_to(25,2,OSD_COLS-2u,status);
+    osd_center(26,"UP/DOWN SELECT   ENTER MOUNT/RUN   ESC/F12 EXIT");
+    OSD_CONTROL=((uint32_t)(browser_count?(OSD_FIRST_FILE_ROW+menu_selection-menu_top):31u)<<8)|1u;
 }
 static int run_disk_menu(uint8_t *present){
     uint32_t previous,keys,pressed;

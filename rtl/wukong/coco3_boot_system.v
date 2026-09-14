@@ -172,7 +172,7 @@ module coco3_boot_system #(
                                        (cartridge_session_active ||
                                         cartridge_boot_state == CART_BOOT_LAUNCH);
     wire machine_reset = system_reset | cartridge_cold_reset;
-    wire [9:0] manager_osd_char_address;
+    wire [10:0] manager_osd_char_address;
     wire [7:0] manager_osd_char_data;
     wire [4:0] manager_osd_selected_row;
     wire manager_osd_active;

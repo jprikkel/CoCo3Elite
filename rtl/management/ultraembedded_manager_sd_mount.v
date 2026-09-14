@@ -9,7 +9,7 @@ module ultraembedded_manager_sd_mount (
     input wire [1:0] fdc_drive, input wire [7:0] fdc_track, input wire [7:0] fdc_sector, input wire [7:0] fdc_last_type1, input wire [31:0] fdc_debug_word, input wire [31:0] fdc_completed_debug_word, input wire fdc_read_complete_toggle, input wire fdc_write_complete_toggle,
     input wire fdc_request_toggle, input wire [7:0] fdc_buffer_address,
     input wire fdc_write_strobe, input wire [7:0] fdc_write_data,
-    input wire [4:0] menu_key_state, input wire [9:0] osd_char_address,
+    input wire [4:0] menu_key_state, input wire [10:0] osd_char_address,
     output wire [7:0] osd_char_data, output wire osd_active,
     output wire [4:0] osd_selected_row,
     output wire [7:0] fdc_buffer_data, output wire fdc_done_toggle,

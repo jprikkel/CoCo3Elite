@@ -27,7 +27,7 @@ module manager_sd_mmio #(
     input wire [7:0] fdc_buffer_address, output wire [7:0] fdc_buffer_data,
     input wire fdc_write_strobe, input wire [7:0] fdc_write_data,
     input wire [4:0] menu_key_state,
-    input wire [9:0] osd_char_address,
+    input wire [10:0] osd_char_address,
     output wire [7:0] osd_char_data,
     output reg osd_active,
     output reg [4:0] osd_selected_row,
@@ -82,8 +82,8 @@ module manager_sd_mmio #(
     reg [3:0] bin_fifo_write_pointer, bin_fifo_read_pointer;
     reg [4:0] bin_fifo_count;
     reg bin_loader_done_seen, bin_cancelled;
-    (* ram_style = "distributed" *) reg [7:0] osd_chars [0:1023];
-    reg [9:0] osd_write_address;
+    (* ram_style = "distributed" *) reg [7:0] osd_chars [0:2047];
+    reg [10:0] osd_write_address;
     // These banks require asynchronous reads at the CoCo bus service edge.
     // Force LUT RAM so implementation cannot silently turn the FDC-facing
     // port into a clocked block-RAM read and retain the preceding sector.
@@ -358,7 +358,7 @@ module manager_sd_mmio #(
                     disk_cache_debug_address <= write_data[17:0];
                     axi_bvalid <= 1'b1;
                 end else if (write_address == OSD_ADDRESS) begin
-                    osd_write_address <= write_data[9:0];
+                    osd_write_address <= write_data[10:0];
                     axi_bvalid <= 1'b1;
                 end else if (write_address == OSD_DATA) begin
                     osd_chars[osd_write_address] <= write_data[7:0];

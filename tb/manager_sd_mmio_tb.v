@@ -23,7 +23,7 @@ module manager_sd_mmio_tb;
     reg fdc_write_strobe = 0;
     reg [7:0] fdc_write_data = 0;
     reg [4:0] menu_key_state = 0;
-    reg [9:0] osd_char_address = 0;
+    reg [10:0] osd_char_address = 0;
     wire [7:0] osd_char_data;
     wire osd_active;
     wire [4:0] osd_selected_row;
@@ -128,6 +128,11 @@ module manager_sd_mmio_tb;
         osd_char_address = 10'd12; #1;
         if (osd_char_data !== 8'h41)
             $fatal(1, "OSD character RAM mismatch: %h", osd_char_data);
+        write32(32'h8000024c, 11'd2015);
+        write32(32'h80000250, 8'h90);
+        osd_char_address = 11'd2015; #1;
+        if (osd_char_data !== 8'h90)
+            $fatal(1, "expanded OSD character RAM mismatch: %h", osd_char_data);
         write32(32'h80000254, (32'd7 << 8) | 1);
         if (!osd_active || osd_selected_row != 5'd7)
             $fatal(1, "OSD control was not published");
