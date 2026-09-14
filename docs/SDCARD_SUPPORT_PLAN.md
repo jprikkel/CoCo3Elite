@@ -24,6 +24,13 @@ the exact implemented scope and reproduction commands. No module is available;
 USB enumeration, CPU firmware boot, filesystems and CoCo integration remain
 pending. The working CoCo bitstream is unchanged.
 
+Detailed follow-on designs are maintained separately:
+
+- [Direct BIN file loading](BIN_FILE.md)
+- [Linear cartridge image support](CART_FILE.MD)
+- [Banked cartridge support](CART_BANKED.MD)
+- [Cartridge hardware and peripheral support](CART_HARDWARE.MD)
+
 ## Recommendation
 
 Use a small RISC-V management processor inside the FPGA, running C firmware

@@ -53,6 +53,7 @@ planned BAS/BIN loading and USB storage/input expansion.
 ## Documentation and references
 
 - [Current Wukong implementation and known issues](docs/CURRENT_IMPLEMENTATION.md)
+- [Direct BIN and cartridge expansion plans](docs/BIN_FILE.md)
 - [Wukong port notes](docs/WUKONG_PORT.md)
 - [Hardware bring-up record](docs/BRINGUP.md)
 - [Original CoCo3FPGA project](https://github.com/richard42/CoCo3FPGA)
