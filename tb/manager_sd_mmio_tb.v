@@ -13,6 +13,10 @@ module manager_sd_mmio_tb;
     wire [14:0] cartridge_address;
     wire [7:0] cartridge_data;
     wire cartridge_write, cartridge_enabled, cartridge_launch;
+    reg bin_fifo_pop = 0, bin_loader_done = 0, bin_cancel = 0;
+    wire [7:0] bin_fifo_data;
+    wire bin_fifo_available, bin_transfer_active;
+    wire bin_transfer_complete, bin_transfer_error;
     wire [7:0] cartridge_cpu_data;
     reg fdc_request_toggle = 0;
     reg [7:0] fdc_buffer_address = 0;
@@ -65,7 +69,13 @@ module manager_sd_mmio_tb;
         .fdc_write_done_toggle(), .fdc_write_success(), .fdc_present(),
         .manager_ready(), .cartridge_address(cartridge_address),
         .cartridge_data(cartridge_data), .cartridge_write(cartridge_write),
-        .cartridge_enabled(cartridge_enabled), .cartridge_launch(cartridge_launch)
+        .cartridge_enabled(cartridge_enabled), .cartridge_launch(cartridge_launch),
+        .bin_fifo_pop(bin_fifo_pop), .bin_loader_done(bin_loader_done),
+        .bin_cancel(bin_cancel), .bin_fifo_data(bin_fifo_data),
+        .bin_fifo_available(bin_fifo_available),
+        .bin_transfer_active(bin_transfer_active),
+        .bin_transfer_complete(bin_transfer_complete),
+        .bin_transfer_error(bin_transfer_error)
     );
 
     // Model the production consumer of the registered manager write port.
@@ -147,6 +157,25 @@ module manager_sd_mmio_tb;
         @(posedge clock);
         if (!cartridge_enabled)
             $fatal(1, "cartridge enable did not persist or launch did not pulse");
+        $display("checking DECB BIN byte FIFO and loader completion");
+        write32(32'h80000270, 32'h00000003); // reset and activate
+        write32(32'h8000026c, 32'h000000a5);
+        write32(32'h8000026c, 32'h000000b6);
+        if (!bin_fifo_available || !bin_transfer_active ||
+            bin_fifo_data !== 8'ha5)
+            $fatal(1, "BIN FIFO did not publish its first byte");
+        bin_fifo_pop = 1'b1;
+        @(posedge clock); #1; bin_fifo_pop = 1'b0;
+        if (!bin_fifo_available || bin_fifo_data !== 8'hb6)
+            $fatal(1, "BIN FIFO pop did not advance to the second byte");
+        write32(32'h80000270, 32'h00000004); // producer complete
+        if (!bin_transfer_complete || bin_transfer_active || bin_transfer_error)
+            $fatal(1, "BIN transfer completion flags are incorrect");
+        bin_loader_done = 1'b1;
+        @(posedge clock); #1; bin_loader_done = 1'b0;
+        read32(32'h80000274, value);
+        if (!value[16] || cartridge_enabled)
+            $fatal(1, "BIN loader completion did not retire the cartridge");
         $display("configuring SPI");
         write32(32'h80000100, 32'h00000200); // active CS, divider=2
         rising_edges = 0;

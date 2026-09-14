@@ -151,6 +151,10 @@ module coco3_boot_system #(
     wire [14:0] manager_cartridge_address;
     wire [7:0] manager_cartridge_data;
     wire manager_cartridge_write, manager_cartridge_enabled, manager_cartridge_launch;
+    wire [7:0] manager_bin_fifo_data;
+    wire manager_bin_fifo_available, manager_bin_transfer_active;
+    wire manager_bin_transfer_complete, manager_bin_transfer_error;
+    wire machine_bin_fifo_pop, machine_bin_loader_done;
     localparam [2:0] CART_BOOT_IDLE       = 3'd0;
     localparam [2:0] CART_BOOT_RESET      = 3'd1;
     localparam [2:0] CART_BOOT_WAIT_START = 3'd2;
@@ -200,7 +204,13 @@ module coco3_boot_system #(
         .fdc_present(manager_drive_present), .manager_ready(manager_ready)
         ,.cartridge_address(manager_cartridge_address), .cartridge_data(manager_cartridge_data),
         .cartridge_write(manager_cartridge_write), .cartridge_enabled(manager_cartridge_enabled),
-        .cartridge_launch(manager_cartridge_launch)
+        .cartridge_launch(manager_cartridge_launch),
+        .bin_fifo_pop(machine_bin_fifo_pop), .bin_loader_done(machine_bin_loader_done),
+        .bin_cancel(soft_reset_active), .bin_fifo_data(manager_bin_fifo_data),
+        .bin_fifo_available(manager_bin_fifo_available),
+        .bin_transfer_active(manager_bin_transfer_active),
+        .bin_transfer_complete(manager_bin_transfer_complete),
+        .bin_transfer_error(manager_bin_transfer_error)
     );
 
     // The SD manager intentionally survives both Ctrl-Alt-Delete and a
@@ -389,6 +399,13 @@ module coco3_boot_system #(
         .cartridge_address(manager_cartridge_address), .cartridge_write_data(manager_cartridge_data),
         .cartridge_write(manager_cartridge_write),
         .cold_start_clear(cartridge_cold_reset),
+        .bin_fifo_data(manager_bin_fifo_data),
+        .bin_fifo_available(manager_bin_fifo_available),
+        .bin_transfer_active(manager_bin_transfer_active),
+        .bin_transfer_complete(manager_bin_transfer_complete),
+        .bin_transfer_error(manager_bin_transfer_error),
+        .bin_fifo_pop(machine_bin_fifo_pop),
+        .bin_loader_done(machine_bin_loader_done),
         .cpu_halt(menu_active),
         .debug_vma(cpu_vma), .debug_read(cpu_read),
         .debug_opfetch(), .debug_read_data(cpu_read_data),

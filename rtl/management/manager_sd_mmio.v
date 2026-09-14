@@ -35,7 +35,11 @@ module manager_sd_mmio #(
     output reg fdc_write_done_toggle, output reg fdc_write_success,
     output reg [2:0] fdc_present, output reg manager_ready
     ,output reg [14:0] cartridge_address, output reg [7:0] cartridge_data,
-    output reg cartridge_write, output reg cartridge_enabled, output reg cartridge_launch
+    output reg cartridge_write, output reg cartridge_enabled, output reg cartridge_launch,
+    input wire bin_fifo_pop, input wire bin_loader_done, input wire bin_cancel,
+    output wire [7:0] bin_fifo_data, output wire bin_fifo_available,
+    output reg bin_transfer_active, output reg bin_transfer_complete,
+    output reg bin_transfer_error
 );
     localparam UART_DATA = 32'h80000000, UART_STATUS = 32'h80000004,
                SPI_CTRL = 32'h80000100, SPI_XFER = 32'h80000104,
@@ -54,7 +58,10 @@ module manager_sd_mmio #(
                MENU_KEY_STATE = 32'h80000258,
                CARTRIDGE_ADDRESS = 32'h8000025c, CARTRIDGE_DATA = 32'h80000260,
                CARTRIDGE_CONTROL = 32'h80000264,
-               CARTRIDGE_SIGNATURE = 32'h80000268;
+               CARTRIDGE_SIGNATURE = 32'h80000268,
+               BIN_FIFO_DATA = 32'h8000026c,
+               BIN_FIFO_CONTROL = 32'h80000270,
+               BIN_FIFO_STATUS = 32'h80000274;
     reg have_address, have_data, transaction_active, await_spi, spi_seen_busy;
     reg [31:0] write_address, write_data;
     reg [7:0] spi_tx, spi_rx, spi_tx_shift, spi_rx_shift;
@@ -68,6 +75,13 @@ module manager_sd_mmio #(
     // catching a dropped, repeated, or misaddressed MMIO write before the
     // 6809 is allowed to execute the image.
     reg [31:0] cartridge_signature;
+    // Small producer/consumer FIFO between RV32 file transports and the 6809
+    // loader.  Keeping this interface transport-neutral lets later serial and
+    // Ethernet services reuse the exact DECB parser and CoCo launch path.
+    (* ram_style = "distributed" *) reg [7:0] bin_fifo [0:15];
+    reg [3:0] bin_fifo_write_pointer, bin_fifo_read_pointer;
+    reg [4:0] bin_fifo_count;
+    reg bin_loader_done_seen, bin_cancelled;
     (* ram_style = "distributed" *) reg [7:0] osd_chars [0:1023];
     reg [9:0] osd_write_address;
     // These banks require asynchronous reads at the CoCo bus service edge.
@@ -106,6 +120,9 @@ module manager_sd_mmio #(
     assign fdc_buffer_data = disk_cache_fdc_valid ? disk_cache_fdc_data
                                                   : sector_cache_data;
     assign osd_char_data = osd_chars[osd_char_address];
+    assign bin_fifo_data = bin_fifo[bin_fifo_read_pointer];
+    assign bin_fifo_available = bin_fifo_count != 0;
+    wire bin_fifo_pop_now = bin_fifo_pop && bin_fifo_count != 0;
 
     assign axi_awready = !have_address && !transaction_active;
     assign axi_wready = !have_data && !transaction_active;
@@ -245,6 +262,14 @@ module manager_sd_mmio #(
             cartridge_write <= 1'b0;
             cartridge_enabled <= 1'b0; cartridge_launch <= 1'b0;
             cartridge_signature <= 32'b0;
+            bin_fifo_write_pointer <= 0;
+            bin_fifo_read_pointer <= 0;
+            bin_fifo_count <= 0;
+            bin_loader_done_seen <= 1'b0;
+            bin_cancelled <= 1'b0;
+            bin_transfer_active <= 1'b0;
+            bin_transfer_complete <= 1'b0;
+            bin_transfer_error <= 1'b0;
         end else begin
             cartridge_write <= 1'b0;
             cartridge_launch <= 1'b0;
@@ -253,6 +278,10 @@ module manager_sd_mmio #(
             // firmware separately persists the staged sector to FAT32.
             spi_start <= 0;
             uart_start <= 0;
+            if (bin_fifo_pop_now) begin
+                bin_fifo_read_pointer <= bin_fifo_read_pointer + 1'b1;
+                bin_fifo_count <= bin_fifo_count - 1'b1;
+            end
             // Publish a filled sector only after the complete 256-byte MMIO
             // write stream has retired and the buffer has remained stable for
             // additional clocks.  This prevents the FDC from observing the
@@ -363,6 +392,30 @@ module manager_sd_mmio #(
                     if (!write_data[0])
                         cartridge_signature <= 32'b0;
                     axi_bvalid <= 1'b1;
+                end else if (write_address == BIN_FIFO_DATA) begin
+                    // A simultaneous CoCo pop creates room even when the FIFO
+                    // began this clock full.  In that case occupancy is stable.
+                    if (bin_fifo_count != 5'd16 || bin_fifo_pop_now) begin
+                        bin_fifo[bin_fifo_write_pointer] <= write_data[7:0];
+                        bin_fifo_write_pointer <= bin_fifo_write_pointer + 1'b1;
+                        if (!bin_fifo_pop_now)
+                            bin_fifo_count <= bin_fifo_count + 1'b1;
+                        else
+                            bin_fifo_count <= bin_fifo_count;
+                    end
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == BIN_FIFO_CONTROL) begin
+                    if (write_data[0]) begin
+                        bin_fifo_write_pointer <= 0;
+                        bin_fifo_read_pointer <= 0;
+                        bin_fifo_count <= 0;
+                        bin_loader_done_seen <= 1'b0;
+                        bin_cancelled <= 1'b0;
+                    end
+                    bin_transfer_active <= write_data[1];
+                    bin_transfer_complete <= write_data[2];
+                    bin_transfer_error <= write_data[3];
+                    axi_bvalid <= 1'b1;
                 end else if (write_address == FDC_ACK) begin
                     // Require a complete sector and delay publication.  The
                     // request toggle is captured here so a later request can
@@ -428,9 +481,32 @@ module manager_sd_mmio #(
                     OSD_CONTROL: axi_rdata <= {19'b0, osd_selected_row, 7'b0, osd_active};
                     MENU_KEY_STATE: axi_rdata <= {27'b0, menu_key_state};
                     CARTRIDGE_SIGNATURE: axi_rdata <= cartridge_signature;
+                    BIN_FIFO_STATUS: axi_rdata <= {
+                        11'b0, bin_cancelled, bin_transfer_error,
+                        bin_transfer_complete, bin_transfer_active,
+                        bin_loader_done_seen, 6'b0,
+                        bin_fifo_count == 0, bin_fifo_count == 5'd16,
+                        3'b0, bin_fifo_count};
                     default: axi_rdata <= 0;
                 endcase
             end else if (axi_rvalid && axi_rready) axi_rvalid <= 1'b0;
+            // CoCo reset/cancel and loader completion take precedence over an
+            // in-flight producer operation and also remove the temporary cart.
+            if (bin_cancel) begin
+                bin_fifo_write_pointer <= 0;
+                bin_fifo_read_pointer <= 0;
+                bin_fifo_count <= 0;
+                bin_transfer_active <= 1'b0;
+                bin_transfer_complete <= 1'b0;
+                bin_transfer_error <= 1'b0;
+                bin_loader_done_seen <= 1'b0;
+                bin_cancelled <= 1'b1;
+                cartridge_enabled <= 1'b0;
+            end else if (bin_loader_done) begin
+                bin_transfer_active <= 1'b0;
+                bin_loader_done_seen <= 1'b1;
+                cartridge_enabled <= 1'b0;
+            end
         end
     end
     wire _unused = &{axi_wstrb};

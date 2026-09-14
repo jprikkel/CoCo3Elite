@@ -40,9 +40,12 @@ if ($Mode -eq 'COCO3_ELITE') {
     $objcopy = Join-Path $toolchain 'riscv64-unknown-elf-objcopy.exe'
     $firmwareElf = Join-Path $firmwareDir 'rv32_sd_mount.elf'
     $firmwareBin = Join-Path $firmwareDir 'rv32_sd_mount.bin'
+    & (Join-Path $PSScriptRoot 'build_decb_bin_loader.ps1') -OutputDirectory $firmwareDir
     & $gcc '-march=rv32im_zicsr' '-mabi=ilp32' '-Os' '-ffreestanding' '-fno-builtin' '-nostdlib' `
         '-Wl,--build-id=none' '-Wl,--gc-sections' '-T' (Join-Path $repoRoot 'firmware\management\rv32_tcm.ld') `
+        '-I' $firmwareDir `
         (Join-Path $repoRoot 'firmware\management\rv32_start.S') `
+        (Join-Path $repoRoot 'firmware\management\decb_bin_format.c') `
         (Join-Path $repoRoot 'firmware\management\rv32_sd_mount.c') '-o' $firmwareElf
     if ($LASTEXITCODE) { throw "RV32 SD mount firmware link failed: $LASTEXITCODE" }
     & $objcopy '-O' 'binary' $firmwareElf $firmwareBin
