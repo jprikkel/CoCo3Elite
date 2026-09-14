@@ -71,6 +71,13 @@ void *memcpy(void *dst,const void *src,unsigned long n){unsigned char *d=dst;con
 #define OSD_GLYPH_T_LEFT 0x97u
 #define OSD_GLYPH_T_DOWN 0x98u
 #define OSD_GLYPH_T_UP 0x99u
+#define OSD_GLYPH_LEFT_BORDER 0x9au
+#define OSD_GLYPH_RIGHT_BORDER 0x9bu
+#define OSD_GLYPH_RULE_LEFT_CAP 0x9cu
+#define OSD_GLYPH_RULE_RIGHT_CAP 0x9du
+#define OSD_GLYPH_LOGO_RED 0x9eu
+#define OSD_GLYPH_LOGO_GREEN 0x9fu
+#define OSD_GLYPH_LOGO_BLUE 0xa0u
 
 static uint8_t block_addressed, sectors_per_cluster, spi_divider;
 static uint32_t disk_cache_crc32;
@@ -368,20 +375,36 @@ static void osd_center(uint8_t row,const char *text){
     uint8_t length=0;while(text[length])length++;
     osd_text(row,(uint8_t)((OSD_COLS-length)/2u),text);
 }
-static void osd_rule(uint8_t row,uint8_t left,uint8_t right,uint8_t middle){
+static void osd_logo(uint8_t row){
+    /* 16 cells: "CoCo 3", gap, RGB slashes, gap, "Elite". */
+    const uint8_t left=(OSD_COLS-16u)/2u;
+    osd_text(row,left,"CoCo 3");
+    osd_char(row,left+7u,(char)OSD_GLYPH_LOGO_RED);
+    osd_char(row,left+8u,(char)OSD_GLYPH_LOGO_GREEN);
+    osd_char(row,left+9u,(char)OSD_GLYPH_LOGO_BLUE);
+    osd_text(row,left+11u,"Elite");
+}
+static void osd_outer_rule(uint8_t row,uint8_t left,uint8_t right){
     osd_char(row,0,(char)left);
     for(uint8_t column=1;column<OSD_COLS-1u;column++)osd_char(row,column,(char)OSD_GLYPH_HLINE);
     osd_char(row,OSD_COLS-1u,(char)right);
+}
+static void osd_inner_rule(uint8_t row,uint8_t middle){
+    // Leave five clear pixels between each rule cap and the three-pixel
+    // rounded outer frame.  The border cells themselves remain untouched.
+    osd_char(row,1,(char)OSD_GLYPH_RULE_LEFT_CAP);
+    for(uint8_t column=2;column<OSD_COLS-2u;column++)osd_char(row,column,(char)OSD_GLYPH_HLINE);
+    osd_char(row,OSD_COLS-2u,(char)OSD_GLYPH_RULE_RIGHT_CAP);
     if(middle)osd_char(row,OSD_LIST_RIGHT+1u,(char)middle);
 }
 static void osd_frame(void){
-    for(uint8_t row=1;row<OSD_ROWS-1u;row++){osd_char(row,0,(char)OSD_GLYPH_VLINE);osd_char(row,OSD_COLS-1u,(char)OSD_GLYPH_VLINE);}
+    for(uint8_t row=1;row<OSD_ROWS-1u;row++){osd_char(row,0,(char)OSD_GLYPH_LEFT_BORDER);osd_char(row,OSD_COLS-1u,(char)OSD_GLYPH_RIGHT_BORDER);}
     for(uint8_t row=OSD_FIRST_FILE_ROW;row<24u;row++)osd_char(row,OSD_LIST_RIGHT+1u,(char)OSD_GLYPH_VLINE);
-    osd_rule(0,OSD_GLYPH_TOP_LEFT,OSD_GLYPH_TOP_RIGHT,0);
-    osd_rule(3,OSD_GLYPH_T_RIGHT,OSD_GLYPH_T_LEFT,0);
-    osd_rule(6,OSD_GLYPH_T_RIGHT,OSD_GLYPH_T_LEFT,OSD_GLYPH_T_DOWN);
-    osd_rule(24,OSD_GLYPH_T_RIGHT,OSD_GLYPH_T_LEFT,OSD_GLYPH_T_UP);
-    osd_rule(OSD_ROWS-1u,OSD_GLYPH_BOTTOM_LEFT,OSD_GLYPH_BOTTOM_RIGHT,0);
+    osd_outer_rule(0,OSD_GLYPH_TOP_LEFT,OSD_GLYPH_TOP_RIGHT);
+    osd_inner_rule(3,0);
+    osd_inner_rule(6,OSD_GLYPH_T_DOWN);
+    osd_inner_rule(24,OSD_GLYPH_T_UP);
+    osd_outer_rule(OSD_ROWS-1u,OSD_GLYPH_BOTTOM_LEFT,OSD_GLYPH_BOTTOM_RIGHT);
 }
 static void osd_tail(uint8_t row,uint8_t column,uint8_t width,const char *text){
     uint16_t length=0;while(text[length])length++;
@@ -393,30 +416,30 @@ static void osd_size(uint8_t row,uint8_t column,uint32_t value){
     char text[17];uint8_t at=0;
     if(!value)text[at++]='0';
     else {while(value&&at<10u){text[at++]=(char)('0'+value%10u);value/=10u;}for(uint8_t left=0,right=at-1u;left<right;left++,right--){char c=text[left];text[left]=text[right];text[right]=c;}}
-    text[at++]=' ';text[at++]='B';text[at++]='Y';text[at++]='T';text[at++]='E';text[at++]='S';text[at]=0;
+    text[at++]=' ';text[at++]='b';text[at++]='y';text[at++]='t';text[at++]='e';text[at++]='s';text[at]=0;
     osd_text_to(row,column,OSD_COLS-2u,text);
 }
 static const char *entry_type(const struct browser_entry *entry){
-    if(entry->parent)return "PARENT";
-    if(entry->directory)return "DIRECTORY";
-    if(entry->cartridge)return "CARTRIDGE";
-    if(entry->binary)return "DECB BIN";
-    return "DSK IMAGE";
+    if(entry->parent)return "Parent";
+    if(entry->directory)return "Directory";
+    if(entry->cartridge)return "Cartridge";
+    if(entry->binary)return "DECB binary";
+    return "DSK image";
 }
 static const char *entry_action(const struct browser_entry *entry){
-    if(entry->parent)return "UP ONE LEVEL";
-    if(entry->directory)return "ENTER TO OPEN";
-    if(entry->cartridge||entry->binary)return "READY TO RUN";
-    if(entry->cluster==mounted_disk.cluster&&mounted_disk.cluster)return "MOUNTED D0";
-    return "READY TO MOUNT";
+    if(entry->parent)return "Up one level";
+    if(entry->directory)return "Enter to open";
+    if(entry->cartridge||entry->binary)return "Ready to run";
+    if(entry->cluster==mounted_disk.cluster&&mounted_disk.cluster)return "Mounted D0";
+    return "Ready to mount";
 }
 static void draw_details(const struct browser_entry *entry){
-    osd_text(7,OSD_DETAIL_COLUMN,"TYPE");osd_text(8,OSD_DETAIL_COLUMN,entry_type(entry));
-    if(!entry->directory){osd_text(10,OSD_DETAIL_COLUMN,"SIZE");osd_size(11,OSD_DETAIL_COLUMN,entry->size);}
+    osd_text(7,OSD_DETAIL_COLUMN,"Type");osd_text(8,OSD_DETAIL_COLUMN,entry_type(entry));
+    if(!entry->directory){osd_text(10,OSD_DETAIL_COLUMN,"Size");osd_size(11,OSD_DETAIL_COLUMN,entry->size);}
     osd_text(13,OSD_DETAIL_COLUMN,entry_action(entry));
-    if(entry->cartridge)osd_text(14,OSD_DETAIL_COLUMN,"COLD START");
-    else if(entry->binary)osd_text(14,OSD_DETAIL_COLUMN,"CHECK ON RUN");
-    else if(!entry->directory)osd_text(14,OSD_DETAIL_COLUMN,"CRC ON MOUNT");
+    if(entry->cartridge)osd_text(14,OSD_DETAIL_COLUMN,"Cold start");
+    else if(entry->binary)osd_text(14,OSD_DETAIL_COLUMN,"Check on run");
+    else if(!entry->directory)osd_text(14,OSD_DETAIL_COLUMN,"CRC on mount");
 }
 static uint8_t menu_selection,menu_top;
 static void draw_menu(const char *status){
@@ -424,9 +447,9 @@ static void draw_menu(const char *status){
     if(menu_selection<menu_top)menu_top=menu_selection;
     if(menu_selection>=menu_top+OSD_FILE_ROWS)menu_top=menu_selection-OSD_FILE_ROWS+1u;
     osd_clear();osd_frame();
-    osd_center(1,"C O C O  3  E L I T E");osd_center(2,"D I S K  B R O W S E R");
-    osd_text(4,2,"DRIVE 0:");short_name(&mounted_disk,name);osd_text_to(4,11,OSD_COLS-2u,name[0]?name:"<EMPTY>");
-    osd_text(5,2,"PATH:");osd_tail(5,8,OSD_COLS-10u,current_path);
+    osd_logo(1);osd_center(2,"Disk browser");
+    osd_text(4,2,"Drive 0:");short_name(&mounted_disk,name);osd_text_to(4,11,OSD_COLS-2u,name[0]?name:"<empty>");
+    osd_text(5,2,"Path:");osd_tail(5,8,OSD_COLS-10u,current_path);
     for(uint8_t row=0;row<OSD_FILE_ROWS;++row){
         uint8_t index=menu_top+row;
         if(index>=browser_count)break;
@@ -438,7 +461,7 @@ static void draw_menu(const char *status){
     }
     if(browser_count)draw_details(&browser_entries[menu_selection]);
     osd_text_to(25,2,OSD_COLS-2u,status);
-    osd_center(26,"UP/DOWN SELECT   ENTER MOUNT/RUN   ESC/F12 EXIT");
+    osd_center(26,"Up/down select   Enter mount/run   Esc/F12 exit");
     OSD_CONTROL=((uint32_t)(browser_count?(OSD_FIRST_FILE_ROW+menu_selection-menu_top):31u)<<8)|1u;
 }
 static int run_disk_menu(uint8_t *present){
@@ -446,13 +469,13 @@ static int run_disk_menu(uint8_t *present){
     char name[MAX_NAME];
     uint8_t scan_failed=0;
     menu_selection=0;menu_top=0;browser_count=0;
-    draw_menu("READING SD DIRECTORY - PLEASE WAIT");
+    draw_menu("Reading SD directory - please wait");
     puts("MENU OPEN\r\n");
     if(!card_online||scan_directory(current_directory)){
-        scan_failed=1;draw_menu("SD DIRECTORY READ FAILED - ESC/F12 TO EXIT");
+        scan_failed=1;draw_menu("SD directory read failed - Esc/F12 to exit");
     }else{
         for(uint8_t n=0;n<browser_count;++n)if(browser_entries[n].cluster==mounted_disk.cluster){menu_selection=n;break;}
-        draw_menu(browser_count?"SELECT DSK, CCC, BIN OR DIRECTORY":"NO COMPATIBLE DSK, CCC OR BIN FILES");
+        draw_menu(browser_count?"Select DSK, CCC, BIN or directory":"No compatible DSK, CCC or BIN files");
     }
     while(MENU_KEY_STATE&KEY_F12){}
     previous=MENU_KEY_STATE;
@@ -464,34 +487,34 @@ static int run_disk_menu(uint8_t *present){
         }
         if((pressed&KEY_UP)&&browser_count){
             menu_selection=menu_selection?menu_selection-1u:browser_count-1u;
-            draw_menu("SELECT A DISK FOR DRIVE 0");
+            draw_menu("Select a disk for drive 0");
         }
         if((pressed&KEY_DOWN)&&browser_count){
             menu_selection=(menu_selection+1u==browser_count)?0:menu_selection+1u;
-            draw_menu("SELECT A DISK FOR DRIVE 0");
+            draw_menu("Select a disk for drive 0");
         }
         if((pressed&KEY_ENTER)&&browser_count){
             if(browser_entries[menu_selection].directory){
                 if(browser_entries[menu_selection].parent){if(directory_depth){current_directory=directory_stack[--directory_depth];parent_directory=directory_depth?directory_stack[directory_depth-1u]:root_cluster;uint16_t p=0;while(current_path[p]&&p<MAX_NAME)p++;while(p>1u&&current_path[p-1u]!='/')p--;if(p==1u)current_path[1]=0;else current_path[p-1u]=0;scan_directory(current_directory);}}
                 else {if(directory_depth<8u)directory_stack[directory_depth++]=current_directory;parent_directory=current_directory;current_directory=browser_entries[menu_selection].cluster;uint16_t p=0;while(current_path[p])p++;if(p>1&&current_path[p-1]!='/'){current_path[p++]='/';}for(uint16_t n=0;browser_entries[menu_selection].name[n]&&p<MAX_NAME-1u;n++)current_path[p++]=browser_entries[menu_selection].name[n];current_path[p]=0;scan_directory(current_directory);}
-                menu_selection=0;menu_top=0;draw_menu("SELECT A DISK FOR DRIVE 0");continue;
+                menu_selection=0;menu_top=0;draw_menu("Select a disk for drive 0");continue;
             }
             if(browser_entries[menu_selection].cartridge){
-                draw_menu("LOADING CARTRIDGE - PLEASE WAIT");
+                draw_menu("Loading cartridge - please wait");
                 if(!load_cartridge(&browser_entries[menu_selection])){puts("CARTRIDGE LOADED ");puts(browser_entries[menu_selection].name);puts("\r\n");while(MENU_KEY_STATE&KEY_ENTER){}OSD_CONTROL=0;return 0;}
-                draw_menu("CARTRIDGE LOAD FAILED");continue;
+                draw_menu("Cartridge load failed");continue;
             }
             if(browser_entries[menu_selection].binary){
                 struct decb_bin_info info;
-                draw_menu("VALIDATING DECB BIN - PLEASE WAIT");
+                draw_menu("Validating DECB BIN - please wait");
                 int result=prepare_bin(&browser_entries[menu_selection],&info);
                 if(!result){puts("BIN READY ");puts(browser_entries[menu_selection].name);puts(" EXEC ");hex((uint8_t)(info.execution_address>>8));hex((uint8_t)info.execution_address);puts("\r\n");while(MENU_KEY_STATE&KEY_ENTER){}OSD_CONTROL=0;return 0;}
-                draw_menu(result==DECB_BIN_LOADER_OVERLAP?"BIN USES RESERVED FE00-FEFF":"INVALID OR UNSUPPORTED DECB BIN");continue;
+                draw_menu(result==DECB_BIN_LOADER_OVERLAP?"BIN uses reserved FE00-FEFF":"Invalid or unsupported DECB BIN");continue;
             }
             struct disk candidate;
             for(uint16_t n=0;n<MAX_NAME;++n)candidate.name[n]=browser_entries[menu_selection].name[n];
             candidate.cluster=browser_entries[menu_selection].cluster;candidate.size=browser_entries[menu_selection].size;
-            draw_menu("MOUNTING DRIVE 0 - PLEASE WAIT");
+            draw_menu("Mounting drive 0 - please wait");
             MOUNT_STATUS=0;
             if(!load_disk_cache(&candidate)){
                 copy_disk(&mounted_disk,&candidate);*present=1;MOUNT_STATUS=0x101u;
@@ -500,7 +523,7 @@ static int run_disk_menu(uint8_t *present){
                 OSD_CONTROL=0;return 0;
             }
             *present=0;MOUNT_STATUS=0x100u;
-            draw_menu("MOUNT FAILED - SELECT ANOTHER DISK");
+            draw_menu("Mount failed - select another disk");
         }
     }
 }

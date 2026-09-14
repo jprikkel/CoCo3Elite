@@ -14,9 +14,13 @@ The images below are design references. They define the intended layout and styl
 
 ![CoCo 3 Elite settings concept](images/management-ui-settings-concept.png)
 
+### Logo wordmark
+
+![CoCo 3 RGB Elite logo concept](images/coco3-elite-logo-concept.png)
+
 ## Current implementation
 
-The current firmware provides a functional 72-column by 28-row character overlay. The first visual refresh implements the mockup's framed layout, light gold-on-black palette, teal file selection, split file/detail panes, graphical directory, disk, cartridge, and BIN icons, and dedicated glyphs for continuous panel borders. It can:
+The current firmware provides a functional 72-column by 28-row character overlay. The first visual refresh implements the mockup's framed layout, light gold-on-black palette, solid amber reverse-video file selection, split file/detail panes, graphical directory, disk, cartridge, and BIN icons, a dedicated Spleen 8x16 management font, and custom glyphs for a three-pixel rounded outer frame and continuous panel lines. Fixed labels use sentence case for easier reading. The browser header uses the `CoCo 3 /// Elite` wordmark with dedicated three-pixel red, green, and blue slash glyphs. The corner arcs join directly to the side and top/bottom strokes, while interior horizontal separators stop five pixels before the outer frame instead of forming hard T-junctions. It can:
 
 - open and close with F12;
 - browse FAT32 directories, including parent-directory navigation and long filenames;
@@ -26,7 +30,7 @@ The current firmware provides a functional 72-column by 28-row character overlay
 - report SD-card, mount, and load failures;
 - detect SD removal and reinsertions without writing a stale disk cache.
 
-The current browser is implemented in `firmware/management/rv32_sd_mount.c`, with its palette and icon glyphs in `rtl/management/manager_osd.v`. A settings-screen prototype exists in `firmware/management/settings_ui.c`, but it is not yet integrated into the main F12 workflow.
+The current browser is implemented in `firmware/management/rv32_sd_mount.c`, with its palette and icon glyphs in `rtl/management/manager_osd.v`. The dedicated UI font is stored in `rtl/management/manager_font.mem`; its license and attribution are under `rtl/management/fonts`. A settings-screen prototype exists in `firmware/management/settings_ui.c`, but it is not yet integrated into the main F12 workflow.
 
 ## Target visual language
 
@@ -34,7 +38,7 @@ The UI should look like a polished extension of the CoCo rather than a modern de
 
 - black or very dark translucent background;
 - warm amber text, borders, and icons;
-- teal selection bar with high-contrast selected text;
+- solid amber/gold selection bar with black reverse-video text;
 - fixed-width, pixel-oriented character shapes;
 - thin double-line outer border and single-line panel dividers;
 - restrained animation and no effects that interfere with video timing;

@@ -18,6 +18,8 @@ module manager_osd_tb;
         x=32;y=16;#1;
         if(char_address!==0) $fatal(1,"top-left address is %0d",char_address);
         if(dut.font_address!==11'h410) $fatal(1,"ASCII A font address is %03h",dut.font_address);
+        if(dut.font_i.memory[65*16+2]!==8'h7c)
+            $fatal(1,"management font is not Spleen 8x16");
         x=607;y=463;#1;
         if(char_address!==2015) $fatal(1,"bottom-right address is %0d",char_address);
         if(!dut.inside) $fatal(1,"bottom-right pixel is outside");
@@ -25,12 +27,15 @@ module manager_osd_tb;
         if(dut.inside) $fatal(1,"right edge extends past centered 576-pixel window");
         x=31;#1;
         if(dut.inside) $fatal(1,"left edge starts before x=32");
-        // A selected row highlights only the file pane, matching the browser
-        // mockup while preserving the dark details pane on the right.
+        // A selected row uses solid amber reverse video only in the file pane.
         selected_row=7;char_data=8'h20;x=32+5*8;y=16+7*16;
         @(posedge clock);#1;
-        if({red,green,blue}!==24'h00a8b8)
+        if({red,green,blue}!==24'hffd070)
             $fatal(1,"selected file background is %02h%02h%02h",red,green,blue);
+        char_data=8'h41;x=32+5*8+1;y=16+7*16+2;
+        @(posedge clock);#1;
+        if({red,green,blue}!==24'h000000)
+            $fatal(1,"selected file text is not black: %02h%02h%02h",red,green,blue);
         x=32+60*8;
         @(posedge clock);#1;
         if({red,green,blue}!==24'h020200)
@@ -40,12 +45,48 @@ module manager_osd_tb;
         @(posedge clock);#1;
         if({red,green,blue}!==24'hffd070)
             $fatal(1,"parent icon pixel is %02h%02h%02h",red,green,blue);
-        // Dedicated line glyphs fill adjacent cell edges and are not dashed.
+        // Dedicated line glyphs are three pixels thick.
         char_data=8'h90;x=32;y=16+7;
         @(posedge clock);#1;
         if({red,green,blue}!==24'hffd070)
             $fatal(1,"solid horizontal rule pixel is %02h%02h%02h",red,green,blue);
-        $display("PASS: wide light-amber/teal OSD, split selection, and file icons");
+        y=16+9;
+        @(posedge clock);#1;
+        if({red,green,blue}!==24'hffd070)
+            $fatal(1,"third horizontal rule pixel is %02h%02h%02h",red,green,blue);
+        // The rounded corner starts inward before joining the frame.
+        char_data=8'h92;x=32+2;y=16+3;
+        @(posedge clock);#1;
+        if({red,green,blue}!==24'h020200)
+            $fatal(1,"rounded corner outer pixel is not clear");
+        x=32+4;
+        @(posedge clock);#1;
+        if({red,green,blue}!==24'hffd070)
+            $fatal(1,"rounded corner arc pixel is missing");
+        // The left separator cap starts at pixel two of the next cell.  With
+        // the outer frame ending at pixel four, this leaves exactly five
+        // clear pixels before the separator begins.
+        char_data=8'h9c;x=32+8;y=16+7;
+        @(posedge clock);#1;
+        if({red,green,blue}!==24'h020200)
+            $fatal(1,"separator cap did not preserve outer gap");
+        x=32+10;
+        @(posedge clock);#1;
+        if({red,green,blue}!==24'hffd070)
+            $fatal(1,"separator cap start pixel is missing");
+        // Logo slash glyphs share a three-pixel diagonal shape but each has
+        // its own foreground color.
+        selected_row=31;x=32+5;y=16+2;
+        char_data=8'h9e;@(posedge clock);#1;
+        if({red,green,blue}!==24'hff2820)
+            $fatal(1,"red logo slash is %02h%02h%02h",red,green,blue);
+        char_data=8'h9f;@(posedge clock);#1;
+        if({red,green,blue}!==24'h20e848)
+            $fatal(1,"green logo slash is %02h%02h%02h",red,green,blue);
+        char_data=8'ha0;@(posedge clock);#1;
+        if({red,green,blue}!==24'h3070ff)
+            $fatal(1,"blue logo slash is %02h%02h%02h",red,green,blue);
+        $display("PASS: sentence-case OSD with RGB logo and amber reverse-video selection");
         $finish;
     end
 endmodule

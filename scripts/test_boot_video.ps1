@@ -20,9 +20,11 @@ if (-not $UseExistingRomMem) {
 
 New-Item -ItemType Directory -Force -Path (Join-Path $runDir 'build\roms') | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $runDir 'rtl\core') | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $runDir 'rtl\management') | Out-Null
 Copy-Item -LiteralPath (Join-Path $repoRoot 'build\roms\coco3.mem') -Destination (Join-Path $runDir 'build\roms\coco3.mem') -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot 'build\roms\disk11.mem') -Destination (Join-Path $runDir 'build\roms\disk11.mem') -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot 'rtl\core\coco3gen.mem') -Destination (Join-Path $runDir 'rtl\core\coco3gen.mem') -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot 'rtl\management\manager_font.mem') -Destination (Join-Path $runDir 'rtl\management\manager_font.mem') -Force
 
 $firmwareDir = Join-Path $runDir 'firmware'
 $toolchain = 'C:\AMD\2025.2\gnu\riscv\nt\bin'
@@ -64,6 +66,7 @@ $sources = @($managerCpuSources) + (@(
     'rtl\core\coco3_disk_image.v',
     'rtl\management\manager_sd_mmio.v',
     'rtl\management\ultraembedded_manager_sd_mount.v',
+    'rtl\management\manager_font_rom.v',
     'rtl\management\manager_osd.v',
     'rtl\core\coco3_fdc.v', 'rtl\core\coco3_gime_timer.v',
     'rtl\core\coco3_gime_interrupt.v',

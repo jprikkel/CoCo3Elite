@@ -24,10 +24,11 @@ New-Item -ItemType Directory -Force -Path $buildDir | Out-Null
 # Stage all generated/readmemh inputs beneath this invocation's output tree.
 # This permits independent builds without sharing Vivado-generated files.
 $stagedCoreDir = Join-Path $buildDir 'rtl\core'
+$stagedManagementDir = Join-Path $buildDir 'rtl\management'
 $stagedRomDir = Join-Path $buildDir 'build\roms'
 $stagedDiskDir = Join-Path $buildDir 'build\disks'
 New-Item -ItemType Directory -Force -Path (Split-Path $stagedCoreDir), (Split-Path $stagedRomDir), (Split-Path $stagedDiskDir) | Out-Null
-New-Item -ItemType Directory -Force -Path $stagedCoreDir, $stagedRomDir, $stagedDiskDir | Out-Null
+New-Item -ItemType Directory -Force -Path $stagedCoreDir, $stagedManagementDir, $stagedRomDir, $stagedDiskDir | Out-Null
 
 if ($Mode -eq 'COCO3_ELITE') {
     # The CoCo/FDC image includes a separate RV32 firmware image.  Generate
@@ -61,6 +62,8 @@ foreach ($name in @('coco3gen.mem', 'coco3_diagnostic.mem')) {
     Copy-Item -LiteralPath (Join-Path $repoRoot "rtl\core\$name") `
         -Destination (Join-Path $stagedCoreDir $name) -Force
 }
+Copy-Item -LiteralPath (Join-Path $repoRoot 'rtl\management\manager_font.mem') `
+    -Destination (Join-Path $stagedManagementDir 'manager_font.mem') -Force
 foreach ($name in @('coco3.mem', 'disk11.mem')) {
     $source = Join-Path $repoRoot "build\roms\$name"
     if (Test-Path -LiteralPath $source -PathType Leaf) {

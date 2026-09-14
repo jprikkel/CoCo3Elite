@@ -2,8 +2,9 @@ param([string]$VivadoBin='C:\AMD\2025.2\Vivado\bin')
 $ErrorActionPreference='Stop'
 $repoRoot=Split-Path -Parent $PSScriptRoot
 $runDir=Join-Path $repoRoot 'build\sim\hdmi_window'
-New-Item -ItemType Directory -Force -Path "$runDir\rtl\core","$runDir\build\roms" | Out-Null
+New-Item -ItemType Directory -Force -Path "$runDir\rtl\core","$runDir\rtl\management","$runDir\build\roms" | Out-Null
 Copy-Item "$repoRoot\rtl\core\coco3gen.mem" "$runDir\rtl\core\coco3gen.mem" -Force
+Copy-Item "$repoRoot\rtl\management\manager_font.mem" "$runDir\rtl\management\manager_font.mem" -Force
 foreach($rom in @('coco3.mem','disk11.mem')){
  Copy-Item "$repoRoot\build\roms\$rom" "$runDir\build\roms\$rom" -Force
 }
@@ -30,7 +31,7 @@ $verilogSources=@($managerCpuSources)+(@('rtl/third-party/PS2_Key/ps2_keyboard.v
  'rtl/core/coco3_keyboard_matrix.v','rtl/core/coco3_char_rom.v','rtl/core/coco3_128k_ram.v',
  'rtl/core/coco3_system_rom.v','rtl/core/coco3_disk_rom.v','rtl/core/coco3_sd_cartridge.v',
  'rtl/core/coco3_disk_image.v',
- 'rtl/management/manager_sd_mmio.v','rtl/management/ultraembedded_manager_sd_mount.v','rtl/management/manager_osd.v',
+ 'rtl/management/manager_sd_mmio.v','rtl/management/ultraembedded_manager_sd_mount.v','rtl/management/manager_font_rom.v','rtl/management/manager_osd.v',
  'rtl/core/coco3_fdc.v','rtl/core/coco3_gime_timer.v','rtl/core/coco3_gime_interrupt.v','rtl/core/coco3_boot_machine.v',
  'rtl/wukong/uart_tx.v','rtl/wukong/coco3_uart_debug.v','rtl/wukong/ntsc_artifact_filter.v',
  'rtl/wukong/crt_filter.v','rtl/wukong/coco3_boot_system.v') | ForEach-Object {Join-Path $repoRoot $_})
