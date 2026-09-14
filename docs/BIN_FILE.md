@@ -1,7 +1,6 @@
 # Direct BIN file loading
 
-Status: proposed design. Direct `.BIN` loading from the SD-card management UI
-is not implemented yet.
+Status: implemented and hardware validated on the Wukong board.
 
 ## Purpose
 
@@ -31,7 +30,7 @@ The parser should reject:
 - A truncated header or data record.
 - A record whose declared length exceeds the remaining file.
 - A missing, malformed, or duplicate execution record.
-- A destination that overlaps CoCo I/O at `$FF00-$FFEF`.
+- A destination that overlaps the active loader mailbox at `$FF62-$FF64`.
 - A load that exceeds the implemented 128 KiB physical-memory model.
 - Additional bytes after the final record, unless a documented format permits
   them.
@@ -39,7 +38,7 @@ The parser should reject:
 ToolShed's `decb binbust` documentation is the reference for the record model,
 and files produced by `decb copy -2 -b` should be used as fixtures.
 
-## Recommended architecture
+## Implemented architecture
 
 Use a temporary project-owned loader ROM-Pak and a small byte-stream mailbox.
 Do not add a program-counter override to the third-party MC6809 and do not add
@@ -83,7 +82,9 @@ FIFO, status registers, and final RAM trampoline consume new storage.
 9. The loader copies a short final trampoline into safe low RAM and jumps to
    it.
 10. The trampoline disables the temporary cartridge, restores the required ROM
-    mapping, and jumps to the execution address from the BIN trailer.
+    mapping and the stack established by the cold-start ROM, enables IRQ/FIRQ
+    as BASIC does before its command loop, and jumps to the execution address
+    from the BIN trailer.
 
 This is analogous to a cassette or `LOADM` transfer, but the SD reader and FIFO
 remove the audio encoding and timing delay.
@@ -100,12 +101,19 @@ Minimum signals are:
 | --- | --- | --- |
 | Status | CoCo read | Data available, transfer complete, error, card removed |
 | Data | CoCo read | Next byte from the RV32 FIFO |
-| Control | CoCo write | Start, acknowledge, cancel, loader complete |
+| Control | CoCo write | Byte acknowledge and loader complete |
 | Detail | CoCo read | Error code or remaining-record state |
 
-A 16- or 32-byte asynchronous FIFO is enough. SD sectors remain in firmware's
-existing 512-byte buffer. The 6809 may poll when the FIFO is empty; SD latency
-must never be exposed as an unconstrained combinational wait on the CPU bus.
+A 16-byte asynchronous FIFO is implemented. SD sectors remain in firmware's
+existing 512-byte buffer. The 6809 polls when the FIFO is empty; SD latency is
+never exposed as an unconstrained combinational wait on the CPU bus. The data
+register does not consume a byte by itself: after the 6809 samples it, the
+loader writes an explicit acknowledge to the control register. This preserves
+the byte for the complete multi-clock 6809 peripheral-read cycle.
+
+The current CoCo-side registers are `$FF62` (status), `$FF63` (data), and
+`$FF64` (control). The RV32-side FIFO registers are `0x8000026C` (data),
+`0x80000270` (control), and `0x80000274` (status).
 
 ## Reset and cancellation
 
@@ -146,6 +154,44 @@ Add automated tests before hardware validation:
 
 Acceptance requires deterministic launch at normal and fast CPU rates, a clean
 return to Disk BASIC after reset, and no regression in DSK or CCC operation.
+
+## Hardware validation
+
+Hardware testing on 2026-09-14 confirmed direct SD-card loading and execution
+for a broad selection of DECB binaries. Tested working programs include
+Daggorath, Cashman, Trapfall, Donkey Devil, Downland, Mud Pies, Bash, Berserk,
+Grabber, Astro, Joust, Defender, Zaxxon, Nebula, Galagon, Time Bandit,
+Microbes, and P-51.
+
+The first hardware implementation reached each declared execution address but
+entered programs with the loader's private stack and with IRQ/FIRQ masked.
+Programs that polled hardware directly often worked, while programs dependent
+on interrupts either returned to BASIC, produced a continuous sound, or
+stalled. The loader now preserves the stack established by the cold-start ROM,
+uses a private stack only while receiving records, restores the original stack,
+and enables IRQ/FIRQ before transferring control. The MC6809 regression test
+checks this complete execution contract.
+
+Some binaries now run their sound and controls but still have blank or corrupt
+CoCo 3 graphics. Those cases are tracked as GIME/MMU/video compatibility work,
+not as FAT32 transfer or DECB execution failures. A program that deliberately
+returns to BASIC may also require program-specific startup parameters that are
+not represented by the standard DECB postamble.
+
+## Current implementation limits
+
+- Only standard DECB `LOADM` records are accepted; raw binaries are rejected.
+- `$FE00-$FEFF` is reserved while loading for scratch state, the loader stack,
+  and the final unmap/jump trampoline, so a BIN that loads or executes there is
+  rejected before the CoCo state changes.
+- LOADM records may write ordinary CoCo hardware registers, matching Disk
+  BASIC behavior. Writes to the temporary loader mailbox at `$FF62-$FF64` are
+  rejected because they would corrupt the active transfer.
+- Bytes after the first valid execution postamble are treated as disk granule
+  padding and are neither validated nor sent to the CoCo.
+- The FAT32 file is validated completely before the loader cartridge starts.
+- The same validator and FIFO boundary can later accept bytes from serial or
+  Ethernet without changing the 6809 loader.
 
 ## Relationship to BAS files
 

@@ -1,4 +1,6 @@
 #include <stdint.h>
+#include "decb_bin_format.h"
+#include "decb_bin_loader_image.h"
 void *memcpy(void *dst,const void *src,unsigned long n){unsigned char *d=dst;const unsigned char *s=src;while(n--)*d++=*s++;return dst;}
 
 // FAT32-to-DECB service for the RV32 manager.  The normal CoCo image never
@@ -37,6 +39,9 @@ void *memcpy(void *dst,const void *src,unsigned long n){unsigned char *d=dst;con
 #define CARTRIDGE_DATA REG32(0x80000260u)
 #define CARTRIDGE_CONTROL REG32(0x80000264u)
 #define CARTRIDGE_SIGNATURE REG32(0x80000268u)
+#define BIN_FIFO_DATA REG32(0x8000026cu)
+#define BIN_FIFO_CONTROL REG32(0x80000270u)
+#define BIN_FIFO_STATUS REG32(0x80000274u)
 
 #define KEY_F12 1u
 #define KEY_UP 2u
@@ -55,9 +60,11 @@ static uint32_t fat_lba, first_data_lba;
 static uint8_t sector[512];
 
 struct disk { char name[MAX_NAME]; uint32_t cluster, size; };
-struct browser_entry { char name[MAX_NAME]; uint32_t cluster, size; uint8_t directory, parent, cartridge; };
+struct browser_entry { char name[MAX_NAME]; uint32_t cluster, size; uint8_t directory, parent, cartridge, binary; };
 static struct browser_entry browser_entries[MAX_DSK_FILES];
 static struct disk mounted_disk;
+static struct disk pending_bin;
+static uint8_t bin_pending;
 static uint8_t browser_count, card_online;
 static uint32_t root_cluster, current_directory, parent_directory;
 static uint32_t directory_stack[8];
@@ -139,6 +146,31 @@ static int write_sector(uint32_t lba) {
 static uint16_t le16(const uint8_t *p){return (uint16_t)p[0]|((uint16_t)p[1]<<8);}
 static uint32_t le32(const uint8_t *p){return(uint32_t)p[0]|((uint32_t)p[1]<<8)|((uint32_t)p[2]<<16)|((uint32_t)p[3]<<24);}
 static int next_cluster(uint32_t cluster,uint32_t *next){if(read_sector(fat_lba+(cluster>>7)))return 1;*next=le32(&sector[(cluster&127u)*4u])&0x0fffffffu;return *next<2||*next>=0x0ffffff8u;}
+
+// Sequential FAT cursor shared by validation and delivery.  It follows a
+// fragmented cluster chain once, so large BIN files do not repeatedly walk
+// from the directory entry for every 512-byte block.
+struct fat_file_reader {
+    uint32_t cluster, offset, size;
+    uint16_t sector_offset, sector_bytes;
+    uint8_t sector_in_cluster;
+};
+static void file_reader_init(struct fat_file_reader *reader,const struct disk *file){reader->cluster=file->cluster;reader->offset=0;reader->size=file->size;reader->sector_offset=0;reader->sector_bytes=0;reader->sector_in_cluster=0;}
+static int file_reader_byte(void *context,uint8_t *value){
+    struct fat_file_reader *reader=context;
+    if(reader->offset>=reader->size)return 1;
+    if(reader->sector_offset>=reader->sector_bytes){
+        if(reader->sector_in_cluster>=sectors_per_cluster){
+            if(next_cluster(reader->cluster,&reader->cluster))return 2;
+            reader->sector_in_cluster=0;
+        }
+        if(read_sector(first_data_lba+(reader->cluster-2u)*sectors_per_cluster+reader->sector_in_cluster))return 3;
+        reader->sector_in_cluster++;
+        reader->sector_offset=0;
+        reader->sector_bytes=(reader->size-reader->offset)>=512u?512u:(uint16_t)(reader->size-reader->offset);
+    }
+    *value=sector[reader->sector_offset++];reader->offset++;return 0;
+}
 static void copy_disk(struct disk *to,const struct disk *from){for(uint16_t n=0;n<MAX_NAME;++n)to->name[n]=from->name[n];to->cluster=from->cluster;to->size=from->size;}
 static void lfn_reset(void){lfn_valid=0;lfn_expected=0;lfn_checksum=0;}
 static uint8_t short_checksum(const uint8_t *e){uint8_t c=0;for(uint8_t n=0;n<11;++n)c=((c&1u)?0x80u:0u)+(c>>1)+e[n];return c;}
@@ -147,7 +179,8 @@ static void short_text(const uint8_t *e,char *out){uint8_t at=0;for(uint8_t n=0;
 static void lfn_text(char *out){uint16_t at=0,n=0;while(n<260&&lfn_utf16[n]&&lfn_utf16[n]!=0xffffu){uint16_t c=lfn_utf16[n++];out[at++]=(c>=32u&&c<128u)?(char)c:'?';}out[at]=0;}
 static int is_dsk_name(const char *name){uint16_t n=0;while(name[n])n++;return n>=4u&&name[n-4]=='.'&&((name[n-3]=='D'||name[n-3]=='d')&&(name[n-2]=='S'||name[n-2]=='s')&&(name[n-1]=='K'||name[n-1]=='k'));}
 static int is_ccc_name(const char *name){uint16_t n=0;while(name[n])n++;return n>=4u&&name[n-4]=='.'&&((name[n-3]=='C'||name[n-3]=='c')&&(name[n-2]=='C'||name[n-2]=='c')&&(name[n-1]=='C'||name[n-1]=='c'));}
-static void add_entry(const uint8_t *e,const char *name,uint8_t directory){uint8_t cartridge=!directory&&is_ccc_name(name);uint32_t size=le32(&e[28]);if(browser_count>=MAX_DSK_FILES)return;if(!directory&&((!is_dsk_name(name)&&!cartridge)||(is_dsk_name(name)&&size!=161280u)||(cartridge&&size!=2048u&&size!=4096u&&size!=8192u)))return;struct browser_entry *b=&browser_entries[browser_count++];uint16_t n=0;while(name[n]&&n<MAX_NAME-1u){b->name[n]=name[n];n++;}b->name[n]=0;b->cluster=((uint32_t)le16(&e[20])<<16)|le16(&e[26]);b->size=size;b->directory=directory;b->parent=0;b->cartridge=cartridge;}
+static int is_bin_name(const char *name){uint16_t n=0;while(name[n])n++;return n>=4u&&name[n-4]=='.'&&((name[n-3]=='B'||name[n-3]=='b')&&(name[n-2]=='I'||name[n-2]=='i')&&(name[n-1]=='N'||name[n-1]=='n'));}
+static void add_entry(const uint8_t *e,const char *name,uint8_t directory){uint8_t cartridge=!directory&&is_ccc_name(name),binary=!directory&&is_bin_name(name);uint32_t size=le32(&e[28]);if(browser_count>=MAX_DSK_FILES)return;if(!directory&&((!is_dsk_name(name)&&!cartridge&&!binary)||(is_dsk_name(name)&&size!=161280u)||(cartridge&&size!=2048u&&size!=4096u&&size!=8192u)||(binary&&(size<5u||size>262144u))))return;struct browser_entry *b=&browser_entries[browser_count++];uint16_t n=0;while(name[n]&&n<MAX_NAME-1u){b->name[n]=name[n];n++;}b->name[n]=0;b->cluster=((uint32_t)le16(&e[20])<<16)|le16(&e[26]);b->size=size;b->directory=directory;b->parent=0;b->cartridge=cartridge;b->binary=binary;}
 static int scan_directory(uint32_t directory){uint32_t cluster=directory;browser_count=0;lfn_reset();if(directory!=root_cluster){struct browser_entry *b=&browser_entries[browser_count++];b->name[0]='.';b->name[1]='.';b->name[2]=0;b->cluster=parent_directory;b->size=0;b->directory=1;b->parent=1;}for(;;){for(uint8_t s=0;s<sectors_per_cluster;++s){if(read_sector(first_data_lba+(cluster-2u)*sectors_per_cluster+s))return 1;for(uint16_t o=0;o<512;o+=32){const uint8_t *e=&sector[o];if(!e[0])return 0;if(e[0]==0xe5){lfn_reset();continue;}if(e[11]==0x0f){lfn_part(e);continue;}if(e[11]&0x08){lfn_reset();continue;}char name[MAX_NAME];if(lfn_valid&&lfn_expected==0&&short_checksum(e)==lfn_checksum)lfn_text(name);else short_text(e,name);lfn_reset();if(name[0]=='.')continue;add_entry(e,name,(e[11]&0x10u)!=0);}}if(next_cluster(cluster,&cluster))break;}return 0;}
 static int mount_filesystem(void) {
     uint32_t volume_lba;
@@ -214,7 +247,27 @@ static int flush_decb_sector(const struct disk *d,uint8_t track,uint8_t disk_sec
     return write_sector(lba)?3:0;
 }
 static void short_name(const struct disk *d,char *text){uint16_t n=0;while(d->name[n]&&n<MAX_NAME-1u){text[n]=d->name[n];n++;}text[n]=0;}
-static void entry_line(const struct browser_entry *e,char *line){uint8_t at=0;line[at++]=e->parent?'[':(e->directory?'[':' ');if(e->parent){line[at++]=']';line[at]=0;return;}if(e->directory){line[at++]='D';line[at++]='I';line[at++]='R';line[at++]=']';line[at++]=' ';}else if(e->cartridge){line[at++]='C';line[at++]='C';line[at++]='C';line[at++]=']';line[at++]=' ';}else{line[at++]=' ';line[at++]=' ';line[at++]=' ';line[at++]=' ';line[at++]=' ';}uint16_t n=0;while(e->name[n]&&at<OSD_COLS-1u){line[at++]=e->name[n++];}line[at]=0;}
+static void osd_text(uint8_t row,uint8_t column,const char *text);
+static void entry_line(const struct browser_entry *e,char *line){
+    uint8_t at=0;
+    const char *tag=e->parent?"[..] ":e->directory?"[DIR] ":e->cartridge?"[CCC] ":e->binary?"[BIN] ":"      ";
+    while(*tag)line[at++]=*tag++;
+    if(e->parent){line[at]=0;return;}
+    for(uint16_t n=0;e->name[n]&&at<OSD_COLS-1u;n++)line[at++]=e->name[n];
+    line[at]=0;
+}
+/* Compact file-type indicators use the existing character ROM and therefore
+ * do not require a programmable OSD glyph bank. */
+static const char *entry_icon(const struct browser_entry *e){
+    if(e->parent) return "^";
+    if(e->directory) return "[ ]";       /* open folder */
+    if(e->cartridge) return "[=]";       /* cartridge: label + pins */
+    if(e->binary) return "( )";          /* short can */
+    return "[o]";                        /* 5.25 disk: hub/read point */
+}
+static void draw_entry_icon(uint8_t row,const struct browser_entry *e){
+    osd_text(row,2,entry_icon(e));
+}
 static uint32_t cartridge_signature_step(uint32_t signature,uint16_t address,uint8_t value){
     return ((signature<<1)|(signature>>31))^((uint32_t)address<<8)^value;
 }
@@ -238,6 +291,48 @@ static int load_cartridge(const struct browser_entry *e){
     CARTRIDGE_CONTROL=3;
     return 0;
 }
+static int install_bin_loader(void){
+    uint32_t signature=0;
+    CARTRIDGE_CONTROL=0;
+    for(uint16_t address=0;address<DECB_BIN_LOADER_SIZE;++address){
+        uint8_t value=decb_bin_loader_image[address];
+        CARTRIDGE_ADDRESS=address;CARTRIDGE_DATA=value;
+        signature=cartridge_signature_step(signature,address,value);
+    }
+    return CARTRIDGE_SIGNATURE==signature?0:1;
+}
+static int prepare_bin(const struct browser_entry *entry,struct decb_bin_info *info){
+    struct fat_file_reader reader;
+    struct disk file;
+    for(uint16_t n=0;n<MAX_NAME;++n)file.name[n]=entry->name[n];
+    file.cluster=entry->cluster;file.size=entry->size;
+    file_reader_init(&reader,&file);
+    int result=decb_bin_validate(file_reader_byte,&reader,file.size,info);
+    if(result)return result;
+    if(install_bin_loader())return 0x20;
+    copy_disk(&pending_bin,&file);bin_pending=1;
+    pending_bin.size=info->stream_bytes; // Disk BASIC ignores granule padding after the postamble.
+    BIN_FIFO_CONTROL=3;        // reset FIFO and mark producer active
+    CARTRIDGE_CONTROL=3;       // proven cold-start/CART launch sequence
+    return 0;
+}
+static int stream_bin(void){
+    struct fat_file_reader reader;
+    uint8_t value;
+    file_reader_init(&reader,&pending_bin);
+    while(reader.offset<reader.size){
+        uint32_t status;
+        if(file_reader_byte(&reader,&value)){BIN_FIFO_CONTROL=8;return 1;}
+        do {status=BIN_FIFO_STATUS;if(status&(1u<<20))return 2;} while((status&31u)==16u);
+        BIN_FIFO_DATA=value;
+    }
+    BIN_FIFO_CONTROL=4;        // all source bytes queued; let the loader drain
+    for(;;){
+        uint32_t status=BIN_FIFO_STATUS;
+        if(status&(1u<<16))return 0;
+        if(status&(1u<<20))return 2;
+    }
+}
 static void osd_clear(void){OSD_ADDRESS=0;for(uint16_t n=0;n<OSD_COLS*20u;++n)OSD_DATA=' ';}
 static void osd_text(uint8_t row,uint8_t column,const char *text){
     OSD_ADDRESS=(uint32_t)row*OSD_COLS+column;
@@ -249,25 +344,26 @@ static void draw_menu(const char *status){
     if(menu_selection<menu_top)menu_top=menu_selection;
     if(menu_selection>=menu_top+OSD_FILE_ROWS)menu_top=menu_selection-OSD_FILE_ROWS+1u;
     osd_clear();
-    osd_text(0,2,"COCO3ELITE DISK MANAGER");
+    osd_text(0,2,"COCO3ELITE SD FILE MANAGER");
     osd_text(1,2,"DRIVE 0:");short_name(&mounted_disk,name);osd_text(1,11,name);
     osd_text(2,2,"PATH:");osd_text(2,8,current_path);
-    osd_text(3,2,"SELECT DSK OR DIRECTORY");
+    osd_text(3,2,"SELECT DSK, CCC, BIN OR DIRECTORY");
     for(uint8_t row=0;row<OSD_FILE_ROWS;++row){
         uint8_t index=menu_top+row;
         if(index>=browser_count)break;
         entry_line(&browser_entries[index],line);
         osd_text(OSD_FIRST_FILE_ROW+row,2,
                  browser_entries[index].cluster==mounted_disk.cluster?"*":" ");
+        draw_entry_icon(OSD_FIRST_FILE_ROW+row,&browser_entries[index]);
         osd_text(OSD_FIRST_FILE_ROW+row,4,line);
     }
     osd_text(18,2,status);
-    osd_text(19,2,"UP/DOWN SELECT  ENTER MOUNT  ESC/F12 EXIT");
+    osd_text(19,2,"UP/DOWN SELECT ENTER MOUNT/RUN ESC/F12 EXIT");
     OSD_CONTROL=((uint32_t)(OSD_FIRST_FILE_ROW+menu_selection-menu_top)<<8)|1u;
 }
 static int run_disk_menu(uint8_t *present){
     uint32_t previous,keys,pressed;
-    char name[13];
+    char name[MAX_NAME];
     uint8_t scan_failed=0;
     menu_selection=0;menu_top=0;browser_count=0;
     draw_menu("READING SD DIRECTORY - PLEASE WAIT");
@@ -276,7 +372,7 @@ static int run_disk_menu(uint8_t *present){
         scan_failed=1;draw_menu("SD DIRECTORY READ FAILED - ESC/F12 TO EXIT");
     }else{
         for(uint8_t n=0;n<browser_count;++n)if(browser_entries[n].cluster==mounted_disk.cluster){menu_selection=n;break;}
-        draw_menu(browser_count?"SELECT A DISK FOR DRIVE 0":"NO COMPATIBLE DSK OR CCC FILES");
+        draw_menu(browser_count?"SELECT DSK, CCC, BIN OR DIRECTORY":"NO COMPATIBLE DSK, CCC OR BIN FILES");
     }
     while(MENU_KEY_STATE&KEY_F12){}
     previous=MENU_KEY_STATE;
@@ -304,6 +400,13 @@ static int run_disk_menu(uint8_t *present){
                 draw_menu("LOADING CARTRIDGE - PLEASE WAIT");
                 if(!load_cartridge(&browser_entries[menu_selection])){puts("CARTRIDGE LOADED ");puts(browser_entries[menu_selection].name);puts("\r\n");while(MENU_KEY_STATE&KEY_ENTER){}OSD_CONTROL=0;return 0;}
                 draw_menu("CARTRIDGE LOAD FAILED");continue;
+            }
+            if(browser_entries[menu_selection].binary){
+                struct decb_bin_info info;
+                draw_menu("VALIDATING DECB BIN - PLEASE WAIT");
+                int result=prepare_bin(&browser_entries[menu_selection],&info);
+                if(!result){puts("BIN READY ");puts(browser_entries[menu_selection].name);puts(" EXEC ");hex((uint8_t)(info.execution_address>>8));hex((uint8_t)info.execution_address);puts("\r\n");while(MENU_KEY_STATE&KEY_ENTER){}OSD_CONTROL=0;return 0;}
+                draw_menu(result==DECB_BIN_LOADER_OVERLAP?"BIN USES RESERVED FE00-FEFF":"INVALID OR UNSUPPORTED DECB BIN");continue;
             }
             struct disk candidate;
             for(uint16_t n=0;n<MAX_NAME;++n)candidate.name[n]=browser_entries[menu_selection].name[n];
@@ -362,7 +465,10 @@ int main(void){
             FDC_ACK=ok?1:0; seen=state&1u;
         }
         {uint32_t keys=MENU_KEY_STATE;
-         if((keys&KEY_F12)&&!(menu_previous&KEY_F12))error=run_disk_menu(&present);
+         if((keys&KEY_F12)&&!(menu_previous&KEY_F12)){
+             error=run_disk_menu(&present);
+             if(bin_pending){int result=stream_bin();bin_pending=0;puts(result?"BIN LOAD CANCELLED\r\n":"BIN STARTED\r\n");}
+         }
          menu_previous=MENU_KEY_STATE;}
     }
 }

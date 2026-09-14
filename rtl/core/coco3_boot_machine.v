@@ -21,6 +21,13 @@ module coco3_boot_machine #(
     // warm-start flag in the default physical RAM page to zero.  The system
     // ROM then takes its normal cold-start path and reinitializes low RAM.
     input  wire        cold_start_clear,
+    input  wire [7:0]  bin_fifo_data,
+    input  wire        bin_fifo_available,
+    input  wire        bin_transfer_active,
+    input  wire        bin_transfer_complete,
+    input  wire        bin_transfer_error,
+    output wire        bin_fifo_pop,
+    output wire        bin_loader_done,
     output wire [15:0] debug_address,
     output wire [15:0] debug_pc,
     output wire        debug_vma,
@@ -231,6 +238,8 @@ module coco3_boot_machine #(
     // the GIME cartridge event).  Keep that latch/acknowledge path accurate.
     wire ram_write = active && !read_cycle && !io_select && !rom_select;
     wire io_write = active && !read_cycle && io_select;
+    assign bin_fifo_pop = io_write && address == 16'hFF64 && write_data[1];
+    assign bin_loader_done = io_write && address == 16'hFF64 && write_data[0];
     wire [7:0] keyboard_columns =
         (pia0_outb & pia0_ddrb) | (~pia0_ddrb);
     wire [7:0] keyboard_rows;
@@ -295,6 +304,15 @@ module coco3_boot_machine #(
             16'hFF23: io_read_data = {cartridge_irq_latch, 1'b0, pia1_crb};
             16'hFF60: io_read_data = sd_status;
             16'hFF61: io_read_data = sd_detail;
+            // Transport-neutral byte stream consumed by the temporary DECB
+            // loader ROM-Pak. The loader acknowledges through $FF64 only
+            // after sampling data, keeping the FIFO head stable for the
+            // complete 6809 read cycle.
+            16'hFF62: io_read_data = {4'b0000, bin_transfer_active,
+                                      bin_transfer_error,
+                                      bin_transfer_complete,
+                                      bin_fifo_available};
+            16'hFF63: io_read_data = bin_fifo_data;
             // without resetting away from a running BASIC test.
             16'hFF90: io_read_data = gime_init0;
             16'hFF91: io_read_data = gime_init1;
