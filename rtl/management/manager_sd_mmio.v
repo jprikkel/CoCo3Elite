@@ -367,8 +367,13 @@ module manager_sd_mmio #(
                     // Require a complete sector and delay publication.  The
                     // request toggle is captured here so a later request can
                     // never be acknowledged by this sector generation.
+                    // A demand-paged drive must publish a complete 256-byte
+                    // sector bank before acknowledging.  Drive 0 instead
+                    // reads directly from the committed full-disk cache and
+                    // must not depend on the unrelated sector-bank count.
                     fdc_ack_success_pending <= write_data[0] &&
-                                               fdc_buffer_fill_count == 9'd256;
+                                               (disk_cache_fdc_valid ||
+                                                fdc_buffer_fill_count == 9'd256);
                     fdc_ack_toggle_pending <= fdc_request_toggle;
                     fdc_ack_delay <= 2'd2;
                     fdc_ack_pending <= 1'b1;

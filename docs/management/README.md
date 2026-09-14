@@ -80,12 +80,15 @@ read-only diagnostic is not a CoCo image, file browser, or mount implementation.
 ## Integrated CoCo disk browser milestone
 
 The normal `COCO3_ELITE` build now boots the RV32 management firmware alongside
-the CoCo. Firmware owns SD SPI and FAT32 traversal, discovers root-directory
-8.3 `.DSK` files with the supported 161,280-byte geometry, and loads the selected
-image into the drive-0 dual-port cache. The FPGA FDC serves CoCo sector transfers
-from that cache; completed writes are flushed to the existing FAT32 file.
+the CoCo. Firmware owns SD SPI and FAT32 traversal. Startup initializes the card
+and filesystem but deliberately leaves drive 0 empty; it does not scan the
+directory or preload a DSK. The F12 browser scans on demand and loads the user's
+selected 161,280-byte image into the drive-0 dual-port cache. The FPGA FDC serves
+CoCo sector transfers from that cache; completed writes are flushed to the
+existing FAT32 file.
 
-F12 opens a 48-by-20 character HDMI overlay. Up/Down change the selection,
+F12 opens a 48-by-20 character HDMI overlay. An F12 key held during SD startup
+is honored as soon as initialization completes. Up/Down change the selection,
 Enter reloads drive 0 from the selected image, and Esc/F12 closes the overlay.
 The CoCo CPU is halted at its adapter while the menu is open and menu keystrokes
 are not delivered to the CoCo matrix. The overlay bypasses narrow-mode video

@@ -195,6 +195,15 @@ module manager_sd_mmio_tb;
         if (value[7:0] !== 8'h3c)
             $fatal(1, "boot-time cache readback is %h, expected 3c", value[7:0]);
         write32(32'h80000214, 32'h00000101);
+        // A newly mounted full-disk cache starts with no demand-paged sector
+        // in the small buffer.  Its FDC acknowledgement must nevertheless
+        // succeed; the former startup audit accidentally hid this case by
+        // leaving fdc_buffer_fill_count at 256.
+        fdc_request_toggle = 1;
+        write32(32'h80000210, 1);
+        repeat (4) @(posedge clock);
+        if (fdc_done_toggle !== 1'b1 || fdc_success !== 1'b1)
+            $fatal(1, "newly mounted drive-0 full cache was not acknowledged");
         fdc_buffer_address = 8'h00;
         repeat (2) @(posedge clock); #1;
         if (fdc_buffer_data !== 8'h3c)

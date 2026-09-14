@@ -7,8 +7,9 @@ User preference: keep management processing inside the FPGA and add only the
 external hardware needed for USB.
 
 Implementation checkpoint: the open ultraembedded RV32 core now runs the SD and
-FAT32 management firmware in the normal CoCo bitstream. It discovers compatible
-161,280-byte root-directory `.DSK` files, caches the selected drive-0 image,
+FAT32 management firmware in the normal CoCo bitstream. Startup mounts only the
+FAT32 filesystem and leaves the CoCo drives empty. The F12 browser discovers
+compatible 161,280-byte `.DSK` files and caches the selected drive-0 image,
 services WD1773 reads and writes, and flushes changed sectors back to the mounted
 FAT32 file. F12 opens a centered firmware-populated HDMI menu; Up/Down select an
 image, Enter mounts it as drive 0, and Esc/F12 closes the menu. Menu keys are

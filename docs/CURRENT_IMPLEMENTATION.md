@@ -218,11 +218,14 @@ With `-EmbeddedTestDisks`, the build converts and embeds:
 These are read-only, 35-track images. Without the option, sector commands do
 not silently fall through to an embedded image.
 
-The J13 SD path is owned by the RV32 management firmware. F12 opens the HDMI
-browser; firmware supports FAT32 subdirectories and long filenames, loads a
-selected `.DSK` into the drive-0 cache, launches compatible `.CCC` images, and
-flushes completed sector writes back to the mounted disk file. Card removal
-blocks writeback and reinsertion remounts and refreshes the browser. See
+The J13 SD path is owned by the RV32 management firmware. Boot initializes the
+card and FAT32 volume but does not automatically mount or cache a DSK. F12 scans
+the current directory and opens the HDMI browser; firmware supports FAT32
+subdirectories and long filenames, loads a selected `.DSK` into the drive-0
+cache, launches compatible `.CCC` images, and flushes completed sector writes
+back to the mounted disk file. Card removal blocks writeback; reinsertion
+reinitializes the filesystem and again leaves drive 0 empty until the user makes
+a selection. See
 [SD-card Disk Interface](../hardware/pmod-sd-disk-interface.md).
 
 ## Build modes
