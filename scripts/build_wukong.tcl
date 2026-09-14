@@ -9,6 +9,7 @@ set output_dir [file join $repo_dir build wukong]
 set part       [expr {$argc > 0 ? [lindex $argv 0] : "xc7a100tfgg676-2"}]
 set mode       [string toupper [expr {$argc > 1 ? [lindex $argv 1] : "COCO3_ELITE"}]]
 set embedded_test_disks [expr {$argc > 2 ? [lindex $argv 2] : 0}]
+set cpu_uart_debug [expr {$argc > 3 ? [lindex $argv 3] : 1}]
 set top        wukong_top
 
 # Allow Vivado implementation phases to use the available host cores. Some
@@ -61,7 +62,7 @@ if {$mode eq "COCO3_ELITE"} {
         [file join $repo_dir rtl core coco3_128k_ram.v] \
         [file join $repo_dir rtl core coco3_system_rom.v] \
         [file join $repo_dir rtl core coco3_disk_rom.v] \
-        [file join $repo_dir rtl core coco3_diagnostic_cartridge.v] \
+        [file join $repo_dir rtl core coco3_sd_cartridge.v] \
         [file join $repo_dir rtl management manager_sd_mmio.v] \
         [file join $repo_dir rtl management ultraembedded_manager_sd_mount.v] \
         [file join $repo_dir rtl management manager_osd.v] \
@@ -70,7 +71,6 @@ if {$mode eq "COCO3_ELITE"} {
         [file join $repo_dir rtl core coco3_gime_interrupt.v] \
         [file join $repo_dir rtl core coco3_boot_machine.v] \
         [file join $rtl_dir uart_tx.v] \
-        [file join $rtl_dir coco3_uart_debug.v] \
         [file join $rtl_dir ntsc_artifact_filter.v] \
         [file join $rtl_dir crt_filter.v] \
         [file join $rtl_dir coco3_boot_system.v]
@@ -78,6 +78,10 @@ if {$mode eq "COCO3_ELITE"} {
     set_property include_dirs [list [file join $repo_dir rtl third-party ultraembedded-riscv core riscv] $output_dir] [current_fileset]
     if {$embedded_test_disks} {
         lappend coco3_defines EMBEDDED_TEST_DISKS
+    }
+    if {$cpu_uart_debug} {
+        lappend sources [file join $rtl_dir coco3_uart_debug.v]
+        lappend coco3_defines COCO3_CPU_UART_DEBUG
     }
     set_property verilog_define $coco3_defines [current_fileset]
     read_verilog [file join $repo_dir rtl third-party MC6809 mc6809i.v]

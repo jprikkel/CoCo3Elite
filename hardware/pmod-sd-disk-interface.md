@@ -9,28 +9,29 @@ processor, and USB storage/input expansion. Registers below remain proposals.
 ## Current implementation
 
 The integrated `COCO3_ELITE` image uses an ultraembedded RV32 management CPU to
-initialize the J13 MicroSD interface, parse FAT32, discover compatible root-level
-8.3 `.DSK` files, and load the selected 161,280-byte image into a dual-port
-drive-0 cache. The WD1773-compatible FDC reads and writes that cache. Firmware
-flushes completed sector writes back to the existing mounted FAT32 file.
+initialize the J13 MicroSD interface, parse FAT32 directories and long file
+names, and load a selected 161,280-byte `.DSK` image into a dual-port drive-0
+cache. The WD1773-compatible FDC reads and writes that cache. Firmware flushes
+completed sector writes back to the existing mounted FAT32 file.
 
 The Digilent Pmod MicroSD is on J13: pin 1/N22 chip select, pin 2/N21 MOSI,
 pin 3/R20 MISO, pin 4/T22 clock, pin 5 ground, pin 6 3.3 V. See the
 [PMOD pinout](wukong-pmod-pinout.md). The boot machine exposes probe status
-at `$FF60` and detail at `$FF61`; after initialization these reflect the
-sector-zero reader. No card-detect input is wired.
+at `$FF60` and detail at `$FF61`. With no physical card-detect input, firmware
+polls the card: removal blocks cache writeback and reinsertion remounts FAT32
+and refreshes the browser.
 
 The FDC exposes `$FF40` and `$FF48-$FF4B`, performs complete 256-byte read and
 write transfers, and exchanges ownership/completion state with the management
 cache. The optional `-EmbeddedTestDisks` path remains useful for simulation and
 fallback testing but is no longer the only mounted-image backend.
 
-F12 now opens a firmware-populated HDMI file browser. Up/Down select a compatible
-DSK, Enter assigns it to drive 0, and Esc/F12 closes the browser. The hardware
-test on 2026-09-10 successfully mounted every compatible DSK on the test card,
-ran ZENIX and other programs, and retained a saved file after reset. Four mount
-slots, long filenames, subdirectories, BASIC syntax extensions, safe eject, and
-the physical-floppy backend remain future work.
+F12 opens a firmware-populated HDMI file browser. Up/Down select an entry,
+Enter traverses directories, mounts a DSK as drive 0, or launches a compatible
+2, 4, or 8 KiB CCC cartridge; Esc/F12 closes the browser. Long filenames,
+subdirectories, card removal/reinsertion, writable DSKs, and cartridge launch
+are hardware-verified. Additional mount slots, BAS/BIN launch, USB support,
+and the physical-floppy backend remain future work.
 
 ## Proposed goal
 

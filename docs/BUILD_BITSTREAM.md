@@ -49,15 +49,16 @@ Place legally obtained local images at these paths:
 | --- | --- | --- |
 | `roms\coco3.rom` | Raw 32 KiB ROM or supported legacy CoCo3FPGA image | CoCo 3 system ROM |
 | `roms\disk11.rom` | Canonical 8 KiB Disk Extended Color BASIC 1.1 ROM | Disk cartridge ROM |
-| `roms\ziadiag.ccc` | Raw 2, 4, or 8 KiB image | F3 diagnostic cartridge |
 
 Generate and validate the memory initialization files:
 
 ```powershell
 & .\scripts\prepare_coco3_rom.ps1
 & .\scripts\prepare_disk_rom.ps1
-& .\scripts\prepare_diagnostic_cartridge.ps1
 ```
+
+The former fixed F3 diagnostic-cartridge preparation step is no longer part of
+the `COCO3_ELITE` build. Cartridge images are loaded from the SD browser.
 
 The first two commands produce `build\roms\coco3.mem` and
 `build\roms\disk11.mem`. The system-ROM importer checks its layout and reset
@@ -259,7 +260,8 @@ For hardware acceptance, verify:
 
 - Disk Extended Color BASIC reaches its prompt;
 - the PS/2 keyboard and Ctrl+Alt+Delete reset work;
-- F12 opens the disk browser and mounts a root-level compatible DSK;
+- F12 browses FAT32 directories and mounts a compatible DSK or launches a
+  compatible CCC cartridge;
 - `DIR`, `LOADM`, `RUN`, and disk writes operate on the selected image;
 - HDMI video is stable and both six-bit DAC and PIA PB1 single-bit sound are
   audible;

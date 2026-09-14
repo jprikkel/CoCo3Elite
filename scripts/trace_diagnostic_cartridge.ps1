@@ -1,6 +1,9 @@
 param(
     [string]$VivadoBin = 'C:\AMD\2025.2\Vivado\bin',
-    [string]$CartridgePath = 'roms\ziadiag.ccc'
+    [string]$CartridgePath = 'roms\ziadiag.ccc',
+    [switch]$LongTrace,
+    [switch]$FastMode,
+    [switch]$MusicCheck
 )
 
 $ErrorActionPreference = 'Stop'
@@ -38,7 +41,7 @@ try {
         (Join-Path $repoRoot 'rtl\core\coco3_128k_ram.v'),
         (Join-Path $repoRoot 'rtl\core\coco3_system_rom.v'),
         (Join-Path $repoRoot 'rtl\core\coco3_disk_rom.v'),
-        (Join-Path $repoRoot 'rtl\core\coco3_diagnostic_cartridge.v'),
+        (Join-Path $repoRoot 'rtl\core\coco3_sd_cartridge.v'),
         (Join-Path $repoRoot 'rtl\core\coco3_disk_image.v'),
         (Join-Path $repoRoot 'rtl\core\coco3_fdc.v'),
         (Join-Path $repoRoot 'rtl\core\coco3_keyboard_matrix.v'),
@@ -48,7 +51,17 @@ try {
         (Join-Path $repoRoot 'tb\diagnostic_cartridge_trace_tb.v')
     )
     Invoke-VivadoTool xelab @('diagnostic_cartridge_trace_tb', '-s', 'diagnostic_cartridge_trace_tb_sim')
-    Invoke-VivadoTool xsim @('diagnostic_cartridge_trace_tb_sim', '-runall')
+    $xsimArguments = @('diagnostic_cartridge_trace_tb_sim', '-runall')
+    if ($LongTrace) {
+        $xsimArguments += @('-testplusarg', 'LONG_TRACE')
+    }
+    if ($FastMode) {
+        $xsimArguments += @('-testplusarg', 'FAST')
+    }
+    if ($MusicCheck) {
+        $xsimArguments += @('-testplusarg', 'MUSIC_CHECK')
+    }
+    Invoke-VivadoTool xsim $xsimArguments
 } finally {
     Pop-Location
 }

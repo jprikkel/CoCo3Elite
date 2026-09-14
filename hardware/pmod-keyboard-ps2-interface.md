@@ -42,7 +42,7 @@ connected to the two LVCMOS33 FPGA inputs:
 Confirm the keyboard is the verified 3.3 V model before connecting it. Its
 clock and data pull-ups must not drive either FPGA input above 3.3 V.
 
-![PS/2 keyboard interface test wiring](ps2-keyboard-interface.png)
+![PS/2 keyboard interface test wiring](pmod-ps2-keyboard-interface.png)
 
 *PS/2 interface wiring used during hardware testing with the HP KB-0133. Check
 the connector pinout and voltages independently before reproducing this setup.*
@@ -60,7 +60,7 @@ special CoCo meanings or control FPGA features:
 | Tab | Clear | Hardware-verified; invokes the CoCo Clear function |
 | F1 | CoCo F1 | Direct CoCo keyboard-matrix mapping |
 | F2 | CoCo F2 | Direct CoCo keyboard-matrix mapping |
-| F3 | ZIA diagnostics | Presents the embedded [ZIA cocodiag cartridge](https://github.com/varmfskii/cocodiag) to the initialized CoCo and starts it through the system ROM's emulated CART/FIRQ autostart path; Ctrl+Alt+Delete deselects it and returns to Disk Extended Color BASIC |
+| F3 | CoCo F3 | Normal keyboard-matrix function key; no fixed cartridge action |
 | F4–F5 | Unmapped | Reserved for future use |
 | F6 | Processor speed | Toggles between normal speed (approximately 0.9 MHz) and fast speed (approximately 1.8 MHz); normal speed is selected after FPGA reset |
 | F7 | Keyboard right joystick | Toggles W/S/A/D/F control of the emulated right joystick; disabled after reset |
@@ -68,7 +68,7 @@ special CoCo meanings or control FPGA features:
 | F9 | Horizontal scanlines | Toggles horizontal CRT scanlines on or off; disabled after reset |
 | F10 | Phosphor glow | Toggles HDMI phosphor bloom/glow on or off independently of scanlines; disabled after reset |
 | F11 | NTSC artifact color | Toggles HDMI artifact-color processing on or off; enabled after reset |
-| F12 | `@` currently; management GUI planned | Will be reserved to open or close the HDMI management overlay when that subsystem is implemented |
+| F12 | SD management GUI | Opens or closes the directory browser used to mount `.DSK` files and launch `.CCC` cartridges |
 | Caps Lock | Upper/lower case | Switches the CoCo between upper- and lowercase input; hardware-verified |
 | Scroll Lock | `Ctrl+W` | Generates the CoCo control-key combination while held |
 

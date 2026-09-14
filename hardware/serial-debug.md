@@ -27,25 +27,20 @@ once-per-second CPU PC register snapshot plus keyboard state such as:
 PC=A176 K=0 R=FF C=FF S=81 D=00 V=...
 ```
 
-Press F3 to present the
-[ZIA cocodiag cartridge](https://github.com/varmfskii/cocodiag) to the running
-CoCo. The system ROM enters it through the emulated CART/FIRQ autostart path;
-F3 does not reset the CPU or replace its reset vector. A working handoff adds
-`CART ON` and `CART ENTRY C000`; subsequent PC snapshots help distinguish a
-running diagnostic from a tight polling loop or failed cartridge entry. `K`
+Select a `.CCC` image from the F12 SD browser to install a ROM-Pak. The manager
+cold-starts the CoCo while preserving the SD subsystem, then the system ROM
+enters the cartridge through the emulated CART/FIRQ autostart path. A working
+handoff adds `CARTRIDGE LOADED`, `CART ON`, and `CART ENTRY C000`; subsequent
+PC snapshots help distinguish a running cartridge from a tight polling loop
+or failed entry. `K`
 shows whether the PS/2 decoder sees any matrix key, while `R` and `C` show the
 last PIA keyboard row read and column-select write.
 
 The logger only observes existing debug signals and does not stall the CPU.
-`S` and `D` are the live SD probe status and detail bytes also exposed at CoCo
-addresses `$FF60` and `$FF61`. `S=80 D=00` means the card initializer is ready;
-`S=81 D=00` means the subsequent sector-zero `55 AA` signature check passed.
-The read-only sector probe repeats about once per second. After card removal,
-an `S=E2` response timeout remains visible for about one second, then the
-hardware returns to initializer states so a reinserted card can recover
-without reloading the bitstream. Values below `$80` are initializer progress;
-`$E1`/`$E2` are command/response failures and `$E3`/`$E4`/`$E5` are sector
-read, token, or signature failures.
+`S` is the live SD-manager status byte. The complete status and detail bytes
+remain available to CoCo software at `$FF60` and `$FF61`. Card removal stops
+cache writeback; reinsertion remounts FAT32 and refreshes the browser without
+reloading the bitstream.
 `PC` comes from the MC6809's existing `RegData` output. It is the CPU's
 current program-counter register and may point past an instruction being
 executed; it is not an instruction trace or an arbitrary bus address.

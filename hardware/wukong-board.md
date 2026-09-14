@@ -80,7 +80,7 @@ The hardware-verified HP KB-0133 keyboard uses PMOD J14:
 The keyboard selected for this project is confirmed to operate at 3.3 V and
 can connect directly. Other PS/2 keyboards may require 5 V and a suitable
 open-drain-compatible level shifter because the Artix-7 pins are not 5 V
-tolerant. See `keyboard-ps2.md` for the complete wiring and constraint guidance.
+tolerant. See `pmod-keyboard-ps2-interface.md` for the complete wiring and constraint guidance.
 
 ### External MicroSD storage
 
@@ -127,6 +127,6 @@ needed for the current 128 KiB implementation.
 
 - `wukong-pmod-pinout.md` lists every signal and power pin for PMOD connectors
   J10, J11, J13, and J14.
-- `keyboard-ps2.md` documents the PS/2 electrical interface and current Vivado
+- `pmod-keyboard-ps2-interface.md` documents the PS/2 electrical interface and current Vivado
   constraints.
 - The vendor V3 PDF manuals and schematics are stored under `docs/`.

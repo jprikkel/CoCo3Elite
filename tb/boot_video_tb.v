@@ -3,7 +3,8 @@ module boot_video_tb;
  reg clock=0, reset=1, raster_resync=0; wire hs,vs,de; wire [7:0] r,g,b;
  integer n, active_lines, first_active, last_active;
  always #5 clock=~clock;
- coco3_boot_system dut(.pixel_clk(clock),.reset(reset),
+ coco3_boot_system #(.SOFT_RESET_GUARD_CLOCKS(3),
+                     .CARTRIDGE_COLD_RESET_CLOCKS(3)) dut(.pixel_clk(clock),.reset(reset),
   .raster_resync(raster_resync),.screen_x(10'd0),.screen_y(10'd0),.hsync(hs),.vsync(vs),
   .video_enable(de),.red(r),.green(g),.blue(b));
  initial begin
@@ -19,6 +20,88 @@ module boot_video_tb;
    $fatal;
   end
   reset=0;
+
+  // A cartridge selection must behave like installing a ROM-Pak with power
+  // off.  Preserve the manager, cold-reset the CoCo, clear BASIC's retained
+  // warm-start flag, wait for its initialized idle loop, and only then CART.
+  dut.machine_i.ram_i.memory_high[16'h8038] = 8'h55;
+  force dut.manager_cartridge_enabled = 1'b1;
+  force dut.manager_cartridge_launch = 1'b1;
+  @(posedge clock); #1;
+  force dut.manager_cartridge_launch = 1'b0;
+  if (dut.cartridge_boot_state != dut.CART_BOOT_RESET ||
+      !dut.machine_reset || dut.effective_cartridge_enabled) begin
+   $display("FAIL: cartridge selection did not begin an isolated cold reset");
+   $fatal;
+  end
+  @(posedge clock); #1;
+  if (dut.machine_i.ram_i.memory_high[16'h8038] !== 8'h00) begin
+   $display("FAIL: cartridge cold reset did not clear BASIC warm-start flag");
+   $fatal;
+  end
+  wait(dut.cartridge_cold_reset_count == 3);
+  force dut.cpu_pc = 16'ha7d5;
+  @(posedge clock); #1;
+  if (dut.cartridge_boot_state != dut.CART_BOOT_WAIT_START || dut.machine_reset) begin
+   $display("FAIL: cartridge cold reset did not release into BASIC startup");
+   $fatal;
+  end
+  @(posedge clock); #1;
+  if (dut.cartridge_boot_state != dut.CART_BOOT_WAIT_START ||
+      dut.effective_cartridge_launch) begin
+   $display("FAIL: stale pre-reset BASIC PC caused an early CART event");
+   $fatal;
+  end
+  force dut.cpu_pc = 16'hfffe;
+  @(posedge clock); #1;
+  if (dut.cartridge_boot_state != dut.CART_BOOT_WAIT_BASIC) begin
+   $display("FAIL: reset-vector startup did not qualify BASIC wait");
+   $fatal;
+  end
+  force dut.cpu_pc = 16'ha7d5;
+  @(posedge clock); #1;
+  if (dut.cartridge_boot_state != dut.CART_BOOT_LAUNCH ||
+      !dut.effective_cartridge_launch) begin
+   $display("FAIL: initialized BASIC idle did not arm the CART event");
+   $fatal;
+  end
+  @(posedge clock); #1;
+  release dut.cpu_pc;
+  if (!dut.cartridge_session_active || !dut.effective_cartridge_enabled ||
+      dut.effective_cartridge_launch) begin
+   $display("FAIL: cold cartridge launch did not enter a stable session");
+   $fatal;
+  end
+  $display("PASS: cartridge launch uses a staged cold CoCo start");
+
+  // A later Ctrl-Alt-Delete ends the session while preserving the manager.
+  // Its persistent enable level must not remap or relaunch the old ROM.
+  force dut.keyboard_reset = 1'b1;
+  wait(dut.soft_reset_active);
+  #1;
+  release dut.keyboard_reset;
+  if (!dut.keyboard_decoder_reset || dut.effective_cartridge_enabled) begin
+   $display("FAIL: soft reset did not clear cartridge/keyboard state");
+   $fatal;
+  end
+  wait(dut.soft_reset_release_count == 3);
+  raster_resync = 1'b1;
+  @(posedge clock); #1;
+  raster_resync = 1'b0;
+  if (dut.soft_reset_active || dut.effective_cartridge_enabled ||
+      dut.cartridge_session_active) begin
+   $display("FAIL: persistent manager enable replayed cartridge after reset");
+   $fatal;
+  end
+  force dut.manager_cartridge_enabled = 1'b0;
+  @(posedge clock); #1;
+  if (dut.cartridge_session_active || dut.effective_cartridge_enabled) begin
+   $display("FAIL: cartridge disable did not end the session");
+   $fatal;
+  end
+  release dut.manager_cartridge_launch;
+  release dut.manager_cartridge_enabled;
+  $display("PASS: soft reset disarms persistent cartridge state");
 
   // GIME palette bits are R2 G2 B2 R1 G1 B1. Full green must not decode
   // as magenta, which catches the adjacent-pair mapping used by the first

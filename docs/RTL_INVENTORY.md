@@ -9,20 +9,20 @@ implementation from retained CoCo3FPGA and Quartus reference material.
 | Area/files | Role |
 | --- | --- |
 | `rtl/wukong/wukong_top.v`, `clocking.v` | Build-mode selection, MMCM/reset, HDMI raster alignment, audio sample clock, and physical outputs |
-| `rtl/wukong/coco3_boot_system.v` | Complete machine video integration, keyboard controls, SD probe, filters, and UART integration |
+| `rtl/wukong/coco3_boot_system.v` | Complete machine video integration, keyboard controls, SD manager, cartridge cold-start sequencer, filters, and UART integration |
 | `rtl/wukong/coco3_diagnostic_system.v` | Standalone CPU09/BRAM diagnostic video source |
 | `rtl/wukong/ntsc_artifact_filter.v`, `crt_filter.v` | Streaming artifact colors, scanlines, and CRT glow |
 | `rtl/wukong/coco3_uart_debug.v`, `uart_tx.v` | Passive onboard USB serial logging |
 | `rtl/wukong/hdmi/test_pattern.v`, `tmds_serializer.v` | HDMI test raster and local DVI-compatible serializer |
-| `rtl/core/coco3_boot_machine.v` | CPU09 bus, ROM/RAM decode, GIME/SAM/PIA/MMU, cartridge, timer, and FDC integration |
+| `rtl/core/coco3_boot_machine.v` | MC6809 bus, ROM/RAM decode, GIME/SAM/PIA/MMU, cartridge, timer, and FDC integration |
 | `rtl/core/coco3_128k_ram.v` | Dual-port 128 KiB block RAM shared by CPU and video |
-| `rtl/core/coco3_system_rom.v`, `coco3_disk_rom.v`, `coco3_diagnostic_cartridge.v` | Prepared system, Disk BASIC, and diagnostic-cartridge memories |
+| `rtl/core/coco3_system_rom.v`, `coco3_disk_rom.v`, `coco3_sd_cartridge.v` | Prepared system and Disk BASIC memories plus SD-loaded ROM-Pak storage |
 | `rtl/core/coco3_char_rom.v`, `coco3gen.mem` | Portable character generator |
 | `rtl/core/coco3_diagnostic_rom.v`, `coco3_diagnostic.mem` | Repository-owned CPU diagnostic |
 | `rtl/core/coco3_keyboard_matrix.v` | CoCo keyboard matrix conversion |
 | `rtl/core/coco3_gime_timer.v` | Partial GIME timer and interrupt behavior |
 | `rtl/core/coco3_fdc.v`, `coco3_disk_image.v` | Minimal WD1773-compatible interface and optional read-only embedded DSK backend |
-| `rtl/third-party/CPU09/cpu09l_128.vhd` | Inherited VHDL 6809-compatible CPU used by the full and diagnostic builds |
+| `rtl/core/cpu09.v`, `rtl/third-party/MC6809/mc6809i.v` | Project wrapper and cycle-accurate MC6809 core used by the full and diagnostic builds |
 | `rtl/third-party/coco3fpga/coco3vid.v`, `cocokey.v` | Inherited CoCo raster and keyboard decoding behavior |
 | `rtl/third-party/PS2_Key/ps2_keyboard.v` | Inherited PS/2 serial decoder |
 | `rtl/third-party/hdl-util-hdmi/` | Vendored HDMI encoder, packet, channel, and serializer library |

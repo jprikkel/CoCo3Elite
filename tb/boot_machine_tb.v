@@ -30,7 +30,10 @@ module boot_machine_tb;
 
     coco3_boot_machine dut (
         .clock(clock), .reset(reset), .cpu_fast_mode(1'b0), .cpu_halt(1'b0),
-        .diagnostic_cartridge_enabled(1'b0), .debug_address(address),
+        .cartridge_enabled(1'b0), .cartridge_launch(1'b0),
+        .cartridge_address(15'd0), .cartridge_write_data(8'd0),
+        .cartridge_write(1'b0), .cold_start_clear(1'b0),
+        .debug_address(address),
         .debug_vma(vma), .debug_read(read_cycle),
         .debug_ram_write(ram_write), .debug_io_write(io_write),
         .debug_write_data(), .keyboard_keys(56'b0),
@@ -39,7 +42,7 @@ module boot_machine_tb;
         .joystick_left_fire(1'b0),
         .joystick_right_x(6'd32), .joystick_right_y(6'd32),
         .joystick_right_fire(1'b0), .sd_status(8'h00), .sd_detail(8'h00),
-        .video_hsync(video_hsync),
+        .video_hsync(video_hsync), .pia_hsync(video_hsync),
         .video_vsync(video_vsync), .video_address(20'h00000),
         .video_read_data(), .audio_dac(audio_dac), .video_vdg_control(),
         .video_css(), .video_palette()

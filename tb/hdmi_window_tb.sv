@@ -7,6 +7,9 @@ endmodule
 module OBUFDS #(parameter IOSTANDARD="DEFAULT", SLEW="SLOW")(input I,output O,OB);
  assign O=I; assign OB=~I;
 endmodule
+module BUFG(input I, output O);
+ assign O=I;
+endmodule
 module serializer #(parameter int NUM_CHANNELS=3, parameter real VIDEO_RATE=0)
  (input logic clk_pixel,clk_pixel_x5,reset,
   input logic [9:0] tmds_internal [NUM_CHANNELS-1:0],
@@ -20,6 +23,9 @@ module hdmi_window_tb;
  integer capture_file, capture_pixels;
  wukong_top dut(.clk_50mhz(clk),.ps2_clk(1'b1),.ps2_data(1'b1),.sd_miso(1'b1));
  initial begin
+  // This test checks RGB window alignment, not HDMI data-island encoding.
+  // Hold the unused TERC4 input known to prevent simulator-only X warnings.
+  force dut.library_hdmi_i.data_island_data='0;
   force dut.source_i.machine_i.hold=1'b1;
   force dut.source_i.coco=1'b0;
   force dut.source_i.hres=test_hres;

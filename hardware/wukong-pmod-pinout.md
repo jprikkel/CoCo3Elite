@@ -61,7 +61,7 @@ board before attaching a cable or module.
 ## Current assignments
 
 The PS/2 keyboard uses the Digilent layout on J14: pin 1 (`P23`) for data and
-pin 3 (`T24`) for clock. See [PS/2 keyboard wiring](keyboard-ps2.md) for voltage translation
+pin 3 (`T24`) for clock. See [PS/2 keyboard wiring](pmod-keyboard-ps2-interface.md) for voltage translation
 and wiring requirements.
 
 J13 is assigned to the external Digilent Pmod MicroSD: pin 1 chip select,
@@ -74,4 +74,4 @@ conflicts between hardware milestones.
 
 J10 is proposed for a MAX3421E USB host adapter (SPI, INT, RES, VBUS enable,
 and overcurrent). This allocation is not enabled in the current top level;
-see [USB host wiring and FPGA prototype](usb-host-interface.md) before using it.
+see [USB host wiring and FPGA prototype](pmod-usb-host-interface.md) before using it.

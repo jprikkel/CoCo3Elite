@@ -19,7 +19,7 @@ reloading files, and selection of every compatible DSK present on the test card.
 The isolated SPI/MMIO transport and RISC-V driver compile check remain
 available. The abandoned MicroBlaze V prototype was removed after the project
 selected the open ultraembedded RV32 core. See
-[USB FPGA-side preparation and wiring](../hardware/usb-host-interface.md) for
+[USB FPGA-side preparation and wiring](../hardware/pmod-usb-host-interface.md) for
 the exact implemented scope and reproduction commands. No module is available;
 USB enumeration, CPU firmware boot, filesystems and CoCo integration remain
 pending. The working CoCo bitstream is unchanged.
@@ -66,16 +66,18 @@ joysticks: the USB host hardware and HID firmware do that independently.
 
 - The retired HDL-only initialization and sector-zero probe have been removed.
   The RV32 management firmware now owns SD initialization and FAT32 access.
-- `rtl/core/coco3_fdc.v` has a minimal read-only WD1773-style register interface.
-  Under `EMBEDDED_TEST_DISKS` it still instantiates two BRAM disk images despite
-  the obsolete introductory comment. It has no asynchronous sector interface,
-  write transfer engine, or complete physical-controller timing model.
-- `coco3_boot_machine.v` currently ties CPU HALT inactive. `cpu09.v` provides
-  project-owned MC6809 adaptation; the third-party MC6809 must remain unchanged.
+- `rtl/core/coco3_fdc.v` has a WD1773-style register interface with read/write
+  sector transfers through the manager-owned cache. Optional embedded images
+  remain a read-only fallback; a complete physical-controller timing model is
+  still future work.
+- `coco3_boot_machine.v` accepts manager HALT and cartridge controls. `cpu09.v`
+  provides project-owned MC6809 adaptation; the third-party MC6809 remains
+  unchanged.
 - Main RAM is 128 KiB dual-port BRAM. Both ports already serve CPU/video; a
   management loader needs explicit arbitration rather than an assumed free port.
-- Cartridge support is currently a fixed diagnostic ROM and launch mechanism.
-  A writable cartridge memory and selectable mapping must be added.
+- The F12 browser loads 2, 4, and 8 KiB CCC images into dual-port cartridge
+  memory, verifies the transfer, cold-starts the CoCo, waits for BASIC
+  initialization, and launches through the normal CART/FIRQ path.
 - The 2026-09-08 routed report for the embedded-disk build uses 5,973/63,400 LUTs
   and 124.5/135 BRAM tiles. This is an existing-build measurement, not a new
   synthesis result. Stream disk sectors instead of retaining complete images
@@ -90,7 +92,7 @@ joysticks: the USB host hardware and HID firmware do that independently.
 Local references: [board](../hardware/wukong-board.md),
 [PMOD pins](../hardware/wukong-pmod-pinout.md),
 [build source list](../scripts/build_wukong.tcl), and
-[earlier SD proposal](../hardware/sd-disk-interface.md).
+[earlier SD proposal](../hardware/pmod-sd-disk-interface.md).
 
 ## Architecture alternatives
 
@@ -243,7 +245,9 @@ then switch mapping only while CPU access is safely stopped. Mount makes ROM
 available without starting it; Run follows a tested reset/CART launch sequence.
 Avoid partial activation if loading fails. Use staging memory when available;
 otherwise keep the cartridge disabled and CPU safely held until the validated
-load completes or recovery returns to Disk BASIC. Preserve F3 diagnostics and
+load completes or recovery returns to Disk BASIC. The former fixed F3
+diagnostic-cartridge path has been removed; use an SD-selected cartridge
+instead.
 offer eject back to Disk BASIC. Cartridge-ROM selection must explicitly resolve
 its overlap with Disk BASIC; do not imply an MPI already exists.
 

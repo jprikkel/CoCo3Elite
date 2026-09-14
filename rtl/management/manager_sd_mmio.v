@@ -20,7 +20,7 @@ module manager_sd_mmio #(
     input wire axi_arvalid, output wire axi_arready, input wire [31:0] axi_araddr,
     output reg axi_rvalid, input wire axi_rready, output reg [31:0] axi_rdata,
     output wire [1:0] axi_rresp,
-    output wire uart_tx, output reg sd_cs_n, output reg sd_sck, output reg sd_mosi,
+    output wire uart_tx, output wire uart_busy_o, output reg sd_cs_n, output reg sd_sck, output reg sd_mosi,
     input wire sd_miso,
     input wire [1:0] fdc_drive, input wire [7:0] fdc_track,
     input wire [7:0] fdc_sector, input wire [7:0] fdc_last_type1, input wire [31:0] fdc_debug_word, input wire [31:0] fdc_completed_debug_word, input wire fdc_read_complete_toggle, input wire fdc_write_complete_toggle, input wire fdc_request_toggle,
@@ -34,6 +34,8 @@ module manager_sd_mmio #(
     output reg fdc_done_toggle, output reg fdc_success,
     output reg fdc_write_done_toggle, output reg fdc_write_success,
     output reg [2:0] fdc_present, output reg manager_ready
+    ,output reg [14:0] cartridge_address, output reg [7:0] cartridge_data,
+    output reg cartridge_write, output reg cartridge_enabled, output reg cartridge_launch
 );
     localparam UART_DATA = 32'h80000000, UART_STATUS = 32'h80000004,
                SPI_CTRL = 32'h80000100, SPI_XFER = 32'h80000104,
@@ -49,7 +51,10 @@ module manager_sd_mmio #(
                OSD_ADDRESS = 32'h8000024c,
                OSD_DATA = 32'h80000250,
                OSD_CONTROL = 32'h80000254,
-               MENU_KEY_STATE = 32'h80000258;
+               MENU_KEY_STATE = 32'h80000258,
+               CARTRIDGE_ADDRESS = 32'h8000025c, CARTRIDGE_DATA = 32'h80000260,
+               CARTRIDGE_CONTROL = 32'h80000264,
+               CARTRIDGE_SIGNATURE = 32'h80000268;
     reg have_address, have_data, transaction_active, await_spi, spi_seen_busy;
     reg [31:0] write_address, write_data;
     reg [7:0] spi_tx, spi_rx, spi_tx_shift, spi_rx_shift;
@@ -58,6 +63,11 @@ module manager_sd_mmio #(
     reg spi_busy, spi_start;
     reg [7:0] uart_data;
     reg uart_start;
+    // The manager firmware compares this rolling signature after every raw
+    // cartridge load.  It covers both byte values and their target addresses,
+    // catching a dropped, repeated, or misaddressed MMIO write before the
+    // 6809 is allowed to execute the image.
+    reg [31:0] cartridge_signature;
     (* ram_style = "distributed" *) reg [7:0] osd_chars [0:1023];
     reg [9:0] osd_write_address;
     // These banks require asynchronous reads at the CoCo bus service edge.
@@ -86,6 +96,7 @@ module manager_sd_mmio #(
     wire disk_cache_fdc_valid = disk_cache_ready && fdc_drive == 2'd0 &&
                                 fdc_track < 8'd35 && fdc_sector >= 8'd1 && fdc_sector <= 8'd18;
     wire uart_busy;
+    assign uart_busy_o = uart_busy;
     // The firmware owns FAT32 and fills this sector buffer completely before
     // acknowledging an FDC read.  The FDC then consumes a stable, asynchronous
     // 256-byte buffer, preserving normal CoCo Disk BASIC timing.
@@ -230,7 +241,13 @@ module manager_sd_mmio #(
             fdc_done_toggle <= 0; fdc_success <= 0;
             fdc_write_done_toggle <= 0; fdc_write_success <= 0;
             fdc_present <= 0; manager_ready <= 0;
+            cartridge_address <= 0; cartridge_data <= 0;
+            cartridge_write <= 1'b0;
+            cartridge_enabled <= 1'b0; cartridge_launch <= 1'b0;
+            cartridge_signature <= 32'b0;
         end else begin
+            cartridge_write <= 1'b0;
+            cartridge_launch <= 1'b0;
             // Registered block-RAM read matches the proven embedded/full-disk
             // timing. During a CoCo write, update the cached byte immediately;
             // firmware separately persists the staged sector to FAT32.
@@ -322,6 +339,30 @@ module manager_sd_mmio #(
                     osd_active <= write_data[0];
                     osd_selected_row <= write_data[12:8];
                     axi_bvalid <= 1'b1;
+                end else if (write_address == CARTRIDGE_ADDRESS) begin
+                    cartridge_address <= write_data[14:0];
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == CARTRIDGE_DATA) begin
+                    cartridge_data <= write_data[7:0];
+                    cartridge_write <= 1'b1;
+                    cartridge_signature <= {cartridge_signature[30:0],
+                                            cartridge_signature[31]} ^
+                                           {11'b0, cartridge_address,
+                                            write_data[7:0]};
+                    // Hold the selected address through the following clock.
+                    // cartridge_write and cartridge_data are registered, so
+                    // the dual-port ROM-Pak RAM consumes them one clock after
+                    // this AXI transaction. Advancing the address here shifts
+                    // every downloaded byte by one while the stream checksum
+                    // still appears correct. Firmware explicitly writes the
+                    // address for every mirrored cartridge byte.
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == CARTRIDGE_CONTROL) begin
+                    cartridge_enabled <= write_data[0];
+                    cartridge_launch <= write_data[1];
+                    if (!write_data[0])
+                        cartridge_signature <= 32'b0;
+                    axi_bvalid <= 1'b1;
                 end else if (write_address == FDC_ACK) begin
                     // Require a complete sector and delay publication.  The
                     // request toggle is captured here so a later request can
@@ -381,6 +422,7 @@ module manager_sd_mmio #(
                     DISK_CACHE_DEBUG_DATA: axi_rdata <= {24'b0, disk_cache_fdc_data};
                     OSD_CONTROL: axi_rdata <= {19'b0, osd_selected_row, 7'b0, osd_active};
                     MENU_KEY_STATE: axi_rdata <= {27'b0, menu_key_state};
+                    CARTRIDGE_SIGNATURE: axi_rdata <= cartridge_signature;
                     default: axi_rdata <= 0;
                 endcase
             end else if (axi_rvalid && axi_rready) axi_rvalid <= 1'b0;

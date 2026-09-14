@@ -5,6 +5,7 @@ param(
     [string]$Mode = 'COCO3_ELITE',
     [switch]$KeepIntermediates,
     [switch]$EmbeddedTestDisks,
+    [switch]$NoCpuUartDebug,
     [string]$Drive0Disk = 'disks\fpgatest.dsk',
     [string]$Drive1Disk = 'disks\games.dsk'
 )
@@ -29,10 +30,6 @@ New-Item -ItemType Directory -Force -Path (Split-Path $stagedCoreDir), (Split-Pa
 New-Item -ItemType Directory -Force -Path $stagedCoreDir, $stagedRomDir, $stagedDiskDir | Out-Null
 
 if ($Mode -eq 'COCO3_ELITE') {
-    & (Join-Path $PSScriptRoot 'prepare_diagnostic_cartridge.ps1') `
-        -InputPath (Join-Path $repoRoot 'roms\ziadiag.ccc') `
-        -OutputPath (Join-Path $stagedRomDir 'diagnostic_cart.mem')
-
     # The CoCo/FDC image includes a separate RV32 firmware image.  Generate
     # its loader table inside this build directory so source control contains
     # only the reviewed C source, never a stale binary blob.
@@ -93,7 +90,7 @@ $env:XILINX_LOCAL_USER_DATA = 'NO'
 Push-Location $buildDir
 try {
     & $Vivado -mode batch -nojournal -nolog `
-        -source $buildTcl -tclargs $Part $Mode ([int]$EmbeddedTestDisks.IsPresent)
+        -source $buildTcl -tclargs $Part $Mode ([int]$EmbeddedTestDisks.IsPresent) ([int](-not $NoCpuUartDebug.IsPresent))
     $vivadoExitCode = $LASTEXITCODE
 } finally {
     Pop-Location

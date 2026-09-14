@@ -33,6 +33,10 @@ void *memcpy(void *dst,const void *src,unsigned long n){unsigned char *d=dst;con
 #define OSD_DATA REG32(0x80000250u)
 #define OSD_CONTROL REG32(0x80000254u)
 #define MENU_KEY_STATE REG32(0x80000258u)
+#define CARTRIDGE_ADDRESS REG32(0x8000025cu)
+#define CARTRIDGE_DATA REG32(0x80000260u)
+#define CARTRIDGE_CONTROL REG32(0x80000264u)
+#define CARTRIDGE_SIGNATURE REG32(0x80000268u)
 
 #define KEY_F12 1u
 #define KEY_UP 2u
@@ -51,7 +55,7 @@ static uint32_t fat_lba, first_data_lba;
 static uint8_t sector[512];
 
 struct disk { char name[MAX_NAME]; uint32_t cluster, size; };
-struct browser_entry { char name[MAX_NAME]; uint32_t cluster, size; uint8_t directory, parent; };
+struct browser_entry { char name[MAX_NAME]; uint32_t cluster, size; uint8_t directory, parent, cartridge; };
 static struct browser_entry browser_entries[MAX_DSK_FILES];
 static struct disk mounted_disk;
 static uint8_t browser_count, card_online;
@@ -139,7 +143,8 @@ static void lfn_part(const uint8_t *e){uint8_t order=e[0]&0x1fu;if(e[0]&0x40u){l
 static void short_text(const uint8_t *e,char *out){uint8_t at=0;for(uint8_t n=0;n<8&&e[n]!=' ';++n)out[at++]=(char)e[n];if(e[8]!=' '){out[at++]='.';for(uint8_t n=8;n<11&&e[n]!=' ';++n)out[at++]=(char)e[n];}out[at]=0;}
 static void lfn_text(char *out){uint16_t at=0;uint8_t n=0;while(n<260&&lfn_utf16[n]&&lfn_utf16[n]!=0xffffu){uint16_t c=lfn_utf16[n++];out[at++]=(c<128u&&(c>=32u||c==' ') )?(char)c:'?';}out[at]=0;}
 static int is_dsk_name(const char *name){uint16_t n=0;while(name[n])n++;return n>=4u&&name[n-4]=='.'&&((name[n-3]=='D'||name[n-3]=='d')&&(name[n-2]=='S'||name[n-2]=='s')&&(name[n-1]=='K'||name[n-1]=='k'));}
-static void add_entry(const uint8_t *e,const char *name,uint8_t directory){if(browser_count>=MAX_DSK_FILES)return;if(!directory&&(!is_dsk_name(name)||le32(&e[28])!=161280u))return;struct browser_entry *b=&browser_entries[browser_count++];uint16_t n=0;while(name[n]&&n<MAX_NAME-1u){b->name[n]=name[n];n++;}b->name[n]=0;b->cluster=((uint32_t)le16(&e[20])<<16)|le16(&e[26]);b->size=le32(&e[28]);b->directory=directory;b->parent=0;}
+static int is_ccc_name(const char *name){uint16_t n=0;while(name[n])n++;return n>=4u&&name[n-4]=='.'&&((name[n-3]=='C'||name[n-3]=='c')&&(name[n-2]=='C'||name[n-2]=='c')&&(name[n-1]=='C'||name[n-1]=='c'));}
+static void add_entry(const uint8_t *e,const char *name,uint8_t directory){uint8_t cartridge=!directory&&is_ccc_name(name);uint32_t size=le32(&e[28]);if(browser_count>=MAX_DSK_FILES)return;if(!directory&&((!is_dsk_name(name)&&!cartridge)||(is_dsk_name(name)&&size!=161280u)||(cartridge&&size!=2048u&&size!=4096u&&size!=8192u)))return;struct browser_entry *b=&browser_entries[browser_count++];uint16_t n=0;while(name[n]&&n<MAX_NAME-1u){b->name[n]=name[n];n++;}b->name[n]=0;b->cluster=((uint32_t)le16(&e[20])<<16)|le16(&e[26]);b->size=size;b->directory=directory;b->parent=0;b->cartridge=cartridge;}
 static int scan_directory(uint32_t directory){uint32_t cluster=directory;browser_count=0;lfn_reset();if(directory!=root_cluster){struct browser_entry *b=&browser_entries[browser_count++];b->name[0]='.';b->name[1]='.';b->name[2]=0;b->cluster=parent_directory;b->size=0;b->directory=1;b->parent=1;}for(;;){for(uint8_t s=0;s<sectors_per_cluster;++s){if(read_sector(first_data_lba+(cluster-2u)*sectors_per_cluster+s))return 1;for(uint16_t o=0;o<512;o+=32){const uint8_t *e=&sector[o];if(!e[0])return 0;if(e[0]==0xe5){lfn_reset();continue;}if(e[11]==0x0f){lfn_part(e);continue;}if(e[11]&0x08){lfn_reset();continue;}char name[MAX_NAME];if(lfn_valid&&lfn_expected==0&&short_checksum(e)==lfn_checksum)lfn_text(name);else short_text(e,name);lfn_reset();if(name[0]=='.')continue;add_entry(e,name,(e[11]&0x10u)!=0);}}if(next_cluster(cluster,&cluster))break;}return 0;}
 static int mount_disks(void) {
     uint32_t volume_lba;
@@ -262,7 +267,30 @@ static void audit_drive0(void){
     }
 }
 static void short_name(const struct disk *d,char *text){uint16_t n=0;while(d->name[n]&&n<MAX_NAME-1u){text[n]=d->name[n];n++;}text[n]=0;}
-static void entry_line(const struct browser_entry *e,char *line){uint8_t at=0;line[at++]=e->parent?'[':(e->directory?'[':' ');if(e->parent){line[at++]=']';line[at]=0;return;}if(e->directory){line[at++]='D';line[at++]='I';line[at++]='R';line[at++]=']';line[at++]=' ';}else{line[at++]=' ';line[at++]=' ';line[at++]=' ';line[at++]=' ';line[at++]=' ';}uint16_t n=0;while(e->name[n]&&at<OSD_COLS-1u){line[at++]=e->name[n++];}line[at]=0;}
+static void entry_line(const struct browser_entry *e,char *line){uint8_t at=0;line[at++]=e->parent?'[':(e->directory?'[':' ');if(e->parent){line[at++]=']';line[at]=0;return;}if(e->directory){line[at++]='D';line[at++]='I';line[at++]='R';line[at++]=']';line[at++]=' ';}else if(e->cartridge){line[at++]='C';line[at++]='C';line[at++]='C';line[at++]=']';line[at++]=' ';}else{line[at++]=' ';line[at++]=' ';line[at++]=' ';line[at++]=' ';line[at++]=' ';}uint16_t n=0;while(e->name[n]&&at<OSD_COLS-1u){line[at++]=e->name[n++];}line[at]=0;}
+static uint32_t cartridge_signature_step(uint32_t signature,uint16_t address,uint8_t value){
+    return ((signature<<1)|(signature>>31))^((uint32_t)address<<8)^value;
+}
+static int load_cartridge(const struct browser_entry *e){
+    uint32_t offset=0,lba,signature=0;
+    uint16_t n,copy;
+    CARTRIDGE_CONTROL=0;
+    while(offset<e->size){
+        if(disk_lba((const struct disk *)e,offset&~511u,&lba))return 1;
+        if(read_sector(lba))return 2;
+        for(n=0;n<512u&&offset+n<e->size;++n)
+            for(copy=offset+n;copy<8192u;copy+=e->size){
+                uint8_t value=sector[(offset+n)&511u];
+                CARTRIDGE_ADDRESS=copy;
+                CARTRIDGE_DATA=value;
+                signature=cartridge_signature_step(signature,copy,value);
+            }
+        offset=(offset&~511u)+512u;
+    }
+    if(CARTRIDGE_SIGNATURE!=signature)return 3;
+    CARTRIDGE_CONTROL=3;
+    return 0;
+}
 static void osd_clear(void){OSD_ADDRESS=0;for(uint16_t n=0;n<OSD_COLS*20u;++n)OSD_DATA=' ';}
 static void osd_text(uint8_t row,uint8_t column,const char *text){
     OSD_ADDRESS=(uint32_t)row*OSD_COLS+column;
@@ -318,6 +346,11 @@ static int run_disk_menu(uint8_t *present){
                 if(browser_entries[menu_selection].parent){if(directory_depth){current_directory=directory_stack[--directory_depth];parent_directory=directory_depth?directory_stack[directory_depth-1u]:root_cluster;uint16_t p=0;while(current_path[p]&&p<MAX_NAME)p++;while(p>1u&&current_path[p-1u]!='/')p--;if(p==1u)current_path[1]=0;else current_path[p-1u]=0;scan_directory(current_directory);}}
                 else {if(directory_depth<8u)directory_stack[directory_depth++]=current_directory;parent_directory=current_directory;current_directory=browser_entries[menu_selection].cluster;uint16_t p=0;while(current_path[p])p++;if(p>1&&current_path[p-1]!='/'){current_path[p++]='/';}for(uint16_t n=0;browser_entries[menu_selection].name[n]&&p<MAX_NAME-1u;n++)current_path[p++]=browser_entries[menu_selection].name[n];current_path[p]=0;scan_directory(current_directory);}
                 menu_selection=0;menu_top=0;draw_menu("SELECT A DISK FOR DRIVE 0");continue;
+            }
+            if(browser_entries[menu_selection].cartridge){
+                draw_menu("LOADING CARTRIDGE - PLEASE WAIT");
+                if(!load_cartridge(&browser_entries[menu_selection])){puts("CARTRIDGE LOADED ");puts(browser_entries[menu_selection].name);puts("\r\n");while(MENU_KEY_STATE&KEY_ENTER){}OSD_CONTROL=0;return 0;}
+                draw_menu("CARTRIDGE LOAD FAILED");continue;
             }
             struct disk candidate;
             for(uint16_t n=0;n<MAX_NAME;++n)candidate.name[n]=browser_entries[menu_selection].name[n];candidate.cluster=browser_entries[menu_selection].cluster;candidate.size=browser_entries[menu_selection].size;

@@ -1,7 +1,7 @@
 # Current Wukong implementation
 
 This document describes the code currently used by the QMTECH Wukong V3
-port. It is a snapshot of the implementation on 2026-09-06, not a list of
+port. It is a snapshot of the implementation on 2026-09-14, not a list of
 future goals. Historical bring-up notes and plans remain useful context, but
 this file is the starting point for understanding the active design.
 
@@ -14,7 +14,7 @@ The repository contains three distinct classes of source:
 | `rtl/wukong/` | Wukong top level, clocking, HDMI adaptation, filters, UART, and board integration | Project-owned; changes for this port belong here |
 | `rtl/core/` | Portable CPU-facing memory, GIME register, timer, keyboard, cartridge, disk, and SD support added by this port | Project-owned; keep board-independent where practical |
 | `rtl/third-party/coco3fpga/` | GIME video generator, keyboard decoder, and retained original Quartus reference files | Preserve as the upstream reference; prefer wrappers and focused compatibility fixes outside these files |
-| `rtl/third-party/CPU09/` | CPU09 processor core | Preserve under its upstream license |
+| `rtl/third-party/MC6809/` | Cycle-accurate MC6809 processor core | Preserve under its upstream license |
 | `rtl/third-party/hdl-util-hdmi/` | Vendored [hdl-util/hdmi](https://github.com/hdl-util/hdmi) encoder and packet implementation | Do not modify locally; adapt signals in `rtl/wukong/` |
 
 The active FPGA top level is `rtl/wukong/wukong_top.v`. It selects a source
@@ -29,15 +29,17 @@ The implemented board target is the Wukong V3 with an Artix-7
 Hardware-verified functions include:
 
 - CoCo 3 boot from a user-supplied system ROM in block RAM.
-- Disk Extended Color BASIC 2.1.
+- Disk Extended Color BASIC 1.1.
 - 128 KiB system RAM in FPGA block RAM.
 - Stable 32-, 40-, and 80-column text with working mode changes.
 - PS/2 keyboard on J14, including Break, soft reset, function-key controls,
   and keyboard-emulated left and right joysticks.
-- ZIA diagnostic cartridge autostart through F3 and the system-ROM cartridge
-  path.
+- F12 SD management interface with subdirectory and long-filename browsing,
+  writable `.DSK` mounting, media removal/reinsertion recovery, and `.CCC`
+  ROM-Pak loading through a controlled cold-start sequence.
+- The F3 key is available to the normal CoCo keyboard with no fixed cartridge.
 - CH340N UART diagnostic output through the board USB serial interface.
-- Read-only embedded Disk BASIC images when explicitly enabled at build time.
+- Optional embedded test disks when explicitly enabled at build time.
 - Optional NTSC artifact colors, horizontal scanlines, and CRT glow.
 - The standalone `BASIC_6809_DVI_TEST` image, displaying `CPU09`,
   `RESET VECTOR PASSED`, and `STAGE 2 RUNNING` in green on black through its
@@ -54,8 +56,9 @@ Open hardware issues in the current working implementation are:
   the complete raster again.
 - The ZIA diagnostic cartridge's video tests are substantially improved but
   are not yet a complete substitute for testing every physical CoCo interface.
-- The RV32 manager initializes FAT32 SD cards, lists compatible root-level
-  `.DSK` files, mounts a selected image as drive 0, and flushes sector writes.
+- The RV32 manager initializes FAT32 SD cards, browses directories, mounts a
+  selected `.DSK` as drive 0, flushes sector writes, and launches compatible
+  2, 4, and 8 KiB `.CCC` cartridge images.
 - Printer, cassette, RS-232 PAK, physical floppy, and expanded external memory
   interfaces are not implemented.
 
@@ -71,13 +74,13 @@ Open hardware issues in the current working implementation are:
               |
               +--> coco3_boot_system
               |      |
-              |      +--> cpu09 + coco3_boot_machine
+              |      +--> MC6809 wrapper + coco3_boot_machine
               |      +--> 128 KiB dual-port BRAM
-              |      +--> system, Disk BASIC, and diagnostic ROMs
+              |      +--> system ROM, Disk BASIC ROM, and SD-loaded ROM-Pak
               |      +--> GIME/SAM/PIA/timer/FDC compatibility logic
               |      +--> COCO3VIDEO + portable character ROM
               |      +--> NTSC artifact filter --> CRT filter
-              |      `--> PS/2, SD probe, joysticks, and UART
+              |      `--> PS/2, RV32 SD manager, joysticks, and UART
               |
               +--> Wukong raster alignment and narrow-mode centering
               `--> hdl-util HDMI encoder --> TMDS serializer --> HDMI pins
@@ -89,7 +92,8 @@ dual-port 128 KiB memory in `rtl/core/coco3_128k_ram.v`.
 ## CPU, ROM, and memory
 
 `rtl/core/coco3_boot_machine.v` is the CPU-facing integration boundary. It
-instantiates the VHDL `cpu09` core and implements the subset of CoCo 3 memory
+instantiates the project-owned `cpu09.v` wrapper around the third-party MC6809
+core and implements the subset of CoCo 3 memory
 and peripheral behavior needed by the current port:
 
 - 128 KiB dual-port block RAM.
@@ -97,16 +101,18 @@ and peripheral behavior needed by the current port:
 - GIME initialization, video, palette, border, timer, and interrupt state.
 - Minimal SAM and PIA behavior used by the ROM, keyboard, joysticks, sound,
   monitor sensing, and cartridge startup.
-- System ROM, Disk BASIC ROM, and an optional diagnostic cartridge ROM.
-- A minimal WD1773-compatible read-only controller.
+- System ROM, Disk BASIC ROM, and dual-port SD-loaded cartridge storage.
+- A WD1773-compatible controller backed by the writable SD disk cache.
 
 ROM files are user inputs and are not committed. The preparation scripts
 validate and convert them into `$readmemh` files under `build/roms/`.
 
-F3 does not replace the 6809 reset vector with a cartridge vector. It presents
-the diagnostic ROM-Pak to the initialized machine and generates the delayed
-CART/FIRQ event expected by the CoCo system ROM. Ctrl+Alt+Delete deselects the
-cartridge and performs a guarded soft reset back to Disk BASIC.
+Selecting a `.CCC` file disables the current cartridge, cold-resets only the
+CoCo, clears BASIC's warm-start flag at `$0071`, and leaves the RV32 manager
+and disk cache running. After system ROM initialization reaches the BASIC idle
+loop, the cartridge is mapped at `$C000-$DFFF` and launched through the normal
+CART/FIRQ path. Ctrl+Alt+Delete deselects it and performs a guarded soft reset
+back to Disk BASIC.
 
 ## Video path
 
@@ -174,7 +180,7 @@ Important FPGA controls are:
 
 | Key | Function |
 | --- | --- |
-| F3 | Start the embedded diagnostic cartridge |
+| F3 | Normal CoCo keyboard function key; no fixed cartridge action |
 | F6 | Toggle the board turbo override |
 | F7 | Toggle W/S/A/D/F control of the right joystick |
 | F8 | Toggle arrow/Space control of the left joystick |
@@ -188,7 +194,7 @@ CoCo software selects the normal approximately 0.9 MHz rate with the SAM
 F6 independently forces double speed for debugging and compatibility testing.
 
 The complete PC-to-CoCo key mapping and electrical connection are documented
-in [PS/2 Keyboard Interface](../hardware/keyboard-ps2.md).
+in [PS/2 Keyboard Interface](../hardware/pmod-keyboard-ps2-interface.md).
 
 The 115200-baud UART PC snapshot includes a `V=` field of 40 hex digits.
 From left to right it contains FF98 (2 digits), FF99 (2), FF9B (2),
@@ -213,10 +219,11 @@ These are read-only, 35-track images. Without the option, sector commands do
 not silently fall through to an embedded image.
 
 The J13 SD path is owned by the RV32 management firmware. F12 opens the HDMI
-disk browser; firmware discovers compatible root-level FAT32 `.DSK` files,
-loads the selected image into the drive-0 cache, and flushes completed sector
-writes back to that file. See
-[SD-card Disk Interface](../hardware/sd-disk-interface.md).
+browser; firmware supports FAT32 subdirectories and long filenames, loads a
+selected `.DSK` into the drive-0 cache, launches compatible `.CCC` images, and
+flushes completed sector writes back to the mounted disk file. Card removal
+blocks writeback and reinsertion remounts and refreshes the browser. See
+[SD-card Disk Interface](../hardware/pmod-sd-disk-interface.md).
 
 ## Build modes
 

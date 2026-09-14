@@ -10,6 +10,10 @@ module manager_sd_mmio_tb;
     wire [1:0] bresp, rresp;
     wire [31:0] rdata;
     wire uart_tx, sd_cs_n, sd_sck, sd_mosi;
+    wire [14:0] cartridge_address;
+    wire [7:0] cartridge_data;
+    wire cartridge_write, cartridge_enabled, cartridge_launch;
+    wire [7:0] cartridge_cpu_data;
     reg fdc_request_toggle = 0;
     reg [7:0] fdc_buffer_address = 0;
     reg fdc_write_strobe = 0;
@@ -23,6 +27,22 @@ module manager_sd_mmio_tb;
     wire [7:0] fdc_buffer_data;
     integer rising_edges = 0;
     always @(posedge sd_sck) rising_edges = rising_edges + 1;
+    reg saw_cartridge_write = 0, saw_cartridge_launch = 0;
+    reg [14:0] captured_cartridge_address = 0;
+    reg [7:0] captured_cartridge_data = 0;
+    always @(posedge clock) begin
+        if (reset) begin
+            saw_cartridge_write <= 0;
+            saw_cartridge_launch <= 0;
+        end else begin
+            if (cartridge_write) begin
+                saw_cartridge_write <= 1;
+                captured_cartridge_address <= cartridge_address;
+                captured_cartridge_data <= cartridge_data;
+            end
+            if (cartridge_launch) saw_cartridge_launch <= 1;
+        end
+    end
 
     manager_sd_mmio #(.UART_CLKS_PER_BIT(2), .DISK_CACHE_BYTES(512)) dut (
         .clock(clock), .reset(reset), .axi_awvalid(awvalid), .axi_awready(awready),
@@ -43,7 +63,18 @@ module manager_sd_mmio_tb;
         .osd_selected_row(osd_selected_row),
         .fdc_done_toggle(fdc_done_toggle), .fdc_success(fdc_success),
         .fdc_write_done_toggle(), .fdc_write_success(), .fdc_present(),
-        .manager_ready()
+        .manager_ready(), .cartridge_address(cartridge_address),
+        .cartridge_data(cartridge_data), .cartridge_write(cartridge_write),
+        .cartridge_enabled(cartridge_enabled), .cartridge_launch(cartridge_launch)
+    );
+
+    // Model the production consumer of the registered manager write port.
+    // This catches address/data skew that a manager-only signal test misses.
+    coco3_sd_cartridge cartridge_store (
+        .clock(clock), .cpu_address(13'h1234),
+        .cpu_data(cartridge_cpu_data),
+        .manager_address(cartridge_address[12:0]),
+        .manager_data(cartridge_data), .manager_write(cartridge_write)
     );
 
     task write32;
@@ -73,6 +104,7 @@ module manager_sd_mmio_tb;
         end
     endtask
     reg [31:0] value;
+    reg [31:0] expected_cartridge_signature;
     initial begin
         #200000;
         $fatal(1, "manager SD MMIO test timed out");
@@ -93,6 +125,28 @@ module manager_sd_mmio_tb;
         read32(32'h80000258, value);
         if (value[4:0] !== 5'b10101)
             $fatal(1, "menu key state mismatch: %h", value[4:0]);
+        $display("checking cartridge control ownership");
+        write32(32'h80000264, 32'h0);
+        write32(32'h8000025c, 15'h1234);
+        write32(32'h80000260, 8'h5a);
+        if (!saw_cartridge_write || cartridge_address != 15'h1234 ||
+            captured_cartridge_address != 15'h1234 ||
+            captured_cartridge_data != 8'h5a || cartridge_data != 8'h5a)
+            $fatal(1, "cartridge data port was not published");
+        repeat (2) @(posedge clock); #1;
+        if (cartridge_cpu_data !== 8'h5a)
+            $fatal(1, "cartridge RAM wrote %h at selected address, expected 5a",
+                   cartridge_cpu_data);
+        expected_cartridge_signature = 32'h0012345a;
+        read32(32'h80000268, value);
+        if (value !== expected_cartridge_signature)
+            $fatal(1, "cartridge signature mismatch: %h", value);
+        write32(32'h80000264, 32'h3);
+        if (!cartridge_enabled || !saw_cartridge_launch)
+            $fatal(1, "cartridge enable/launch was not retained");
+        @(posedge clock);
+        if (!cartridge_enabled)
+            $fatal(1, "cartridge enable did not persist or launch did not pulse");
         $display("configuring SPI");
         write32(32'h80000100, 32'h00000200); // active CS, divider=2
         rising_edges = 0;

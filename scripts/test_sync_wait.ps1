@@ -22,8 +22,8 @@ foreach($item in @(@{Name='zen_harness';Source='ZENHARNESS'},@{Name='zen_helper'
 Push-Location $runDir
 try {
  $sources=@('rtl\third-party\MC6809\mc6809i.v','rtl\core\cpu09.v',
- 'rtl\core\coco3_128k_ram.v','rtl\core\coco3_system_rom.v','rtl\core\coco3_disk_rom.v',
- 'rtl\core\coco3_diagnostic_cartridge.v','rtl\core\coco3_disk_image.v','rtl\core\coco3_fdc.v',
+ 'rtl\core\coco3_128k_ram.v','rtl\core\coco3_system_rom.v','rtl\core\coco3_disk_rom.v','rtl\core\coco3_sd_cartridge.v',
+ 'rtl\core\coco3_disk_image.v','rtl\core\coco3_fdc.v',
  'rtl\core\coco3_keyboard_matrix.v','rtl\core\coco3_gime_timer.v','rtl\core\coco3_gime_interrupt.v',
  'rtl\core\coco3_boot_machine.v','tb\sync_wait_tb.v','tb\hven_fill_tb.v','tb\zenix_fill_tb.v') | ForEach-Object {Join-Path $repoRoot $_}
  & "$VivadoBin\xvlog.bat" @sources

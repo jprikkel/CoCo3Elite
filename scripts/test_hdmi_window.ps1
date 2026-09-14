@@ -4,26 +4,48 @@ $repoRoot=Split-Path -Parent $PSScriptRoot
 $runDir=Join-Path $repoRoot 'build\sim\hdmi_window'
 New-Item -ItemType Directory -Force -Path "$runDir\rtl\core","$runDir\build\roms" | Out-Null
 Copy-Item "$repoRoot\rtl\core\coco3gen.mem" "$runDir\rtl\core\coco3gen.mem" -Force
-foreach($rom in @('coco3.mem','disk11.mem','diagnostic_cart.mem')){
+foreach($rom in @('coco3.mem','disk11.mem')){
  Copy-Item "$repoRoot\build\roms\$rom" "$runDir\build\roms\$rom" -Force
 }
-$sources=@('rtl/third-party/PS2_Key/ps2_keyboard.v','rtl/third-party/coco3fpga/cocokey.v','rtl/third-party/coco3fpga/coco3vid.v',
+$firmwareDir=Join-Path $runDir 'firmware'
+$toolchain='C:\AMD\2025.2\gnu\riscv\nt\bin'
+New-Item -ItemType Directory -Force -Path $firmwareDir | Out-Null
+$firmwareElf=Join-Path $firmwareDir 'rv32_sd_mount.elf'
+$firmwareBin=Join-Path $firmwareDir 'rv32_sd_mount.bin'
+& (Join-Path $toolchain 'riscv64-unknown-elf-gcc.exe') '-march=rv32im_zicsr' '-mabi=ilp32' '-Os' '-ffreestanding' '-fno-builtin' '-nostdlib' `
+ '-Wl,--build-id=none' '-Wl,--gc-sections' '-T' (Join-Path $repoRoot 'firmware\management\rv32_tcm.ld') `
+ (Join-Path $repoRoot 'firmware\management\rv32_start.S') (Join-Path $repoRoot 'firmware\management\rv32_sd_mount.c') '-o' $firmwareElf
+if($LASTEXITCODE){throw "RV32 firmware link failed: $LASTEXITCODE"}
+& (Join-Path $toolchain 'riscv64-unknown-elf-objcopy.exe') '-O' 'binary' $firmwareElf $firmwareBin
+if($LASTEXITCODE){throw "RV32 firmware conversion failed: $LASTEXITCODE"}
+& (Join-Path $PSScriptRoot 'generate_rv32_program_header.ps1') -Binary $firmwareBin -Output (Join-Path $runDir 'rv32_sd_mount_program.vh')
+$managerCpuSources=@(
+ Get-ChildItem -LiteralPath "$repoRoot\rtl\third-party\ultraembedded-riscv\core\riscv" -Filter '*.v'
+ Get-ChildItem -LiteralPath "$repoRoot\rtl\third-party\ultraembedded-riscv\top_tcm_axi\src_v" -Filter '*.v'
+) | Sort-Object FullName | ForEach-Object FullName
+$verilogSources=@($managerCpuSources)+(@('rtl/third-party/PS2_Key/ps2_keyboard.v','rtl/third-party/coco3fpga/cocokey.v','rtl/third-party/coco3fpga/coco3vid.v',
  'rtl/core/coco3_keyboard_matrix.v','rtl/core/coco3_char_rom.v','rtl/core/coco3_128k_ram.v',
- 'rtl/core/coco3_system_rom.v','rtl/core/coco3_disk_rom.v','rtl/core/coco3_diagnostic_cartridge.v',
+ 'rtl/core/coco3_system_rom.v','rtl/core/coco3_disk_rom.v','rtl/core/coco3_sd_cartridge.v',
  'rtl/core/coco3_disk_image.v',
+ 'rtl/management/manager_sd_mmio.v','rtl/management/ultraembedded_manager_sd_mount.v','rtl/management/manager_osd.v',
  'rtl/core/coco3_fdc.v','rtl/core/coco3_gime_timer.v','rtl/core/coco3_gime_interrupt.v','rtl/core/coco3_boot_machine.v',
  'rtl/wukong/uart_tx.v','rtl/wukong/coco3_uart_debug.v','rtl/wukong/ntsc_artifact_filter.v',
- 'rtl/wukong/crt_filter.v','rtl/wukong/coco3_boot_system.v','rtl/wukong/wukong_top.v',
- 'tb/hdmi_window_tb.sv') | ForEach-Object {Join-Path $repoRoot $_}
-$sources+=@(Get-ChildItem "$repoRoot\rtl\third-party\hdl-util-hdmi\src\*.sv" |
+ 'rtl/wukong/crt_filter.v','rtl/wukong/coco3_boot_system.v') | ForEach-Object {Join-Path $repoRoot $_})
+$systemVerilogSources=@((Join-Path $repoRoot 'rtl/wukong/wukong_top.v'),
+ (Join-Path $repoRoot 'tb/hdmi_window_tb.sv'))
+$systemVerilogSources+=@(Get-ChildItem "$repoRoot\rtl\third-party\hdl-util-hdmi\src\*.sv" |
  Where-Object Name -ne 'serializer.sv' | ForEach-Object FullName)
 Push-Location $runDir
 try {
  & "$VivadoBin\xvlog.bat" "$repoRoot\rtl\third-party\MC6809\mc6809i.v" "$repoRoot\rtl\core\cpu09.v"
  if($LASTEXITCODE){throw 'xvhdl failed'}
- & "$VivadoBin\xvlog.bat" -sv -d NEW_SRAM -d HDMI_TEST_PATTERN -d HDMI_LIBRARY_COCO -d HDMI_LIBRARY_AUDIO -d HDMI_RASTER_800X525 @sources
+ $defines=@('-d','NEW_SRAM','-d','HDMI_TEST_PATTERN','-d','HDMI_LIBRARY_COCO','-d','HDMI_LIBRARY_AUDIO','-d','HDMI_RASTER_800X525',
+  '-i',"$repoRoot\rtl\third-party\ultraembedded-riscv\core\riscv",'-i',$runDir)
+ & "$VivadoBin\xvlog.bat" @defines @verilogSources
  if($LASTEXITCODE){throw 'xvlog failed'}
- & "$VivadoBin\xelab.bat" hdmi_window_tb -s hdmi_window_sim
+ & "$VivadoBin\xvlog.bat" -sv @defines @systemVerilogSources
+ if($LASTEXITCODE){throw 'xvlog failed'}
+ & "$VivadoBin\xelab.bat" -L xpm hdmi_window_tb -s hdmi_window_sim --timescale 1ns/1ps
  if($LASTEXITCODE){throw 'xelab failed'}
  & "$VivadoBin\xsim.bat" hdmi_window_sim -runall
  if($LASTEXITCODE){throw 'xsim failed'}

@@ -4,7 +4,7 @@
 // Early real-ROM execution boundary. Peripheral reads are deliberately idle;
 // GIME/MMU and PIA behavior will be added as boot tracing identifies needs.
 module coco3_boot_machine #(
-    // Give the system ROM time to initialize the GIME and both PIAs before
+    // Give the resumed machine time to leave the management menu before
     // asserting the emulated CART edge. At 25.2 MHz this is one second.
     parameter integer CARTRIDGE_START_DELAY = 25199999
 ) (
@@ -12,7 +12,15 @@ module coco3_boot_machine #(
     input  wire        reset,
     input  wire        cpu_fast_mode,
     input  wire        cpu_halt,
-    input  wire        diagnostic_cartridge_enabled,
+    input  wire        cartridge_enabled,
+    input  wire        cartridge_launch,
+    input  wire [14:0] cartridge_address,
+    input  wire [7:0]  cartridge_write_data,
+    input  wire        cartridge_write,
+    // During a manager-requested cartridge power cycle, force Color BASIC's
+    // warm-start flag in the default physical RAM page to zero.  The system
+    // ROM then takes its normal cold-start path and reinitializes low RAM.
+    input  wire        cold_start_clear,
     output wire [15:0] debug_address,
     output wire [15:0] debug_pc,
     output wire        debug_vma,
@@ -34,6 +42,7 @@ module coco3_boot_machine #(
     input  wire [7:0]  sd_status,
     input  wire [7:0]  sd_detail,
     input  wire        video_hsync,
+    input  wire        pia_hsync,
     input  wire        video_vsync,
     input  wire [19:0] video_address,
     output wire [15:0] video_read_data,
@@ -104,7 +113,8 @@ module coco3_boot_machine #(
     reg [24:0] cartridge_start_count;
     reg cartridge_irq_latch;
     reg cartridge_start_sent;
-    reg [12:0] diagnostic_probe_address;
+    reg cartridge_mapped;
+    wire [7:0] cartridge_data;
     reg [7:0] mmu [0:15];
     reg [5:0] palette [0:15];
     reg [5:0] border_palette;
@@ -117,6 +127,7 @@ module coco3_boot_machine #(
     reg [4:0] boot_palette_write_count;
     reg hdmi_palette_initialized;
     reg previous_video_hsync;
+    reg previous_pia_hsync;
     reg previous_video_vsync;
     reg previous_keyboard_active;
     reg pia0_hsync_pending;
@@ -142,7 +153,6 @@ module coco3_boot_machine #(
     wire [7:0] ram_data;
     wire [7:0] rom_data;
     wire [7:0] disk_rom_data;
-    wire [7:0] diagnostic_rom_data;
     wire [3:0] gime_timer_msb;
     wire [7:0] gime_timer_lsb;
     wire gime_timer_expire;
@@ -158,8 +168,19 @@ module coco3_boot_machine #(
     wire disk_rom_select = !all_ram && !io_select &&
                            address[15:13] == 3'b110 &&
                            gime_init0[1:0] != 2'b10;
-    wire diagnostic_rom_select = diagnostic_cartridge_enabled &&
-                                 !io_select && address[15:13] == 3'b110;
+    // CTS is external to the SAM/GIME internal-ROM selection.  Keep the
+    // ROM-Pak visible when software writes $FFDF to select all-RAM mode.
+    // ZIA Diagnostics repeatedly toggles $FFDE/$FFDF while testing RAM and
+    // ROM checksums, and continues fetching code from the cartridge window.
+    // This matches the hardware-tested fixed-cartridge path.
+    // The CoCo 3 assigns MMU block 6, $C000-$DFFF, to the normal ROM-Pak
+    // window.  Keep Super Extended BASIC visible at $E000-$FDFF.  Mirroring
+    // an 8 KiB cartridge into that range replaces system-ROM routines used
+    // by diagnostics after their splash screen and sends execution into an
+    // unrelated copy of the cartridge image.
+    // SAM map changes do not disconnect the external ROM-Pak.
+    wire cartridge_rom_select = cartridge_mapped && !io_select &&
+                                address[15:13] == 3'b110;
     // $FE00-$FEFF is RAM in both modes. INIT0 bit 3 selects the fixed page
     // $3F instead of MMU block 7, matching the original CoCo3FPGA decode.
     wire vector_page = address[15:8] == 8'hFE;
@@ -174,27 +195,29 @@ module coco3_boot_machine #(
     // A 128K machine implements 16 physical 8K pages. Higher GIME page
     // numbers alias modulo 16, matching absent physical address pins.
     wire [16:0] physical_address = {mapped_page[3:0], address[12:0]};
+    wire [16:0] ram_cpu_address = cold_start_clear
+        ? 17'h10071 : physical_address;
+    wire [7:0] ram_cpu_write_data = cold_start_clear
+        ? 8'h00 : write_data;
     wire active = !hold && vma;
     wire io_read = active && read_cycle && io_select;
-    wire pia0_hsync_event = (previous_video_hsync != video_hsync) &&
-                           (video_hsync == pia0_cra[1]);
+    wire pia0_hsync_event = (previous_pia_hsync != pia_hsync) &&
+                           (pia_hsync == pia0_cra[1]);
     wire pia0_vsync_event = (previous_video_vsync != video_vsync) &&
                            (video_vsync == pia0_crb[1]);
     wire legacy_irq = (pia0_cra[0] && pia0_hsync_pending) ||
                       (pia0_crb[0] && pia0_vsync_pending);
-    // An autostart ROM-Pak boots through the normal system ROM.  Its CART
-    // edge is then latched by PIA1 CB1 and presented as FIRQ once software
-    // enables that interrupt in $FF23.  Starting the cartridge through the
-    // RESET vector skips ROM/GIME/PIA initialization and corrupts video.
-    wire legacy_firq = diagnostic_cartridge_enabled &&
-                       pia1_crb[0] && cartridge_irq_latch;
+    // A ROM-Pak is presented to the already initialized machine. PIA1 CB1
+    // and the GIME cartridge source then deliver the CART/FIRQ event used by
+    // the system ROM's normal cartridge startup path.
     wire keyboard_active = |keyboard_keys;
     wire hborder_event = previous_video_hsync && !video_hsync;
     wire vborder_event = previous_video_vsync && !video_vsync;
     wire keyboard_event = !previous_keyboard_active && keyboard_active;
-    wire cartridge_event = diagnostic_cartridge_enabled &&
+    wire cartridge_event = cartridge_enabled && cartridge_mapped &&
                            !cartridge_start_sent &&
                            cartridge_start_count == CARTRIDGE_START_DELAY;
+    wire effective_cpu_halt = cpu_halt;
     wire [5:0] gime_event_pulse = {
         gime_timer_expire, hborder_event, vborder_event,
         1'b0, keyboard_event, cartridge_event
@@ -203,6 +226,9 @@ module coco3_boot_machine #(
     wire gime_firq_ack = io_read && address == 16'hFF93;
     wire cpu_irq;
     wire cpu_firq;
+    wire gime_cpu_firq;
+    // The actual CART line is a PIA1-CB1 event (or, with the GIME enabled,
+    // the GIME cartridge event).  Keep that latch/acknowledge path accurate.
     wire ram_write = active && !read_cycle && !io_select && !rom_select;
     wire io_write = active && !read_cycle && io_select;
     wire [7:0] keyboard_columns =
@@ -228,9 +254,21 @@ module coco3_boot_machine #(
     wire [7:0] read_data = io_select ?
                              ((address == 16'hFF92 || address == 16'hFF93)
                               ? gime_status_read_data : io_read_data) :
-                             (diagnostic_rom_select ? diagnostic_rom_data :
-                             (disk_rom_select ? disk_rom_data :
-                             (rom_select ? rom_data : ram_data)));
+                             cartridge_rom_select ? cartridge_data :
+                             disk_rom_select ? disk_rom_data :
+                             rom_select ? rom_data : ram_data;
+
+    // Keep the ROM-Pak port clocked just like the fixed Disk BASIC cartridge.
+    // The manager only writes the first 8 KiB;
+    // raw CCC images are mirrored in firmware before their CART edge.
+    coco3_sd_cartridge cartridge_i (
+        .clock(clock),
+        .cpu_address(address[12:0]),
+        .cpu_data(cartridge_data),
+        .manager_address(cartridge_address[12:0]),
+        .manager_data(cartridge_write_data),
+        .manager_write(cartridge_write && cartridge_address[14:13] == 2'b00)
+    );
 
     always @* begin
         io_read_data = 8'hFF;
@@ -238,7 +276,7 @@ module coco3_boot_machine #(
             // Match the original CoCo3FPGA PIA model. In peripheral-register
             // mode the keyboard matrix drives the complete port; in DDR mode
             // the direction register is read back. Treating DDRA as a per-bit
-            // output mask here makes the diagnostic ROM see every row low.
+            // output mask here makes the keyboard scanner see every row low.
             16'hFF00: io_read_data = pia0_cra[2]
                 ? keyboard_joystick_rows : pia0_ddra;
             16'hFF01: io_read_data = {pia0_hsync_pending, 1'b0, pia0_cra};
@@ -251,15 +289,13 @@ module coco3_boot_machine #(
             16'hFF22: io_read_data = pia1_crb[2]
                 ? ((pia1_outb & pia1_ddrb) |
                    (pia1_portb_inputs & ~pia1_ddrb)) : pia1_ddrb;
+            // PIA1 CB1 is the cartridge-present edge.  Cartridge firmware
+            // sees its latched status in bit 7 before acknowledging it by
+            // reading port B at $FF22.
             16'hFF23: io_read_data = {cartridge_irq_latch, 1'b0, pia1_crb};
             16'hFF60: io_read_data = sd_status;
             16'hFF61: io_read_data = sd_detail;
-            // Project diagnostic window for validating the ROM-Pak image
             // without resetting away from a running BASIC test.
-            16'hFF70: io_read_data = diagnostic_probe_address[7:0];
-            16'hFF71: io_read_data = {3'b000, diagnostic_probe_address[12:8]};
-            16'hFF72: io_read_data = diagnostic_rom_data;
-            16'hFF73: io_read_data = 8'hC3;
             16'hFF90: io_read_data = gime_init0;
             16'hFF91: io_read_data = gime_init1;
             16'hFF92: io_read_data = {2'b00, gime_irq_status};
@@ -336,10 +372,14 @@ module coco3_boot_machine #(
             cartridge_start_count <= 25'd0;
             cartridge_irq_latch <= 1'b0;
             cartridge_start_sent <= 1'b0;
-            diagnostic_probe_address <= 13'd0;
+            // Keep the external cartridge window isolated throughout reset.
+            // The manager maps the verified image and supplies CART only
+            // after the cold system ROM reaches its initialized BASIC loop.
+            cartridge_mapped <= 1'b0;
             boot_palette_write_count <= 5'd0;
             hdmi_palette_initialized <= 1'b0;
             previous_video_hsync <= 1'b1;
+            previous_pia_hsync <= 1'b1;
             previous_video_vsync <= 1'b1;
             previous_keyboard_active <= 1'b0;
             pia0_hsync_pending <= 1'b0;
@@ -371,7 +411,41 @@ module coco3_boot_machine #(
             gime_video_offset <= 16'h0000;
             gime_video_horizontal_offset <= 8'h00;
         end else begin
+            if (!cartridge_enabled) begin
+                cartridge_mapped <= 1'b0;
+                cartridge_irq_latch <= 1'b0;
+                cartridge_start_count <= 25'd0;
+                cartridge_start_sent <= 1'b0;
+            end else begin
+                if (io_read && address == 16'hFF22)
+                    cartridge_irq_latch <= 1'b0;
+            end
+            if (cartridge_enabled && cartridge_launch) begin
+                // Reproduce the hardware-tested cartridge path: make
+                // CTS visible and assert the PIA1-CB1 cartridge edge without
+                // resetting the CPU or changing SAM/GIME state. The system
+                // ROM's FIRQ handler performs the standard transfer to C000.
+                cartridge_mapped <= 1'b1;
+                cartridge_irq_latch <= 1'b0;
+                cartridge_start_count <= 25'd0;
+                cartridge_start_sent <= 1'b0;
+            end else if (cartridge_enabled && cartridge_mapped &&
+                         !cartridge_start_sent && !effective_cpu_halt) begin
+                // A physical ROM-Pak asserts CART while the CPU is running.
+                // The F12 manager, however, maps the downloaded image while
+                // its OSD holds the 6809 in HALT.  Do not consume the one-shot
+                // CART event in that stopped phase; begin the delay only after
+                // the menu releases HALT so the core can sample a clean CB1/
+                // FIRQ transition at either normal or fast CPU speed.
+                if (cartridge_start_count == CARTRIDGE_START_DELAY) begin
+                    cartridge_irq_latch <= 1'b1;
+                    cartridge_start_sent <= 1'b1;
+                end else begin
+                    cartridge_start_count <= cartridge_start_count + 1'b1;
+                end
+            end
             previous_video_hsync <= video_hsync;
+            previous_pia_hsync <= pia_hsync;
             previous_video_vsync <= video_vsync;
             previous_keyboard_active <= keyboard_active;
             if (gime_irq_ack || gime_firq_ack)
@@ -413,20 +487,6 @@ module coco3_boot_machine #(
                 palette[4'hf] <= 6'h26;
                 hdmi_palette_initialized <= 1'b1;
             end
-            // After the cartridge is presented, wait for the configured
-            // interval before producing one emulated CART edge. Reading PIA1
-            // port B is the normal interrupt acknowledge operation.
-            if (diagnostic_cartridge_enabled && !cartridge_start_sent) begin
-                if (cartridge_start_count == CARTRIDGE_START_DELAY) begin
-                    cartridge_irq_latch <= 1'b1;
-                    cartridge_start_sent <= 1'b1;
-                end else begin
-                    cartridge_start_count <= cartridge_start_count + 1'b1;
-                end
-            end
-            if (io_read && address == 16'hFF22)
-                cartridge_irq_latch <= 1'b0;
-
           if (io_write) begin
             if (address == 16'hFF00) begin
                 if (pia0_cra[2]) pia0_outa <= write_data;
@@ -456,10 +516,6 @@ module coco3_boot_machine #(
             end
             if (address == 16'hFF23)
                 pia1_crb <= write_data[5:0];
-            if (address == 16'hFF70)
-                diagnostic_probe_address[7:0] <= write_data;
-            if (address == 16'hFF71)
-                diagnostic_probe_address[12:8] <= write_data[4:0];
             if (address == 16'hFF90) begin
                 gime_init0 <= write_data;
                 mmu_enable <= write_data[6];
@@ -504,18 +560,20 @@ module coco3_boot_machine #(
             end
             if (address == 16'hFFDE)
                 all_ram <= 1'b0;
-            if (address == 16'hFFDF)
+            if (address == 16'hFFDF) begin
                 all_ram <= 1'b1;
+            end
           end
         end
     end
 
     cpu09 cpu_i (
-        .clk(clock), .rst(reset), .vma(vma), .lic_out(), .ifetch(),
+        .clk(clock), .rst(reset),
+        .vma(vma), .lic_out(), .ifetch(),
         .opfetch(opfetch), .ba(), .bs(), .addr(address), .rw(read_cycle),
         .debug_pc(debug_pc),
         .data_out(write_data), .data_in(read_data), .irq(cpu_irq),
-        .firq(cpu_firq), .nmi(fdc_nmi), .halt(cpu_halt), .hold(hold)
+        .firq(cpu_firq), .nmi(fdc_nmi), .halt(effective_cpu_halt), .hold(hold)
     );
 
     coco3_system_rom rom_i (
@@ -524,12 +582,6 @@ module coco3_boot_machine #(
 
     coco3_disk_rom disk_rom_i (
         .clock(clock), .address(address[12:0]), .data(disk_rom_data)
-    );
-
-    coco3_diagnostic_cartridge diagnostic_rom_i (
-        .clock(clock),
-        .address(diagnostic_rom_select ? address[12:0] : diagnostic_probe_address),
-        .data(diagnostic_rom_data)
     );
 
     coco3_fdc fdc_i (
@@ -570,14 +622,16 @@ module coco3_boot_machine #(
         .irq_enable(gime_irq_enable), .firq_enable(gime_firq_enable),
         .event_pulse(gime_event_pulse),
         .irq_ack(gime_irq_ack), .firq_ack(gime_firq_ack),
-        .legacy_irq(legacy_irq), .legacy_firq(legacy_firq),
+        .legacy_irq(legacy_irq), .legacy_firq(pia1_crb[0] && cartridge_irq_latch),
         .irq_status(gime_irq_status), .firq_status(gime_firq_status),
-        .cpu_irq(cpu_irq), .cpu_firq(cpu_firq)
+        .cpu_irq(cpu_irq), .cpu_firq(gime_cpu_firq)
     );
+    assign cpu_firq = gime_cpu_firq;
 
     coco3_128k_ram #(.INIT_VALUE(8'h00)) ram_i (
-        .clock(clock), .cpu_address(physical_address),
-        .cpu_write_data(write_data), .cpu_write_enable(ram_write),
+        .clock(clock), .cpu_address(ram_cpu_address),
+        .cpu_write_data(ram_cpu_write_data),
+        .cpu_write_enable(cold_start_clear || ram_write),
         .cpu_read_data(ram_data), .video_address(video_address),
         .video_read_data(video_read_data)
     );

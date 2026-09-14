@@ -1,7 +1,10 @@
 `timescale 1ns/1ps
 `default_nettype none
 
-module coco3_boot_system (
+module coco3_boot_system #(
+    parameter integer SOFT_RESET_GUARD_CLOCKS = 2499999,
+    parameter integer CARTRIDGE_COLD_RESET_CLOCKS = 2519999
+) (
     input wire pixel_clk, input wire reset,
     input wire raster_resync,
     input wire [9:0] screen_x, input wire [9:0] screen_y,
@@ -19,7 +22,6 @@ module coco3_boot_system (
     wire [15:0] cpu_pc;
     wire cpu_vma;
     wire cpu_read;
-    wire cpu_opfetch;
     wire [7:0] cpu_read_data;
     wire io_write;
     wire [7:0] cpu_data;
@@ -70,7 +72,6 @@ module coco3_boot_system (
     wire keyboard_f10;
     wire keyboard_f12;
     reg [1:0] keyboard_f6_sync;
-    reg [1:0] keyboard_f3_sync;
     reg [1:0] keyboard_f7_sync;
     reg [1:0] keyboard_f10_sync;
     reg [1:0] keyboard_f8_sync;
@@ -78,9 +79,9 @@ module coco3_boot_system (
     reg [1:0] keyboard_f11_sync;
     reg [1:0] keyboard_f12_sync;
     reg [1:0] keyboard_reset_sync;
+    reg keyboard_reset_previous;
     reg keyboard_f11_previous;
     reg keyboard_f6_previous;
-    reg keyboard_f3_previous;
     reg keyboard_f7_previous;
     reg cpu_fast_mode;
     reg keyboard_right_joystick_enabled;
@@ -92,11 +93,15 @@ module coco3_boot_system (
     reg keyboard_joystick_enabled;
     reg scanlines_enabled;
     reg soft_reset_active;
-    reg diagnostic_cartridge_enabled;
     reg [21:0] soft_reset_release_count;
-    wire soft_reset_keys_held = keyboard_reset_sync[1] || keyboard_f3_sync[1] ||
-                                keyboard_keys[51] || keyboard_keys[52];
+    wire keyboard_reset_event = keyboard_reset_sync[1] &&
+                                !keyboard_reset_previous;
+    wire soft_reset_keys_held = keyboard_keys[51] || keyboard_keys[52];
     wire system_reset = reset | soft_reset_active;
+    // Clear the decoder's internal key and RESET latches as part of a soft
+    // reset.  COCOKEY only updates RESET on a Delete scan code; without this
+    // wrapper reset, releasing Ctrl or Alt before Delete can leave RESET high.
+    wire keyboard_decoder_reset = reset | soft_reset_active;
     wire [55:0] keyboard_joystick_mask = keyboard_joystick_enabled
         ? 56'h000000F8000000 : 56'b0;
     wire [55:0] keyboard_right_joystick_mask = keyboard_right_joystick_enabled
@@ -131,7 +136,7 @@ module coco3_boot_system (
     wire joystick_right_fire = keyboard_right_joystick_enabled && keyboard_keys[6];
     // The manager owns the SD pins and filesystem.  The CoCo sees only a
     // WD1773-like sector service, preserving Disk BASIC's normal protocol.
-    wire manager_uart_tx, manager_ready, manager_done_toggle, manager_success;
+    wire manager_uart_tx, manager_uart_busy, manager_ready, manager_done_toggle, manager_success;
     wire manager_write_done_toggle, manager_write_success;
     wire [2:0] manager_drive_present;
     wire [1:0] manager_fdc_drive;
@@ -143,6 +148,26 @@ module coco3_boot_system (
     wire manager_fdc_write_strobe, manager_fdc_write_complete_toggle;
     wire [7:0] manager_fdc_write_data;
     wire manager_fdc_request_toggle;
+    wire [14:0] manager_cartridge_address;
+    wire [7:0] manager_cartridge_data;
+    wire manager_cartridge_write, manager_cartridge_enabled, manager_cartridge_launch;
+    localparam [2:0] CART_BOOT_IDLE       = 3'd0;
+    localparam [2:0] CART_BOOT_RESET      = 3'd1;
+    localparam [2:0] CART_BOOT_WAIT_START = 3'd2;
+    localparam [2:0] CART_BOOT_WAIT_BASIC = 3'd3;
+    localparam [2:0] CART_BOOT_LAUNCH     = 3'd4;
+    reg [2:0] cartridge_boot_state;
+    reg [21:0] cartridge_cold_reset_count;
+    reg cartridge_session_active;
+    wire cartridge_cold_reset = cartridge_boot_state == CART_BOOT_RESET;
+    wire basic_idle = cpu_pc >= 16'ha7d3 && cpu_pc <= 16'ha7d7;
+    wire effective_cartridge_launch =
+        cartridge_boot_state == CART_BOOT_LAUNCH && !soft_reset_active;
+    wire effective_cartridge_enabled = manager_cartridge_enabled &&
+                                       !soft_reset_active &&
+                                       (cartridge_session_active ||
+                                        cartridge_boot_state == CART_BOOT_LAUNCH);
+    wire machine_reset = system_reset | cartridge_cold_reset;
     wire [9:0] manager_osd_char_address;
     wire [7:0] manager_osd_char_data;
     wire [4:0] manager_osd_selected_row;
@@ -155,7 +180,7 @@ module coco3_boot_system (
     wire coco_uart_debug_tx;
 
     ultraembedded_manager_sd_mount manager_i (
-        .clock(pixel_clk), .reset(reset), .uart_tx(manager_uart_tx),
+        .clock(pixel_clk), .reset(reset), .uart_tx(manager_uart_tx), .uart_busy(manager_uart_busy),
         .sd_cs_n(sd_cs_n), .sd_sck(sd_sck), .sd_mosi(sd_mosi), .sd_miso(sd_miso),
         .fdc_drive(manager_fdc_drive), .fdc_track(manager_fdc_track),
         .fdc_sector(manager_fdc_sector), .fdc_request_toggle(manager_fdc_request_toggle),
@@ -173,14 +198,83 @@ module coco3_boot_system (
         .fdc_done_toggle(manager_done_toggle), .fdc_success(manager_success),
         .fdc_write_done_toggle(manager_write_done_toggle), .fdc_write_success(manager_write_success),
         .fdc_present(manager_drive_present), .manager_ready(manager_ready)
+        ,.cartridge_address(manager_cartridge_address), .cartridge_data(manager_cartridge_data),
+        .cartridge_write(manager_cartridge_write), .cartridge_enabled(manager_cartridge_enabled),
+        .cartridge_launch(manager_cartridge_launch)
     );
-    // Keep manager output selected while qualifying FDC streaming.  It emits
-    // one compact line per requested sector; restore the CoCo stream after
-    // this hardware diagnostic is complete.
-    assign uart_debug_tx = manager_uart_tx;
+
+    // The SD manager intentionally survives both Ctrl-Alt-Delete and a
+    // cartridge power cycle, preserving mounted disks and dirty-cache
+    // ownership.  A real ROM-Pak is installed with power off, so an F12
+    // selection is staged as the same operation: isolate the old cartridge,
+    // cold-reset only the CoCo, wait for the system ROM's initialized BASIC
+    // loop, and only then map the verified image and present its CART edge.
+    // This prevents a second selection from injecting FIRQ into arbitrary
+    // game state.
+    always @(posedge pixel_clk) begin
+        if (reset || soft_reset_active) begin
+            cartridge_boot_state <= CART_BOOT_IDLE;
+            cartridge_cold_reset_count <= 22'd0;
+            cartridge_session_active <= 1'b0;
+        end else if (!manager_cartridge_enabled) begin
+            cartridge_boot_state <= CART_BOOT_IDLE;
+            cartridge_cold_reset_count <= 22'd0;
+            cartridge_session_active <= 1'b0;
+        end else begin
+            case (cartridge_boot_state)
+                CART_BOOT_IDLE: begin
+                    if (manager_cartridge_launch) begin
+                        cartridge_boot_state <= CART_BOOT_RESET;
+                        cartridge_cold_reset_count <= 22'd0;
+                        cartridge_session_active <= 1'b0;
+                    end
+                end
+                CART_BOOT_RESET: begin
+                    if (cartridge_cold_reset_count < CARTRIDGE_COLD_RESET_CLOCKS)
+                        cartridge_cold_reset_count <= cartridge_cold_reset_count + 1'b1;
+                    else if (!menu_active) begin
+                        // debug_pc can retain its pre-reset $A7D5 value for
+                        // several clocks while the 6809 reset pipeline starts.
+                        // Require visible departure from the BASIC idle loop
+                        // before accepting a later return as completed boot.
+                        cartridge_boot_state <= CART_BOOT_WAIT_START;
+                        cartridge_cold_reset_count <= 22'd0;
+                    end
+                end
+                CART_BOOT_WAIT_START: begin
+                    if (!basic_idle)
+                        cartridge_boot_state <= CART_BOOT_WAIT_BASIC;
+                end
+                CART_BOOT_WAIT_BASIC: begin
+                    if (basic_idle)
+                        cartridge_boot_state <= CART_BOOT_LAUNCH;
+                end
+                CART_BOOT_LAUNCH: begin
+                    cartridge_boot_state <= CART_BOOT_IDLE;
+                    cartridge_session_active <= 1'b1;
+                end
+                default: begin
+                    cartridge_boot_state <= CART_BOOT_IDLE;
+                    cartridge_session_active <= 1'b0;
+                end
+            endcase
+        end
+    end
+`ifdef COCO3_CPU_UART_DEBUG
+    // A cartridge launch is followed immediately by CoCo-side execution
+    // diagnostics. Keep the pin with that trace for the entire cartridge
+    // session: switching sources mid-character corrupts both UART lines.
+    // Before a cartridge is active, retain firmware/menu status output.
+    assign uart_debug_tx = effective_cartridge_enabled ? coco_uart_debug_tx :
+                           manager_uart_busy ? manager_uart_tx : coco_uart_debug_tx;
+`else
+    // Control build: remove the CPU/MMU tracer entirely. The manager UART
+    // remains available, but it cannot share the pin with a CoCo trace.
+    assign uart_debug_tx = manager_uart_busy ? manager_uart_tx : 1'b1;
+`endif
 
     COCOKEY keyboard_i (
-        .RESET_N(~reset),
+        .RESET_N(~keyboard_decoder_reset),
         .CLK50MHZ(pixel_clk),
         .SLO_CLK(pixel_clk),
         .PS2_CLK(ps2_clk),
@@ -204,7 +298,6 @@ module coco3_boot_system (
     always @(posedge pixel_clk) begin
         if (reset) begin
             keyboard_f6_sync <= 2'b00;
-            keyboard_f3_sync <= 2'b00;
             keyboard_f7_sync <= 2'b00;
             keyboard_f11_sync <= 2'b00;
             keyboard_f12_sync <= 2'b00;
@@ -212,9 +305,9 @@ module coco3_boot_system (
             keyboard_f8_sync <= 2'b00;
             keyboard_f9_sync <= 2'b00;
             keyboard_reset_sync <= 2'b00;
+            keyboard_reset_previous <= 1'b0;
             keyboard_f11_previous <= 1'b0;
             keyboard_f6_previous <= 1'b0;
-            keyboard_f3_previous <= 1'b0;
             keyboard_f7_previous <= 1'b0;
             cpu_fast_mode <= 1'b0;
             keyboard_right_joystick_enabled <= 1'b0;
@@ -227,7 +320,6 @@ module coco3_boot_system (
             crt_enabled <= 1'b0;
         end else begin
             keyboard_f6_sync <= {keyboard_f6_sync[0], keyboard_f6};
-            keyboard_f3_sync <= {keyboard_f3_sync[0], keyboard_f3};
             keyboard_f7_sync <= {keyboard_f7_sync[0], keyboard_f7};
             keyboard_f11_sync <= {keyboard_f11_sync[0], keyboard_f11};
             keyboard_f12_sync <= {keyboard_f12_sync[0], keyboard_f12};
@@ -235,9 +327,9 @@ module coco3_boot_system (
             keyboard_f8_sync <= {keyboard_f8_sync[0], keyboard_f8};
             keyboard_f9_sync <= {keyboard_f9_sync[0], keyboard_f9};
             keyboard_reset_sync <= {keyboard_reset_sync[0], keyboard_reset};
+            keyboard_reset_previous <= keyboard_reset_sync[1];
             keyboard_f11_previous <= keyboard_f11_sync[1];
             keyboard_f6_previous <= keyboard_f6_sync[1];
-            keyboard_f3_previous <= keyboard_f3_sync[1];
             keyboard_f7_previous <= keyboard_f7_sync[1];
             keyboard_f10_previous <= keyboard_f10_sync[1];
             keyboard_f8_previous <= keyboard_f8_sync[1];
@@ -267,25 +359,17 @@ module coco3_boot_system (
         if (reset) begin
             soft_reset_active <= 1'b0;
             soft_reset_release_count <= 22'd0;
-            diagnostic_cartridge_enabled <= 1'b0;
-        end else if (keyboard_reset_sync[1]) begin
+        end else if (keyboard_reset_event) begin
             soft_reset_active <= 1'b1;
             soft_reset_release_count <= 22'd0;
-            diagnostic_cartridge_enabled <= 1'b0;
-        end else if (keyboard_f3_sync[1] && !keyboard_f3_previous) begin
-            // Present an autostart ROM-Pak to the already initialized
-            // machine. Resetting the CPU and PIAs here leaves PIA0 port A in
-            // DDR mode, causing ZIA's keyboard scanner to read $00 forever.
-            // The cartridge controller supplies the delayed CART/FIRQ edge.
-            diagnostic_cartridge_enabled <= 1'b1;
         end else if (soft_reset_active) begin
             if (soft_reset_keys_held) begin
                 soft_reset_release_count <= 22'd0;
-            end else if (soft_reset_release_count == 22'd2499999 &&
+            end else if (soft_reset_release_count == SOFT_RESET_GUARD_CLOCKS &&
                          raster_resync) begin
                 soft_reset_active <= 1'b0;
                 soft_reset_release_count <= 22'd0;
-            end else if (soft_reset_release_count == 22'd2499999) begin
+            end else if (soft_reset_release_count == SOFT_RESET_GUARD_CLOCKS) begin
                 // Saturate after the key-release guard interval.  The HDMI
                 // frame pulse is only one pixel clock wide and may arrive
                 // after this counter reaches its terminal value.
@@ -297,13 +381,17 @@ module coco3_boot_system (
     end
 
     coco3_boot_machine machine_i (
-        .clock(pixel_clk), .reset(system_reset), .debug_address(cpu_address),
+        .clock(pixel_clk), .reset(machine_reset), .debug_address(cpu_address),
         .debug_pc(cpu_pc),
         .cpu_fast_mode(cpu_fast_mode),
+        .cartridge_enabled(effective_cartridge_enabled),
+        .cartridge_launch(effective_cartridge_launch),
+        .cartridge_address(manager_cartridge_address), .cartridge_write_data(manager_cartridge_data),
+        .cartridge_write(manager_cartridge_write),
+        .cold_start_clear(cartridge_cold_reset),
         .cpu_halt(menu_active),
-        .diagnostic_cartridge_enabled(diagnostic_cartridge_enabled),
         .debug_vma(cpu_vma), .debug_read(cpu_read),
-        .debug_opfetch(cpu_opfetch), .debug_read_data(cpu_read_data),
+        .debug_opfetch(), .debug_read_data(cpu_read_data),
         .debug_ram_write(),
         .debug_io_write(io_write), .debug_write_data(cpu_data),
         .keyboard_keys(machine_keyboard_keys),
@@ -326,7 +414,12 @@ module coco3_boot_system (
         .sd_fdc_completed_debug_word(manager_fdc_completed_debug_word),
         .sd_fdc_write_strobe(manager_fdc_write_strobe), .sd_fdc_write_data(manager_fdc_write_data),
         .sd_fdc_write_complete_toggle(manager_fdc_write_complete_toggle),
-        .video_hsync(raw_hsync), .video_vsync(raw_vsync),
+        // COCO3VIDEO renders doubled scanlines.  The original CoCo3FPGA
+        // hardware gated PIA0 CA1 with SYNC_FLAG so legacy software receives
+        // the CoCo's ~15.7 kHz horizontal interrupt rather than every
+        // ~31 kHz output line.  GIME/video events continue to use raw_hsync.
+        .video_hsync(raw_hsync), .pia_hsync(raw_hsync | ~sync_flag),
+        .video_vsync(raw_vsync),
         .video_address(video_address), .video_read_data(video_data),
         .audio_dac(audio_dac), .video_vdg_control(vid_cont),
         .video_css(css), .video_palette(machine_palette),
@@ -350,18 +443,20 @@ module coco3_boot_system (
     assign hven = gime_horizontal_offset[7];
     assign hor_offset = gime_horizontal_offset[6:0];
 
+`ifdef COCO3_CPU_UART_DEBUG
     coco3_uart_debug uart_debug_i (
-        .clock(pixel_clk), .reset(reset), .cpu_address(cpu_address),
+        .clock(pixel_clk), .reset(system_reset), .cpu_address(cpu_address),
         .cpu_pc(cpu_pc),
-        .cpu_vma(cpu_vma), .cpu_read(cpu_read), .cpu_opfetch(cpu_opfetch),
+        .cpu_vma(cpu_vma), .cpu_read(cpu_read),
         .cpu_read_data(cpu_read_data), .cpu_write_data(cpu_data),
         .keyboard_active(|keyboard_keys),
-        .cartridge_enabled(diagnostic_cartridge_enabled),
-        .sd_status(sd_status), .sd_detail(sd_detail),
+        .cartridge_enabled(effective_cartridge_enabled),
+        .sd_status(sd_status),
         .video_state({gime_video_mode,gime_video_resolution,{6'b0,start_hsb},
                       gime_video_offset,gime_horizontal_offset,machine_palette,video_data}),
         .uart_tx_o(coco_uart_debug_tx)
     );
+`endif
 
     generate
         for (palette_index = 0; palette_index < 16; palette_index = palette_index + 1) begin : expand_palette
@@ -370,7 +465,7 @@ module coco3_boot_system (
     endgenerate
 
     always @(posedge pixel_clk) begin
-        if (system_reset) begin
+        if (machine_reset) begin
             coco <= 0; v <= 0; vert <= 0;
         end else if (io_write) begin
             case (cpu_address)
@@ -401,7 +496,7 @@ module coco3_boot_system (
     end
 
     COCO3VIDEO video_i (
-        .PIX_CLK(pixel_clk), .RESET_N(~(system_reset | raster_resync)),
+        .PIX_CLK(pixel_clk), .RESET_N(~(machine_reset | raster_resync)),
         .COLOR(color), .HSYNC(raw_hsync),
         .SYNC_FLAG(sync_flag), .VSYNC(raw_vsync), .HBLANKING(hblank),
         .VBLANKING(vblank), .RAM_ADDRESS(video_address), .RAM_DATA(video_data),
@@ -483,7 +578,7 @@ module coco3_boot_system (
     // The HDMI wrapper realigns the GIME once per transport frame. Reset the
     // downstream pixel pipelines at the same instant; otherwise their delay
     // registers carry the tail of the previous frame into the visible border.
-    wire video_pipeline_reset = system_reset | raster_resync;
+    wire video_pipeline_reset = machine_reset | raster_resync;
     ntsc_artifact_filter artifact_i (
         .pixel_clk(pixel_clk), .reset(video_pipeline_reset),
         .enable(artifact_enabled && artifact_compatible_mode),

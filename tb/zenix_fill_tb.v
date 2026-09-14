@@ -10,11 +10,12 @@ module zenix_fill_tb;
  reg [7:0] actual,expected,first_offset;
  always #5 clock=~clock;
  coco3_boot_machine dut(.clock(clock),.reset(reset),.cpu_fast_mode(1'b1),.cpu_halt(1'b0),
- .diagnostic_cartridge_enabled(1'b0),.keyboard_keys(56'b0),
+  .cartridge_enabled(1'b0),.cartridge_launch(1'b0),.cartridge_address(15'd0),.cartridge_write_data(8'd0),.cartridge_write(1'b0),.cold_start_clear(1'b0),
+ .keyboard_keys(56'b0),
  .keyboard_shift(1'b0),.keyboard_shift_override(1'b0),
  .joystick_left_x(6'd32),.joystick_left_y(6'd32),.joystick_left_fire(1'b0),
  .joystick_right_x(6'd32),.joystick_right_y(6'd32),.joystick_right_fire(1'b0),
- .sd_status(8'd0),.sd_detail(8'd0),.video_hsync(1'b1),
+ .sd_status(8'd0),.sd_detail(8'd0),.video_hsync(1'b1),.pia_hsync(1'b1),
  .video_vsync(1'b1),.video_address(20'd0));
  initial begin
   $readmemh("zen_harness.mem",program_data);

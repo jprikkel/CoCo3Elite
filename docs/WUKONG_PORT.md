@@ -107,7 +107,7 @@ These are already assigned in `constraints/wukong.xdc`; UART RX/F3 is unused.
 PS/2 inputs have pull-ups, asynchronous input false paths, and receiver
 synchronizer attributes. MISO has a pull-up and asynchronous input false path.
 Neither PS/2 clock nor SPI clock is declared as a new external timing clock.
-See [keyboard wiring](../hardware/keyboard-ps2.md) for voltage requirements.
+See [keyboard wiring](../hardware/pmod-keyboard-ps2-interface.md) for voltage requirements.
 
 The MicroSD path currently supports initialization and sector-zero reads only,
 not FAT32 DSK mounting. Optional read-only embedded disks are separate local,

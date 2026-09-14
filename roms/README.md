@@ -35,12 +35,15 @@ The importer requires the canonical image with SHA-1
 `build/roms/disk11.mem`. The ROM is mapped as an external cartridge at
 `$C000-$DFFF`; the binary and generated memory file remain uncommitted.
 
-## Diagnostic cartridge and utilities
+## Cartridge images and diagnostic tests
 
-Supply `roms/ziadiag.ccc` locally before building `COCO3_ELITE`. The launcher always runs
-`prepare_diagnostic_cartridge.ps1` for those modes, independently of
-`-EmbeddedTestDisks`. There is no launcher switch to omit the cartridge.
-For a manual import, run from the repository root:
+The `COCO3_ELITE` build does not embed a fixed cartridge. Put compatible raw
+2, 4, or 8 KiB `.CCC` images on a FAT32 SD card and select them through F12.
+The manager mirrors smaller images across the 8 KiB `$C000-$DFFF` window,
+verifies the download, cold-starts the CoCo, and launches through CART/FIRQ.
+
+The standalone cartridge trace regression uses `roms/ziadiag.ccc` as a local
+test fixture. To prepare its simulation image manually, run:
 
 ```powershell
 & .\scripts\prepare_diagnostic_cartridge.ps1
@@ -52,22 +55,14 @@ the 8 KiB window, and prints SHA-256. Local ROMs and utilities remain untracked.
 `ziadiag.ccc` is the 8 KiB ZIA Computing diagnostic cartridge built from
 [varmfskii/cocodiag on GitHub](https://github.com/varmfskii/cocodiag), which is
 licensed under GPL-3.0. That repository contains the cartridge source code and
-documentation for its tests. The importer maps the image through the
-`$C000-$DFFF` cartridge window and writes
-`build/roms/diagnostic_cart.mem`.
-
-Pressing F3 presents the cartridge to the already initialized CoCo and then
-emulates the PIA1 CB1/CART edge used by an autostart ROM-Pak. The system ROM's
-FIRQ cartridge-start path transfers control to the cartridge; the FPGA does
-not replace the 6809 reset vector with `$C000`. Ctrl+Alt+Delete performs a
-normal reset, deselects the cartridge, and returns to Disk Extended Color
-BASIC.
+documentation for its tests. The importer writes
+`build/roms/diagnostic_cart.mem` for simulation only.
 
 ZIA Diag deliberately performs March RAM tests and extensive GIME MMU probing
 before displaying its main menu. It therefore exposes RAM/MMU timing and
 aliasing errors that lighter BASIC tests may not find. A separately supplied
 Tandy diagnostic image can be imported manually for
-comparison, but the build launcher selects ZIA and regenerates its memory file.
+comparison by passing it explicitly to the importer or trace script.
 
 The cartridge main screen, keyboard, memory, ROM, joystick, and sound tests
 have previously run. HDMI playback is hardware-verified, although some
