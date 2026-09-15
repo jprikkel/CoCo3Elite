@@ -22,11 +22,18 @@ module manager_sd_mmio_tb;
     reg [7:0] fdc_buffer_address = 0;
     reg fdc_write_strobe = 0;
     reg [7:0] fdc_write_data = 0;
-    reg [4:0] menu_key_state = 0;
-    reg [9:0] osd_char_address = 0;
+    reg [8:0] menu_key_state = 0;
+    reg [10:0] osd_char_address = 0;
     wire [7:0] osd_char_data;
     wire osd_active;
     wire [4:0] osd_selected_row;
+    wire osd_narrow_selection;
+    wire osd_option_selection;
+    wire [1:0] osd_font_style;
+    wire [2:0] artifact_mode;
+    wire [1:0] artifact_palette;
+    wire [3:0] coco2_palette;
+    wire [3:0] text_color_theme;
     wire fdc_done_toggle, fdc_success;
     wire [7:0] fdc_buffer_data;
     integer rising_edges = 0;
@@ -65,6 +72,12 @@ module manager_sd_mmio_tb;
         .menu_key_state(menu_key_state), .osd_char_address(osd_char_address),
         .osd_char_data(osd_char_data), .osd_active(osd_active),
         .osd_selected_row(osd_selected_row),
+        .osd_narrow_selection(osd_narrow_selection),
+        .osd_option_selection(osd_option_selection),
+        .osd_font_style(osd_font_style),
+        .artifact_mode(artifact_mode),.artifact_palette(artifact_palette),
+        .coco2_palette(coco2_palette),
+        .text_color_theme(text_color_theme),
         .fdc_done_toggle(fdc_done_toggle), .fdc_success(fdc_success),
         .fdc_write_done_toggle(), .fdc_write_success(), .fdc_present(),
         .manager_ready(), .cartridge_address(cartridge_address),
@@ -123,18 +136,42 @@ module manager_sd_mmio_tb;
         repeat (4) @(posedge clock);
         reset = 0;
         $display("checking OSD character and input MMIO");
+        if (osd_font_style != 2'd1)
+            $fatal(1, "Tamzen is not the default management font");
         write32(32'h8000024c, 10'd12);
         write32(32'h80000250, 8'h41);
         osd_char_address = 10'd12; #1;
         if (osd_char_data !== 8'h41)
             $fatal(1, "OSD character RAM mismatch: %h", osd_char_data);
-        write32(32'h80000254, (32'd7 << 8) | 1);
-        if (!osd_active || osd_selected_row != 5'd7)
+        write32(32'h8000024c, 11'd2015);
+        write32(32'h80000250, 8'h90);
+        osd_char_address = 11'd2015; #1;
+        if (osd_char_data !== 8'h90)
+            $fatal(1, "expanded OSD character RAM mismatch: %h", osd_char_data);
+        write32(32'h80000254, (32'd7 << 8) | 7);
+        if (!osd_active || !osd_narrow_selection || !osd_option_selection ||
+            osd_selected_row != 5'd7)
             $fatal(1, "OSD control was not published");
-        menu_key_state = 5'b10101;
+        write32(32'h80000278, 32'd3);
+        if (osd_font_style != 2'd3)
+            $fatal(1, "OSD font style was not published");
+        read32(32'h80000278, value);
+        if (value[1:0] != 2'd3)
+            $fatal(1, "OSD font style readback mismatch: %h", value[1:0]);
+        // Bit 7 extends artifact style; bit 8 extends the CoCo palette.
+        write32(32'h8000027c, 32'h000001f5);
+        if(artifact_mode!=3'd5 || artifact_palette!=2'd1 || coco2_palette!=4'd15)
+            $fatal(1,"video settings were not published");
+        read32(32'h8000027c,value);
+        if(value[8:0]!=9'h1f5)$fatal(1,"video settings readback mismatch: %h",value);
+        write32(32'h80000280, 32'd9);
+        if(text_color_theme!=4'd9)$fatal(1,"text theme was not published");
+        read32(32'h80000280,value);
+        if(value[3:0]!=4'd9)$fatal(1,"text theme readback mismatch: %h",value);
+        menu_key_state = 9'b110110101;
         read32(32'h80000258, value);
-        if (value[4:0] !== 5'b10101)
-            $fatal(1, "menu key state mismatch: %h", value[4:0]);
+        if (value[8:0] !== 9'b110110101)
+            $fatal(1, "menu key state mismatch: %h", value[8:0]);
         $display("checking cartridge control ownership");
         write32(32'h80000264, 32'h0);
         write32(32'h8000025c, 15'h1234);

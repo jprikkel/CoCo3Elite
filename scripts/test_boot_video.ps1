@@ -20,9 +20,11 @@ if (-not $UseExistingRomMem) {
 
 New-Item -ItemType Directory -Force -Path (Join-Path $runDir 'build\roms') | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $runDir 'rtl\core') | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $runDir 'rtl\management') | Out-Null
 Copy-Item -LiteralPath (Join-Path $repoRoot 'build\roms\coco3.mem') -Destination (Join-Path $runDir 'build\roms\coco3.mem') -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot 'build\roms\disk11.mem') -Destination (Join-Path $runDir 'build\roms\disk11.mem') -Force
 Copy-Item -LiteralPath (Join-Path $repoRoot 'rtl\core\coco3gen.mem') -Destination (Join-Path $runDir 'rtl\core\coco3gen.mem') -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot 'rtl\management\manager_fonts.mem') -Destination (Join-Path $runDir 'rtl\management\manager_fonts.mem') -Force
 
 $firmwareDir = Join-Path $runDir 'firmware'
 $toolchain = 'C:\AMD\2025.2\gnu\riscv\nt\bin'
@@ -36,6 +38,7 @@ $firmwareBin = Join-Path $firmwareDir 'rv32_sd_mount.bin'
     '-I' $firmwareDir `
     (Join-Path $repoRoot 'firmware\management\rv32_start.S') `
     (Join-Path $repoRoot 'firmware\management\decb_bin_format.c') `
+    (Join-Path $repoRoot 'firmware\management\settings_ui.c') `
     (Join-Path $repoRoot 'firmware\management\rv32_sd_mount.c') '-o' $firmwareElf
 if ($LASTEXITCODE) { throw "RV32 firmware link failed: $LASTEXITCODE" }
 & (Join-Path $toolchain 'riscv64-unknown-elf-objcopy.exe') '-O' 'binary' $firmwareElf $firmwareBin
@@ -64,6 +67,7 @@ $sources = @($managerCpuSources) + (@(
     'rtl\core\coco3_disk_image.v',
     'rtl\management\manager_sd_mmio.v',
     'rtl\management\ultraembedded_manager_sd_mount.v',
+    'rtl\management\manager_font_rom.v',
     'rtl\management\manager_osd.v',
     'rtl\core\coco3_fdc.v', 'rtl\core\coco3_gime_timer.v',
     'rtl\core\coco3_gime_interrupt.v',

@@ -6,7 +6,10 @@
 // 0x80000100 SPI control: bit 0 CS_n, bits 15:8 half-period divider.
 // 0x80000104 SPI transfer byte write (response is delayed until byte complete).
 // 0x80000108 SPI received byte read.  0x80000200..214 are the FDC mailbox and
-// its 256-byte shared read buffer.  The delayed write response is intentional:
+// its 256-byte shared read buffer. OSD font style is at 0x80000278 and live
+// artifact/CoCo 2 video settings are at 0x8000027c and the text-color theme
+// is at 0x80000280. The
+// delayed write response is intentional:
 // it makes one MMIO store exactly one synchronous SPI byte transaction.
 module manager_sd_mmio #(
     parameter integer UART_CLKS_PER_BIT = 434,
@@ -26,11 +29,18 @@ module manager_sd_mmio #(
     input wire [7:0] fdc_sector, input wire [7:0] fdc_last_type1, input wire [31:0] fdc_debug_word, input wire [31:0] fdc_completed_debug_word, input wire fdc_read_complete_toggle, input wire fdc_write_complete_toggle, input wire fdc_request_toggle,
     input wire [7:0] fdc_buffer_address, output wire [7:0] fdc_buffer_data,
     input wire fdc_write_strobe, input wire [7:0] fdc_write_data,
-    input wire [4:0] menu_key_state,
-    input wire [9:0] osd_char_address,
+    input wire [8:0] menu_key_state,
+    input wire [10:0] osd_char_address,
     output wire [7:0] osd_char_data,
     output reg osd_active,
     output reg [4:0] osd_selected_row,
+    output reg osd_narrow_selection,
+    output reg osd_option_selection,
+    output reg [1:0] osd_font_style,
+    output reg [2:0] artifact_mode,
+    output reg [1:0] artifact_palette,
+    output reg [3:0] coco2_palette,
+    output reg [3:0] text_color_theme,
     output reg fdc_done_toggle, output reg fdc_success,
     output reg fdc_write_done_toggle, output reg fdc_write_success,
     output reg [2:0] fdc_present, output reg manager_ready
@@ -61,7 +71,10 @@ module manager_sd_mmio #(
                CARTRIDGE_SIGNATURE = 32'h80000268,
                BIN_FIFO_DATA = 32'h8000026c,
                BIN_FIFO_CONTROL = 32'h80000270,
-               BIN_FIFO_STATUS = 32'h80000274;
+               BIN_FIFO_STATUS = 32'h80000274,
+               OSD_FONT_STYLE = 32'h80000278,
+               VIDEO_SETTINGS = 32'h8000027c,
+               TEXT_SETTINGS = 32'h80000280;
     reg have_address, have_data, transaction_active, await_spi, spi_seen_busy;
     reg [31:0] write_address, write_data;
     reg [7:0] spi_tx, spi_rx, spi_tx_shift, spi_rx_shift;
@@ -82,8 +95,8 @@ module manager_sd_mmio #(
     reg [3:0] bin_fifo_write_pointer, bin_fifo_read_pointer;
     reg [4:0] bin_fifo_count;
     reg bin_loader_done_seen, bin_cancelled;
-    (* ram_style = "distributed" *) reg [7:0] osd_chars [0:1023];
-    reg [9:0] osd_write_address;
+    (* ram_style = "distributed" *) reg [7:0] osd_chars [0:2047];
+    reg [10:0] osd_write_address;
     // These banks require asynchronous reads at the CoCo bus service edge.
     // Force LUT RAM so implementation cannot silently turn the FDC-facing
     // port into a clocked block-RAM read and retain the preceding sector.
@@ -255,6 +268,13 @@ module manager_sd_mmio #(
             osd_write_address <= 0;
             osd_active <= 1'b0;
             osd_selected_row <= 0;
+            osd_narrow_selection <= 1'b0;
+            osd_option_selection <= 1'b0;
+            osd_font_style <= 2'd1;
+            artifact_mode <= 3'd1;
+            artifact_palette <= 2'd0;
+            coco2_palette <= 4'd0;
+            text_color_theme <= 4'd0;
             fdc_done_toggle <= 0; fdc_success <= 0;
             fdc_write_done_toggle <= 0; fdc_write_success <= 0;
             fdc_present <= 0; manager_ready <= 0;
@@ -358,7 +378,7 @@ module manager_sd_mmio #(
                     disk_cache_debug_address <= write_data[17:0];
                     axi_bvalid <= 1'b1;
                 end else if (write_address == OSD_ADDRESS) begin
-                    osd_write_address <= write_data[9:0];
+                    osd_write_address <= write_data[10:0];
                     axi_bvalid <= 1'b1;
                 end else if (write_address == OSD_DATA) begin
                     osd_chars[osd_write_address] <= write_data[7:0];
@@ -366,7 +386,22 @@ module manager_sd_mmio #(
                     axi_bvalid <= 1'b1;
                 end else if (write_address == OSD_CONTROL) begin
                     osd_active <= write_data[0];
+                    osd_narrow_selection <= write_data[1];
+                    osd_option_selection <= write_data[2];
                     osd_selected_row <= write_data[12:8];
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == OSD_FONT_STYLE) begin
+                    osd_font_style <= write_data[1:0];
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == VIDEO_SETTINGS) begin
+                    // Bits 1:0 and 7 select Off/Thin/Classic/MAME/XRoar.
+                    // Bits 3:2 independently select the artifact color pair.
+                    artifact_mode <= {write_data[7], write_data[1:0]};
+                    artifact_palette <= write_data[3:2];
+                    coco2_palette <= {write_data[8], write_data[6:4]};
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == TEXT_SETTINGS) begin
+                    text_color_theme <= write_data[3:0];
                     axi_bvalid <= 1'b1;
                 end else if (write_address == CARTRIDGE_ADDRESS) begin
                     cartridge_address <= write_data[14:0];
@@ -478,8 +513,15 @@ module manager_sd_mmio #(
                     DISK_CACHE_STATUS: axi_rdata <= {13'b0,
                         disk_cache_write_address, disk_cache_ready};
                     DISK_CACHE_DEBUG_DATA: axi_rdata <= {24'b0, disk_cache_fdc_data};
-                    OSD_CONTROL: axi_rdata <= {19'b0, osd_selected_row, 7'b0, osd_active};
-                    MENU_KEY_STATE: axi_rdata <= {27'b0, menu_key_state};
+                    OSD_CONTROL: axi_rdata <= {19'b0, osd_selected_row, 5'b0,
+                                               osd_option_selection,
+                                               osd_narrow_selection, osd_active};
+                    MENU_KEY_STATE: axi_rdata <= {23'b0, menu_key_state};
+                    OSD_FONT_STYLE: axi_rdata <= {30'b0, osd_font_style};
+                    VIDEO_SETTINGS: axi_rdata <= {23'b0, coco2_palette[3],
+                        artifact_mode[2], coco2_palette[2:0],
+                        artifact_palette, artifact_mode[1:0]};
+                    TEXT_SETTINGS: axi_rdata <= {28'b0, text_color_theme};
                     CARTRIDGE_SIGNATURE: axi_rdata <= cartridge_signature;
                     BIN_FIFO_STATUS: axi_rdata <= {
                         11'b0, bin_cancelled, bin_transfer_error,

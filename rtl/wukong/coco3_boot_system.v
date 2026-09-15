@@ -51,6 +51,7 @@ module coco3_boot_system #(
     wire [7:0] gime_video_resolution;
     wire [15:0] gime_video_offset;
     wire [7:0] gime_horizontal_offset;
+    wire artifact_compatible_mode = coco && (vid_cont == 4'b1111);
     wire [95:0] machine_palette;
     wire [5:0] border_palette;
     wire gime_blink;
@@ -80,13 +81,11 @@ module coco3_boot_system #(
     reg [1:0] keyboard_f12_sync;
     reg [1:0] keyboard_reset_sync;
     reg keyboard_reset_previous;
-    reg keyboard_f11_previous;
     reg keyboard_f6_previous;
     reg keyboard_f7_previous;
     reg cpu_fast_mode;
     reg keyboard_right_joystick_enabled;
     reg artifact_enabled;
-    reg crt_enabled;
     reg keyboard_f10_previous;
     reg keyboard_f8_previous;
     reg keyboard_f9_previous;
@@ -172,11 +171,20 @@ module coco3_boot_system #(
                                        (cartridge_session_active ||
                                         cartridge_boot_state == CART_BOOT_LAUNCH);
     wire machine_reset = system_reset | cartridge_cold_reset;
-    wire [9:0] manager_osd_char_address;
+    wire [10:0] manager_osd_char_address;
     wire [7:0] manager_osd_char_data;
     wire [4:0] manager_osd_selected_row;
     wire manager_osd_active;
-    wire [4:0] manager_menu_key_state = {
+    wire manager_osd_narrow_selection;
+    wire manager_osd_option_selection;
+    wire [1:0] manager_osd_font_style;
+    wire [2:0] manager_artifact_mode;
+    wire [1:0] manager_artifact_palette;
+    wire [3:0] manager_coco2_palette;
+    wire [3:0] manager_text_color_theme;
+    wire [8:0] manager_menu_key_state = {
+        keyboard_keys[49],
+        keyboard_keys[30], keyboard_keys[29], keyboard_f11_sync[1],
         keyboard_keys[50], keyboard_keys[48], keyboard_keys[28],
         keyboard_keys[27], keyboard_f12_sync[1]};
     wire [7:0] sd_status = {4'b1010, manager_ready, manager_drive_present};
@@ -199,6 +207,13 @@ module coco3_boot_system #(
         .osd_char_data(manager_osd_char_data),
         .osd_active(manager_osd_active),
         .osd_selected_row(manager_osd_selected_row),
+        .osd_narrow_selection(manager_osd_narrow_selection),
+        .osd_option_selection(manager_osd_option_selection),
+        .osd_font_style(manager_osd_font_style),
+        .artifact_mode(manager_artifact_mode),
+        .artifact_palette(manager_artifact_palette),
+        .coco2_palette(manager_coco2_palette),
+        .text_color_theme(manager_text_color_theme),
         .fdc_done_toggle(manager_done_toggle), .fdc_success(manager_success),
         .fdc_write_done_toggle(manager_write_done_toggle), .fdc_write_success(manager_write_success),
         .fdc_present(manager_drive_present), .manager_ready(manager_ready)
@@ -316,7 +331,6 @@ module coco3_boot_system #(
             keyboard_f9_sync <= 2'b00;
             keyboard_reset_sync <= 2'b00;
             keyboard_reset_previous <= 1'b0;
-            keyboard_f11_previous <= 1'b0;
             keyboard_f6_previous <= 1'b0;
             keyboard_f7_previous <= 1'b0;
             cpu_fast_mode <= 1'b0;
@@ -327,7 +341,6 @@ module coco3_boot_system #(
             keyboard_f9_previous <= 1'b0;
             keyboard_joystick_enabled <= 1'b0;
             scanlines_enabled <= 1'b0;
-            crt_enabled <= 1'b0;
         end else begin
             keyboard_f6_sync <= {keyboard_f6_sync[0], keyboard_f6};
             keyboard_f7_sync <= {keyboard_f7_sync[0], keyboard_f7};
@@ -338,7 +351,6 @@ module coco3_boot_system #(
             keyboard_f9_sync <= {keyboard_f9_sync[0], keyboard_f9};
             keyboard_reset_sync <= {keyboard_reset_sync[0], keyboard_reset};
             keyboard_reset_previous <= keyboard_reset_sync[1];
-            keyboard_f11_previous <= keyboard_f11_sync[1];
             keyboard_f6_previous <= keyboard_f6_sync[1];
             keyboard_f7_previous <= keyboard_f7_sync[1];
             keyboard_f10_previous <= keyboard_f10_sync[1];
@@ -346,14 +358,12 @@ module coco3_boot_system #(
             keyboard_f9_previous <= keyboard_f9_sync[1];
             if (keyboard_reset_sync[1])
                 artifact_enabled <= 1'b1;
-            else if (keyboard_f11_sync[1] && !keyboard_f11_previous)
+            else if (keyboard_f10_sync[1] && !keyboard_f10_previous)
                 artifact_enabled <= ~artifact_enabled;
             if (keyboard_f6_sync[1] && !keyboard_f6_previous)
                 cpu_fast_mode <= ~cpu_fast_mode;
             if (keyboard_f7_sync[1] && !keyboard_f7_previous)
                 keyboard_right_joystick_enabled <= ~keyboard_right_joystick_enabled;
-            if (keyboard_f10_sync[1] && !keyboard_f10_previous)
-                crt_enabled <= ~crt_enabled;
             if (keyboard_f8_sync[1] && !keyboard_f8_previous)
                 keyboard_joystick_enabled <= ~keyboard_joystick_enabled;
             if (keyboard_f9_sync[1] && !keyboard_f9_previous)
@@ -524,8 +534,178 @@ module coco3_boot_system #(
         .SCRN_START_HSB(start_hsb), .SCRN_START_MSB(start_msb),
         .SCRN_START_LSB(start_lsb), .BLINK(gime_blink), .SWITCH5(1'b0)
     );
+
+    // User-selectable text themes apply only to the MC6847-compatible alpha
+    // screen.  They recolor the two text slots and border after emulation;
+    // CoCo/GIME palette registers and display RAM remain untouched.
+    function [23:0] text_theme_rgb;
+        input [3:0] theme;
+        input [1:0] role; // 0 background, 1 text, 2 border
+        begin
+            case (theme)
+                4'd1: case (role) // C64
+                    2'd0: text_theme_rgb=24'h40318d;
+                    2'd1: text_theme_rgb=24'hb8afe8;
+                    default: text_theme_rgb=24'h7869c4;
+                endcase
+                4'd2: case (role) // Atari
+                    2'd0: text_theme_rgb=24'h183060;
+                    2'd1: text_theme_rgb=24'hd8d8b0;
+                    default: text_theme_rgb=24'h101820;
+                endcase
+                4'd3: case (role) // VT100
+                    2'd0: text_theme_rgb=24'h041008;
+                    2'd1: text_theme_rgb=24'ha0d8a0;
+                    default: text_theme_rgb=24'h081808;
+                endcase
+                4'd4: case (role) // VT220 amber
+                    2'd0: text_theme_rgb=24'h100c04;
+                    2'd1: text_theme_rgb=24'hffb850;
+                    default: text_theme_rgb=24'h201408;
+                endcase
+                4'd5: case (role) // VT220 green
+                    2'd0: text_theme_rgb=24'h041008;
+                    2'd1: text_theme_rgb=24'h70e890;
+                    default: text_theme_rgb=24'h082010;
+                endcase
+                4'd6: case (role) // IBM PC/DOS
+                    2'd0: text_theme_rgb=24'h0000aa;
+                    2'd1: text_theme_rgb=24'hffffff;
+                    default: text_theme_rgb=24'h000055;
+                endcase
+                4'd7: case (role) // Apple II green monitor
+                    2'd0: text_theme_rgb=24'h000000;
+                    2'd1: text_theme_rgb=24'h40ff40;
+                    default: text_theme_rgb=24'h001800;
+                endcase
+                4'd8: case (role) // Amstrad CPC
+                    2'd0: text_theme_rgb=24'h000080;
+                    2'd1: text_theme_rgb=24'hffff00;
+                    default: text_theme_rgb=24'h000040;
+                endcase
+                default: case (role) // Paperwhite
+                    2'd0: text_theme_rgb=24'he8e0c8;
+                    2'd1: text_theme_rgb=24'h181818;
+                    default: text_theme_rgb=24'h807860;
+                endcase
+            endcase
+        end
+    endfunction
+    wire coco_alpha_text = coco && !vid_cont[3] && !color[8];
+    wire coco_alpha_text_color = color[3:0] == 4'hc ||
+                                 color[3:0] == 4'hd ||
+                                 color[3:0] == 4'he ||
+                                 color[3:0] == 4'hf;
+    wire [1:0] text_theme_role = color[4] ? 2'd2 :
+                                  ((color[3:0] == 4'hc ||
+                                    color[3:0] == 4'he) ? 2'd1 : 2'd0);
+    wire [23:0] selected_text_rgb =
+        text_theme_rgb(manager_text_color_theme, text_theme_role);
+
     always @* begin
-        if (color[8]) begin
+        if (manager_text_color_theme != 0 && coco_alpha_text &&
+            (color[4] || coco_alpha_text_color)) begin
+            raw_red=selected_text_rgb[23:16];
+            raw_green=selected_text_rgb[15:8];
+            raw_blue=selected_text_rgb[7:0];
+        end else if (coco && !artifact_compatible_mode && manager_coco2_palette != 0 &&
+            !color[8] && !color[4]) begin
+            // Optional CoCo 2/MC6847 themes are a display-only replacement
+            // for the four logical VDG colors. They never alter GIME palette
+            // registers, native CoCo 3 modes, or the border color.
+            case (manager_coco2_palette)
+                4'd1: case (color[1:0]) // Base: requested semantic remap
+                    2'd0: begin raw_red=8'h00;raw_green=8'h00;raw_blue=8'h00;end
+                    2'd1: begin raw_red=8'hc4;raw_green=8'h8a;raw_blue=8'h52;end
+                    2'd2: begin raw_red=8'h78;raw_green=8'h3c;raw_blue=8'h18;end
+                    default: begin raw_red=8'h18;raw_green=8'h68;raw_blue=8'h28;end
+                endcase
+                4'd2: case (color[1:0]) // C64 green/yellow/blue/red
+                    2'd0: begin raw_red=8'h58;raw_green=8'h8d;raw_blue=8'h43;end
+                    2'd1: begin raw_red=8'hb8;raw_green=8'hc7;raw_blue=8'h6f;end
+                    2'd2: begin raw_red=8'h35;raw_green=8'h28;raw_blue=8'h79;end
+                    default: begin raw_red=8'h68;raw_green=8'h37;raw_blue=8'h2b;end
+                endcase
+                4'd3: case (color[1:0]) // Atari green/yellow/blue/red
+                    2'd0: begin raw_red=8'h48;raw_green=8'h98;raw_blue=8'h48;end
+                    2'd1: begin raw_red=8'he8;raw_green=8'hd8;raw_blue=8'h78;end
+                    2'd2: begin raw_red=8'h40;raw_green=8'h40;raw_blue=8'hc0;end
+                    default: begin raw_red=8'hd8;raw_green=8'h28;raw_blue=8'h00;end
+                endcase
+                4'd4: case (color[1:0]) // CGA-inspired
+                    2'd0: begin raw_red=8'h10;raw_green=8'h10;raw_blue=8'h10;end
+                    2'd1: begin raw_red=8'h40;raw_green=8'hc8;raw_blue=8'hd0;end
+                    2'd2: begin raw_red=8'hd0;raw_green=8'h50;raw_blue=8'ha0;end
+                    default: begin raw_red=8'he8;raw_green=8'he8;raw_blue=8'he0;end
+                endcase
+                4'd5: case (color[1:0]) // Earth
+                    2'd0: begin raw_red=8'h00;raw_green=8'h00;raw_blue=8'h00;end
+                    2'd1: begin raw_red=8'h78;raw_green=8'h3c;raw_blue=8'h18;end
+                    2'd2: begin raw_red=8'h18;raw_green=8'h68;raw_blue=8'h28;end
+                    default: begin raw_red=8'hb8;raw_green=8'h28;raw_blue=8'h20;end
+                endcase
+                4'd6: case (color[1:0]) // Amber
+                    2'd0: begin raw_red=8'h00;raw_green=8'h00;raw_blue=8'h00;end
+                    2'd1: begin raw_red=8'h58;raw_green=8'h30;raw_blue=8'h00;end
+                    2'd2: begin raw_red=8'hd0;raw_green=8'h90;raw_blue=8'h20;end
+                    default: begin raw_red=8'hff;raw_green=8'hdf;raw_blue=8'h80;end
+                endcase
+                4'd7: case (color[1:0]) // Cool adventure
+                    2'd0: begin raw_red=8'h10;raw_green=8'h18;raw_blue=8'h20;end
+                    2'd1: begin raw_red=8'h28;raw_green=8'h50;raw_blue=8'h80;end
+                    2'd2: begin raw_red=8'h50;raw_green=8'hc8;raw_blue=8'hc8;end
+                    default: begin raw_red=8'hf0;raw_green=8'he0;raw_blue=8'hb0;end
+                endcase
+                4'd8: case (color[1:0]) // CoCo artifact
+                    2'd0: begin raw_red=8'h18;raw_green=8'h18;raw_blue=8'h18;end
+                    2'd1: begin raw_red=8'h30;raw_green=8'h60;raw_blue=8'he0;end
+                    2'd2: begin raw_red=8'he0;raw_green=8'h60;raw_blue=8'h20;end
+                    default: begin raw_red=8'hd8;raw_green=8'hd0;raw_blue=8'hb8;end
+                endcase
+                4'd9: case (color[1:0]) // Forest
+                    2'd0: begin raw_red=8'h10;raw_green=8'h18;raw_blue=8'h10;end
+                    2'd1: begin raw_red=8'h28;raw_green=8'h60;raw_blue=8'h40;end
+                    2'd2: begin raw_red=8'h80;raw_green=8'hb8;raw_blue=8'h50;end
+                    default: begin raw_red=8'he8;raw_green=8'he0;raw_blue=8'h90;end
+                endcase
+                4'd10: case (color[1:0]) // Fire
+                    2'd0: begin raw_red=8'h18;raw_green=8'h0c;raw_blue=8'h10;end
+                    2'd1: begin raw_red=8'h70;raw_green=8'h20;raw_blue=8'h20;end
+                    2'd2: begin raw_red=8'hd0;raw_green=8'h60;raw_blue=8'h28;end
+                    default: begin raw_red=8'hf0;raw_green=8'hd0;raw_blue=8'h58;end
+                endcase
+                4'd11: case (color[1:0]) // Ice
+                    2'd0: begin raw_red=8'h10;raw_green=8'h10;raw_blue=8'h18;end
+                    2'd1: begin raw_red=8'h30;raw_green=8'h38;raw_blue=8'h78;end
+                    2'd2: begin raw_red=8'h68;raw_green=8'ha8;raw_blue=8'hd8;end
+                    default: begin raw_red=8'he8;raw_green=8'hf0;raw_blue=8'hf0;end
+                endcase
+                4'd12: case (color[1:0]) // Purple dusk
+                    2'd0: begin raw_red=8'h24;raw_green=8'h18;raw_blue=8'h30;end
+                    2'd1: begin raw_red=8'h60;raw_green=8'h48;raw_blue=8'h78;end
+                    2'd2: begin raw_red=8'hc0;raw_green=8'h70;raw_blue=8'h88;end
+                    default: begin raw_red=8'hf0;raw_green=8'hc8;raw_blue=8'h98;end
+                endcase
+                4'd13: case (color[1:0]) // Game Boy style
+                    2'd0: begin raw_red=8'h18;raw_green=8'h20;raw_blue=8'h18;end
+                    2'd1: begin raw_red=8'h40;raw_green=8'h58;raw_blue=8'h38;end
+                    2'd2: begin raw_red=8'h88;raw_green=8'ha8;raw_blue=8'h50;end
+                    default: begin raw_red=8'hd0;raw_green=8'hd8;raw_blue=8'h90;end
+                endcase
+                4'd14: case (color[1:0]) // Ocean/sunset
+                    2'd0: begin raw_red=8'h10;raw_green=8'h18;raw_blue=8'h38;end
+                    2'd1: begin raw_red=8'h28;raw_green=8'h58;raw_blue=8'ha0;end
+                    2'd2: begin raw_red=8'he0;raw_green=8'h68;raw_blue=8'h58;end
+                    default: begin raw_red=8'hf0;raw_green=8'hd8;raw_blue=8'h98;end
+                endcase
+                default: case (color[1:0]) // Neutral grayscale
+                    2'd0: begin raw_red=8'h10;raw_green=8'h10;raw_blue=8'h10;end
+                    2'd1: begin raw_red=8'h50;raw_green=8'h50;raw_blue=8'h50;end
+                    2'd2: begin raw_red=8'ha8;raw_green=8'ha8;raw_blue=8'ha8;end
+                    default: begin raw_red=8'hf0;raw_green=8'hf0;raw_blue=8'hf0;end
+                endcase
+            endcase
+        end else if (color[8]) begin
             // Preserve the four direct-color intensity modes used by the
             // original CoCo3FPGA DAC. COLOR[5:0] is R-G-B interleaved.
             case (color[7:6])
@@ -587,10 +767,9 @@ module coco3_boot_system #(
 
     // NTSC artifact color is meaningful only for the MC6847's 256x192
     // one-bit graphics mode (A/G=1, GM2:GM0=111).  Applying the decoder to
-    // four-color modes destroys their CSS-selected palette.  F11 remains the
+    // four-color modes destroys their CSS-selected palette.  F10 remains the
     // user preference, while this mode qualification protects all other VDG
     // and GIME video modes.
-    wire artifact_compatible_mode = coco && (vid_cont == 4'b1111);
     wire artifact_on_pixel = raw_red[7] && raw_green[7] && raw_blue[7];
     // The HDMI wrapper realigns the GIME once per transport frame. Reset the
     // downstream pixel pipelines at the same instant; otherwise their delay
@@ -598,7 +777,10 @@ module coco3_boot_system #(
     wire video_pipeline_reset = machine_reset | raster_resync;
     ntsc_artifact_filter artifact_i (
         .pixel_clk(pixel_clk), .reset(video_pipeline_reset),
-        .enable(artifact_enabled && artifact_compatible_mode),
+        .enable(artifact_enabled && artifact_compatible_mode &&
+                manager_artifact_mode != 0),
+        .decoder_style(manager_artifact_mode),
+        .color_set(manager_artifact_palette),
         .phase_reverse(1'b0), .in_hsync(raw_hsync), .in_vsync(raw_vsync),
         .in_video_enable(raw_video_enable),
         .in_on_pixel(artifact_on_pixel),
@@ -611,13 +793,13 @@ module coco3_boot_system #(
     wire [7:0] filtered_red, filtered_green, filtered_blue;
     crt_filter crt_i (
         .pixel_clk(pixel_clk), .reset(video_pipeline_reset),
-        .enable(crt_enabled | scanlines_enabled),
+        .enable(scanlines_enabled),
         .in_hsync(artifact_hsync), .in_vsync(artifact_vsync),
         .in_video_enable(artifact_video_enable),
         .in_red(artifact_red), .in_green(artifact_green), .in_blue(artifact_blue),
         .mask_layout(scanlines_enabled ? 5'd7 : 5'd0),
         .mask_intensity(8'd72),
-        .bloom_size(crt_enabled ? 3'd6 : 3'd0), .bloom_threshold(8'd100),
+        .bloom_size(3'd0), .bloom_threshold(8'd100),
         .corner_radius(7'd0), .vignette_size(7'd0),
         .vignette_strength(8'd0), .black_level(8'd0), .white_level(8'd255),
         .out_hsync(hsync), .out_vsync(vsync), .out_video_enable(video_enable),
@@ -628,6 +810,9 @@ module coco3_boot_system #(
         .clock(pixel_clk), .reset(reset), .active(manager_osd_active),
         .screen_x(screen_x), .screen_y(screen_y),
         .selected_row(manager_osd_selected_row),
+        .narrow_selection(manager_osd_narrow_selection),
+        .option_selection(manager_osd_option_selection),
+        .font_style(manager_osd_font_style),
         .char_address(manager_osd_char_address),
         .char_data(manager_osd_char_data),
         .red(osd_red), .green(osd_green), .blue(osd_blue)

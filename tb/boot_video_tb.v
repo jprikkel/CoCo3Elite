@@ -116,6 +116,64 @@ module boot_video_tb;
   release dut.color;
   release dut.palette[0];
 
+  // Setup palette themes are display-only substitutions for the four VDG
+  // logical slots: green, yellow, blue, and red. Verify the requested Base
+  // remap completely, then spot-check the named machine palettes.
+  force dut.coco = 1'b1;
+  force dut.vid_cont = 4'b0000;
+  force dut.manager_text_color_theme = 4'd0;
+  force dut.manager_coco2_palette = 4'd1;
+  force dut.color = 9'h000; #1;
+  if ({dut.raw_red,dut.raw_green,dut.raw_blue} !== 24'h000000)
+   $fatal(1,"Base original-green slot mismatch");
+  force dut.color = 9'h001; #1;
+  if ({dut.raw_red,dut.raw_green,dut.raw_blue} !== 24'hc48a52)
+   $fatal(1,"Base original-yellow slot mismatch");
+  force dut.color = 9'h002; #1;
+  if ({dut.raw_red,dut.raw_green,dut.raw_blue} !== 24'h783c18)
+   $fatal(1,"Base original-blue slot mismatch");
+  force dut.color = 9'h003; #1;
+  if ({dut.raw_red,dut.raw_green,dut.raw_blue} !== 24'h186828)
+   $fatal(1,"Base original-red slot mismatch");
+  force dut.manager_coco2_palette = 4'd2; #1;
+  if ({dut.raw_red,dut.raw_green,dut.raw_blue} !== 24'h68372b)
+   $fatal(1,"C64 red slot mismatch");
+  force dut.manager_coco2_palette = 4'd3;
+  force dut.color = 9'h002; #1;
+  if ({dut.raw_red,dut.raw_green,dut.raw_blue} !== 24'h4040c0)
+   $fatal(1,"Atari blue slot mismatch");
+  force dut.manager_coco2_palette = 4'd4;
+  force dut.color = 9'h001; #1;
+  if ({dut.raw_red,dut.raw_green,dut.raw_blue} !== 24'h40c8d0)
+   $fatal(1,"CGA cyan slot mismatch");
+  force dut.manager_coco2_palette = 4'd8;
+  force dut.color = 9'h002; #1;
+  if ({dut.raw_red,dut.raw_green,dut.raw_blue} !== 24'he06020)
+   $fatal(1,"CoCo artifact orange slot mismatch");
+  force dut.manager_coco2_palette = 4'd15;
+  force dut.color = 9'h003; #1;
+  if ({dut.raw_red,dut.raw_green,dut.raw_blue} !== 24'hf0f0f0)
+   $fatal(1,"grayscale white slot mismatch");
+
+  // Text themes independently replace MC6847 alpha foreground, background,
+  // and border colors without affecting graphics or software-visible state.
+  force dut.manager_text_color_theme = 4'd4;
+  force dut.color = 9'h00d; #1;
+  if ({dut.raw_red,dut.raw_green,dut.raw_blue} !== 24'h100c04)
+   $fatal(1,"VT220 amber background mismatch");
+  force dut.color = 9'h00c; #1;
+  if ({dut.raw_red,dut.raw_green,dut.raw_blue} !== 24'hffb850)
+   $fatal(1,"VT220 amber foreground mismatch");
+  force dut.color = 9'h010; #1;
+  if ({dut.raw_red,dut.raw_green,dut.raw_blue} !== 24'h201408)
+   $fatal(1,"VT220 amber border mismatch");
+  release dut.color;
+  release dut.manager_text_color_theme;
+  release dut.manager_coco2_palette;
+  release dut.vid_cont;
+  release dut.coco;
+  $display("PASS: four-color palettes and text themes");
+
   // GIME logical color 16 is the border register at $FF9A, not palette 0.
   // Use a value different from palette 0 so truncating color[4] is detected.
   force dut.machine_i.border_palette = 6'b100100;
