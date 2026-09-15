@@ -66,8 +66,8 @@ special CoCo meanings or control FPGA features:
 | F7 | Keyboard right joystick | Toggles W/S/A/D/F control of the emulated right joystick; disabled after reset |
 | F8 | Keyboard left joystick | Toggles arrow-key and Space control of the emulated left joystick; disabled after reset |
 | F9 | Horizontal scanlines | Toggles horizontal CRT scanlines on or off; disabled after reset |
-| F10 | Phosphor glow | Toggles HDMI phosphor bloom/glow on or off independently of scanlines; disabled after reset |
-| F11 | NTSC artifact color | Toggles HDMI artifact-color processing on or off; enabled after reset |
+| F10 | NTSC artifact color | Toggles HDMI artifact-color processing on or off; enabled after reset |
+| F11 | Settings OSD | Opens live font, artifact, CoCo 2 palette, and text-color settings |
 | F12 | SD management GUI | Opens or closes the directory browser used to mount `.DSK` files and launch `.CCC` cartridges |
 | Caps Lock | Upper/lower case | Switches the CoCo between upper- and lowercase input; hardware-verified |
 | Scroll Lock | `Ctrl+W` | Generates the CoCo control-key combination while held |

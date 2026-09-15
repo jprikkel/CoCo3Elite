@@ -20,9 +20,10 @@ The images below are design references. They define the intended layout and styl
 
 ## Current implementation
 
-The current firmware provides a functional 72-column by 28-row character overlay. The first visual refresh implements the mockup's framed layout, light gold-on-black palette, solid amber reverse-video file selection, split file/detail panes, graphical directory, disk, cartridge, and BIN icons, a dedicated Spleen 8x16 management font, and custom glyphs for a three-pixel rounded outer frame and continuous panel lines. Fixed labels use sentence case for easier reading. The browser header uses the `CoCo 3 /// Elite` wordmark with dedicated three-pixel red, green, and blue slash glyphs. The corner arcs join directly to the side and top/bottom strokes, while interior horizontal separators stop five pixels before the outer frame instead of forming hard T-junctions. It can:
+The current firmware provides a functional 72-column by 28-row character overlay. The first visual refresh implements the mockup's framed layout, light gold-on-black palette, solid amber reverse-video file selection, split file/detail panes, graphical directory, disk, cartridge, and BIN icons, and custom glyphs for a three-pixel rounded outer frame and continuous panel lines. Three real bitmap typefaces—Spleen, Tamzen, and Terminus—are selectable without changing CoCo software's character generator. Fixed labels use sentence case for easier reading. The browser header uses the `CoCo 3 /// Elite` wordmark with dedicated three-pixel red, green, and blue slash glyphs. The corner arcs join directly to the side and top/bottom strokes, while interior horizontal separators stop five pixels before the outer frame instead of forming hard T-junctions. It can:
 
-- open and close with F12;
+- open Settings with F11;
+- open and close the file browser with F12;
 - browse FAT32 directories, including parent-directory navigation and long filenames;
 - mount a `.DSK` image as drive 0;
 - cold-start compatible `.CCC` cartridge images;
@@ -30,7 +31,7 @@ The current firmware provides a functional 72-column by 28-row character overlay
 - report SD-card, mount, and load failures;
 - detect SD removal and reinsertions without writing a stale disk cache.
 
-The current browser is implemented in `firmware/management/rv32_sd_mount.c`, with its palette and icon glyphs in `rtl/management/manager_osd.v`. The dedicated UI font is stored in `rtl/management/manager_font.mem`; its license and attribution are under `rtl/management/fonts`. A settings-screen prototype exists in `firmware/management/settings_ui.c`, but it is not yet integrated into the main F12 workflow.
+The current browser is implemented in `firmware/management/rv32_sd_mount.c`; the F11 Settings screen is implemented in `firmware/management/settings_ui.c`. Both use the palette and icon glyphs in `rtl/management/manager_osd.v`. The UI font banks are stored in `rtl/management/manager_fonts.mem`; their source fonts, licenses, attribution, and generator are under `rtl/management/fonts` and `scripts`.
 
 ## Target visual language
 
@@ -107,7 +108,7 @@ Potentially destructive actions, such as discarding dirty cached sectors or repl
 
 ## Settings screen
 
-The settings screen uses a category list on the left and editable options on the right. The initial categories are:
+F11 opens the Settings screen. It uses a category list on the left and a design summary on the right. The initial categories are:
 
 - Audio
 - Video
@@ -118,17 +119,64 @@ The settings screen uses a category list on the left and editable options on the
 - Serial
 - Ethernet
 
-The first Audio page in the mockup contains volume, disk sounds, tape playthrough, and future audio-chip selection. Other categories should expose only settings backed by working firmware or RTL. Planned settings may be displayed as disabled, but must not appear operational.
+The Video page provides five live settings:
+
+- management font: Spleen, Tamzen, or Terminus (Tamzen is the default);
+- artifact style: Off, Thin, Classic, MAME, XRoar, or Two pass;
+- artifact model: blue/orange, cyan/red, green/magenta, or violet/lime;
+- CoCo 2 palette: Original, Base, C64, Atari, CGA, Earth, Amber, Cool
+  adventure, CoCo artifact, Forest, Fire, Ice, Purple dusk, Game Boy,
+  Ocean/sunset, or Neutral grayscale;
+- text colors: Original, C64, Atari, VT100, VT220 amber, VT220 green, IBM,
+  Apple II, Amstrad, or Paperwhite.
+
+Every CoCo 2 palette preset still contains exactly four simultaneously active
+colors. The wider list changes only which four-color theme is selected.
+
+Thin artifact mode colors only the asserted source half of a transition and
+therefore avoids the apparent doubled horizontal line thickness of the
+classic pair-wide decoder. Base maps the original green, yellow, blue, and red
+slots to black, light brown, brown, and dark green respectively. The remaining
+presets provide machine-inspired and purpose-specific four-color mappings. Palette
+replacement is limited to MC6847/CoCo-compatible output and does not alter
+software-visible CoCo 3 GIME palette registers. Changes preview immediately
+and last until FPGA reset or reconfiguration.
+
+Text colors are independent of the four-color graphics palette. A text theme
+recolors the foreground glyph, background, and border of the MC6847-compatible
+32-column alpha screen. It does not modify display RAM, GIME palette registers,
+native CoCo 3 text modes, or bitmap lettering drawn inside graphics modes.
+
+Thin and Classic artifact styles use the FPGA's original two-pixel streaming
+decoder. MAME style uses MAME's actual six-pixel, two-output correction-table
+addressing from its MC6847 renderer. XRoar style uses the phase-aware five-pixel
+cross-colour lookup table from XRoar's video renderer. Two pass first produces
+the Thin result and then fills exactly one black output pixel when its
+immediate neighbors are the same blue or orange artifact phase. It never fills
+between white pixels, mixed phases, or across a wider gap. The blue/orange,
+cyan/red, green/magenta, and violet/lime artifact models remain a separate
+color selection for the legacy decoder. All styles share a six-pixel-clock
+pipeline. They add only small lookup and pipeline logic: no framebuffer or
+additional block RAM is required. The imported MAME algorithm is
+BSD-3-Clause; the XRoar lookup data is GPL-3.0-or-later.
 
 ### Settings controls
 
-- **Left/Right:** change category.
-- **Up/Down:** change option.
-- **Enter:** edit, toggle, or confirm the selected value.
-- **Esc:** cancel the current edit or return to the browser.
-- **F12:** close the management UI.
+- **Up/Down:** move in the currently focused category or option pane.
+- **Tab:** switch between the category and option panes.
+- **Right or Enter on a category:** move into its option pane.
+- **Enter on an editable Video option:** begin editing; Left/Right previews
+  choices and a second Enter accepts the current value.
+- **Escape while editing:** cancel and restore the value active before editing.
+- **Left from an option:** return to the category pane.
+- **Esc, F11, or F12 when not editing:** close Settings and return to the CoCo.
 
-Values should be staged while editing. Persistent settings require an explicit Apply operation after nonvolatile storage is available; Cancel restores the values present when the screen opened.
+Closing and reopening Settings restores the last category, pane, and highlighted
+option. Edit mode itself is not retained, so reopening returns safely to the
+same field without immediately changing it. This position is held in management
+firmware RAM and is intentionally cleared by an FPGA or management-CPU reboot.
+
+Future editable values should be staged while editing. Persistent settings require an explicit Apply operation after nonvolatile storage is available; Cancel must restore the values present when the screen opened.
 
 ### Quick actions
 
@@ -153,15 +201,12 @@ Quick actions are commands, not persistent settings. Hard reset and reboot shoul
 
 The disk browser now uses 72 by 28 character cells, providing a wider 576-pixel browser with small horizontal and vertical margins and 17 visible file entries. The remaining implementation should be staged:
 
-1. Refactor browser drawing into reusable screen, pane, list, status, and footer helpers.
-2. Integrate browser and settings navigation under one F12 state machine.
-3. Add a stable OSD geometry interface so firmware reads the supported columns and rows instead of compiling different assumptions.
-4. Align the settings screen with the current 72 by 28 browser geometry.
-5. Add per-cell foreground/background attributes or a small style table for amber text and teal selection.
-6. Add a custom character ROM containing the final font, border pieces, arrows, folders, disks, cartridges, and executable icons.
-7. Center and scale the overlay from the active video dimensions.
-8. Add settings MMIO only for options with defined hardware behavior.
-9. Add persistence after the settings format and storage location are versioned.
+1. Refactor browser and Settings drawing into reusable screen, pane, list, status, and footer helpers.
+2. Add a stable OSD geometry interface so firmware reads the supported columns and rows instead of compiling different assumptions.
+3. Add per-cell foreground/background attributes or a small style table for additional warning and disabled states.
+4. Extend the settings MMIO only for options with defined hardware behavior; font, artifact, and CoCo 2 palette controls are implemented.
+5. Add editing and validation one category at a time where immediate preview is not appropriate.
+6. Add persistence after the settings format and storage location are versioned.
 
 The file service, FAT32 parser, disk cache, and cartridge/BIN loaders should remain firmware responsibilities. HDL should provide deterministic primitives: character/attribute RAM, keyboard events, settings registers, reset controls, and storage/cache interfaces.
 
@@ -173,7 +218,7 @@ The file service, FAT32 parser, disk cache, and cartridge/BIN loaders should rem
 - Selection, mounted-file, disabled, warning, and error states are visually distinct.
 - Disk mounting, cartridge launching, and BIN execution retain their current behavior.
 - SD removal never triggers stale writeback; reinsertion produces a fresh directory scan.
-- Settings do not alter hardware until the user commits an edit.
+- Video settings preview immediately, Enter accepts them, and Escape restores the pre-edit value; other categories remain informational.
 - The UI remains responsive while the CoCo is reset or paused.
 - Automated tests cover navigation, clipping, scrolling, media changes, and MMIO state transitions.
 

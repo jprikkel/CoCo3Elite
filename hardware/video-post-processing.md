@@ -13,8 +13,10 @@ signals along with the pixels. They do not use a framebuffer.
 
 ## NTSC artifact-color decoding
 
-F11 enables or disables artifact-color decoding. It is enabled after FPGA
-reset. The decoder targets the CoCo's 256-pixel, one-bit graphics patterns.
+F10 enables or disables artifact-color decoding. It is enabled after FPGA
+reset. F11 Settings selects Off, Thin, Classic, MAME, XRoar, or Two pass decoding and
+one of four artifact color models. The decoder targets the CoCo's 256-pixel,
+one-bit graphics patterns.
 Each logical source pixel occupies two 25 MHz HDMI pixel clocks. The decoder
 groups two adjacent logical pixels into a four-clock artifact cell and applies
 this mapping:
@@ -26,18 +28,75 @@ this mapping:
 | `01` | Artifact color A (blue by default) |
 | `10` | Artifact color B (orange/red by default) |
 
-The decoded value covers both logical pixels in the pair. This models the loss
+Classic mode covers both logical pixels in the pair. This models the loss
 of individual black and white transitions in an NTSC composite signal and
 avoids retaining digital gaps inside an artifact-colored shape. Reversing the
-artifact phase exchanges colors A and B.
+artifact phase exchanges colors A and B. Thin mode colors only the asserted
+source half of a transition, retaining the original digital line thickness.
+
+The independently selectable color models are blue/orange, cyan/red,
+green/magenta, and violet/lime. They set the phase-color pair used by Thin,
+Classic, and Two pass styles. MAME style uses the six-logical-pixel window plus
+first/second-output selector required by the 128-entry correction table in
+MAME's `src/devices/video/mc6847.cpp`. XRoar style uses the phase-aware
+five-logical-pixel cross-colour LUT from `src/vo_render.c` in XRoar. A common
+six-HDMI-clock center delay keeps RGB and sync timing aligned while switching
+styles live. This is a streaming implementation and adds neither a framebuffer
+nor block RAM.
+
+Two pass applies the Thin decoder first, then fills exactly one black output
+pixel only when its immediate neighbors are the same blue or orange artifact
+phase. White/white, white/chroma, opposite-phase, and gaps wider than one pixel
+are unchanged.
+
+The MAME table is derived from BSD-3-Clause source. The XRoar table is derived
+from GPL-3.0-or-later source; distribution of a bitstream containing it must
+follow the repository's GPL obligations.
 
 For compatibility with native CoCo 3 color modes, a `00` pair passes through
 the source RGB value. A true monochrome black pair therefore remains black,
 while a colored background is not incorrectly forced to black.
 
+## CoCo 2 palette themes
+
+F11 Settings selects sixteen mappings for CoCo-compatible four-color output.
+Every mapping retains exactly four simultaneously active colors:
+
+| Setting | Color 0 | Color 1 | Color 2 | Color 3 |
+| --- | --- | --- | --- | --- |
+| Original | Native VDG green | Native VDG yellow | Native VDG blue | Native VDG red |
+| Base | `#000000` | `#C48A52` | `#783C18` | `#186828` |
+| C64 | `#588D43` | `#B8C76F` | `#352879` | `#68372B` |
+| Atari | `#489848` | `#E8D878` | `#4040C0` | `#D82800` |
+| CGA | `#101010` | `#40C8D0` | `#D050A0` | `#E8E8E0` |
+| Earth | `#000000` | `#783C18` | `#186828` | `#B82820` |
+| Amber | `#000000` | `#583000` | `#D09020` | `#FFDF80` |
+| Cool adventure | `#101820` | `#285080` | `#50C8C8` | `#F0E0B0` |
+| CoCo artifact | `#181818` | `#3060E0` | `#E06020` | `#D8D0B8` |
+| Forest | `#101810` | `#286040` | `#80B850` | `#E8E090` |
+| Fire | `#180C10` | `#702020` | `#D06028` | `#F0D058` |
+| Ice | `#101018` | `#303878` | `#68A8D8` | `#E8F0F0` |
+| Purple dusk | `#241830` | `#604878` | `#C07088` | `#F0C898` |
+| Game Boy | `#182018` | `#405838` | `#88A850` | `#D0D890` |
+| Ocean/sunset | `#101838` | `#2858A0` | `#E06858` | `#F0D898` |
+| Neutral grayscale | `#101010` | `#505050` | `#A8A8A8` | `#F0F0F0` |
+
+This is a final display mapping: it does not write
+the GIME palette registers and is bypassed in native CoCo 3 modes and in the
+monochrome artifact-compatible mode.
+
+## CoCo text-color themes
+
+F11 Settings separately offers Original, C64, Atari, VT100, VT220 amber,
+VT220 green, IBM, Apple II, Amstrad, and Paperwhite themes. Each preset sets
+the foreground, background, and border of the MC6847 32-column alpha screen.
+The theme is display-only and deliberately does not recolor bitmap text drawn
+inside a graphics mode.
+
 ## CRT phosphor glow
 
-F10 independently enables or disables horizontal phosphor bloom/glow. Bright
+Horizontal phosphor bloom/glow remains implemented but has no function-key
+toggle in the current build. Bright
 pixels above the configured threshold are blended into completed neighboring
 pixels. The current level-6 preset uses four previous pixels with decreasing
 weights. This is a streaming, left-to-right approximation rather than a

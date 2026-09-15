@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "decb_bin_format.h"
 #include "decb_bin_loader_image.h"
+#include "settings_ui.h"
 void *memcpy(void *dst,const void *src,unsigned long n){unsigned char *d=dst;const unsigned char *s=src;while(n--)*d++=*s++;return dst;}
 
 // FAT32-to-DECB service for the RV32 manager.  The normal CoCo image never
@@ -48,6 +49,7 @@ void *memcpy(void *dst,const void *src,unsigned long n){unsigned char *d=dst;con
 #define KEY_DOWN 4u
 #define KEY_ENTER 8u
 #define KEY_ESCAPE 16u
+#define KEY_F11 32u
 #define MAX_DSK_FILES 32u
 #define MAX_NAME 256u
 #define OSD_COLS 72u
@@ -568,7 +570,9 @@ int main(void){
             FDC_ACK=ok?1:0; seen=state&1u;
         }
         {uint32_t keys=MENU_KEY_STATE;
-         if((keys&KEY_F12)&&!(menu_previous&KEY_F12)){
+         if((keys&KEY_F11)&&!(menu_previous&KEY_F11)){
+             puts("SETUP OPEN\r\n");settings_ui_run();puts("SETUP CLOSE\r\n");
+         } else if((keys&KEY_F12)&&!(menu_previous&KEY_F12)){
              error=run_disk_menu(&present);
              if(bin_pending){int result=stream_bin();bin_pending=0;puts(result?"BIN LOAD CANCELLED\r\n":"BIN STARTED\r\n");}
          }

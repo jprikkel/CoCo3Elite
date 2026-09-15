@@ -37,6 +37,9 @@ Hardware-verified functions include:
 - F12 SD management interface with subdirectory and long-filename browsing,
   writable `.DSK` mounting, media removal/reinsertion recovery, and `.CCC`
   ROM-Pak loading through a controlled cold-start sequence.
+- F11 Settings overlay with keyboard-focused editing; Spleen, Tamzen, and
+  Terminus management fonts; artifact style/color controls; sixteen live
+  CoCo 2 four-color palettes; and ten foreground/background/border text themes.
 - The F3 key is available to the normal CoCo keyboard with no fixed cartridge.
 - CH340N UART diagnostic output through the board USB serial interface.
 - Optional embedded test disks when explicitly enabled at build time.
@@ -126,9 +129,9 @@ The sequence is:
    into 8-bit RGB channels. Direct-color modes follow the four intensity
    mappings in the original design.
 3. `ntsc_artifact_filter.v` optionally converts qualifying CoCo-compatible
-   one-bit graphics pairs. F11 controls this stage.
-4. `crt_filter.v` optionally applies scanlines and horizontal glow. F9 controls
-   scanlines and F10 controls glow.
+   one-bit graphics pairs. F10 controls this stage.
+4. `crt_filter.v` applies optional scanlines under F9 control. The former F10
+   phosphor-glow shortcut is currently disabled pending Settings-UI integration.
 5. `wukong_top.v` aligns the CoCo raster to the library-owned HDMI raster. It
    applies a 64-pixel delay in narrow modes so a 512-pixel CoCo display is
    centered within the 640-pixel HDMI active width.
@@ -185,8 +188,9 @@ Important FPGA controls are:
 | F7 | Toggle W/S/A/D/F control of the right joystick |
 | F8 | Toggle arrow/Space control of the left joystick |
 | F9 | Toggle horizontal scanlines |
-| F10 | Toggle CRT glow |
-| F11 | Toggle NTSC artifact-color decoding |
+| F10 | Toggle NTSC artifact-color decoding |
+| F11 | Open live video and management-font Settings |
+| F12 | Open the SD-card file and disk browser |
 | Ctrl+Alt+Delete | Guarded CoCo soft reset |
 
 CoCo software selects the normal approximately 0.9 MHz rate with the SAM
@@ -277,6 +281,9 @@ Focused PowerShell launchers under `scripts/` cover the principal boundaries:
 | `test_hdmi_window.ps1` | 32/40/80-column HDMI placement, screen captures, and packet presence |
 | `test_native_text_fetch.ps1` | Native text byte selection and fetch timing |
 | `test_native_text_scroll.ps1` | Native text rows and vertical scrolling |
+| `test_manager_osd.ps1` | Browser/Settings rendering, real font banks, and option focus highlighting |
+| `test_manager_sd_mmio.ps1` | Settings focus, keyboard state, and live video-settings registers |
+| `test_ntsc_artifact_filter.ps1` | Artifact enable, color themes, and thin versus classic decoding |
 | `test_ps2_keyboard.ps1` | PS/2 reception and CoCo matrix mapping |
 | `test_system_rom.ps1` | Prepared ROM layout and reset vector |
 | `test_video_probe.ps1` | Diagnostic cartridge video register sequences |

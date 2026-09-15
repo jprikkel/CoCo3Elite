@@ -4,7 +4,7 @@ $repoRoot=Split-Path -Parent $PSScriptRoot
 $runDir=Join-Path $repoRoot 'build\sim\hdmi_window'
 New-Item -ItemType Directory -Force -Path "$runDir\rtl\core","$runDir\rtl\management","$runDir\build\roms" | Out-Null
 Copy-Item "$repoRoot\rtl\core\coco3gen.mem" "$runDir\rtl\core\coco3gen.mem" -Force
-Copy-Item "$repoRoot\rtl\management\manager_font.mem" "$runDir\rtl\management\manager_font.mem" -Force
+Copy-Item "$repoRoot\rtl\management\manager_fonts.mem" "$runDir\rtl\management\manager_fonts.mem" -Force
 foreach($rom in @('coco3.mem','disk11.mem')){
  Copy-Item "$repoRoot\build\roms\$rom" "$runDir\build\roms\$rom" -Force
 }
@@ -18,6 +18,7 @@ $firmwareBin=Join-Path $firmwareDir 'rv32_sd_mount.bin'
  '-Wl,--build-id=none' '-Wl,--gc-sections' '-T' (Join-Path $repoRoot 'firmware\management\rv32_tcm.ld') `
  '-I' $firmwareDir (Join-Path $repoRoot 'firmware\management\rv32_start.S') `
  (Join-Path $repoRoot 'firmware\management\decb_bin_format.c') `
+ (Join-Path $repoRoot 'firmware\management\settings_ui.c') `
  (Join-Path $repoRoot 'firmware\management\rv32_sd_mount.c') '-o' $firmwareElf
 if($LASTEXITCODE){throw "RV32 firmware link failed: $LASTEXITCODE"}
 & (Join-Path $toolchain 'riscv64-unknown-elf-objcopy.exe') '-O' 'binary' $firmwareElf $firmwareBin

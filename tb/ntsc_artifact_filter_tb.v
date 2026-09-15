@@ -6,6 +6,8 @@ module ntsc_artifact_filter_tb;
     reg reset = 1;
     reg enable = 0;
     reg phase_reverse = 0;
+    reg [2:0] decoder_style = 2;
+    reg [1:0] color_set = 0;
     reg hsync = 1;
     reg vsync = 1;
     reg active = 0;
@@ -20,9 +22,13 @@ module ntsc_artifact_filter_tb;
     integer black_count = 0;
     integer blue_count = 0;
     integer orange_count = 0;
+    integer emulator_color_count = 0;
+    integer classic_colored_count = 0;
+    integer thin_gap_colored_count = 0;
 
     ntsc_artifact_filter dut (
         .pixel_clk(clock), .reset(reset), .enable(enable),
+        .decoder_style(decoder_style), .color_set(color_set),
         .phase_reverse(phase_reverse), .in_hsync(hsync), .in_vsync(vsync),
         .in_video_enable(active), .in_on_pixel(on_pixel),
         .in_red(red), .in_green(green), .in_blue(blue),
@@ -51,6 +57,11 @@ module ntsc_artifact_filter_tb;
                 blue_count = blue_count + 1;
             if (out_active && {out_red,out_green,out_blue} == 24'hd86820)
                 orange_count = orange_count + 1;
+            if (out_active && ({out_red,out_green,out_blue} == 24'h0080ff ||
+                               {out_red,out_green,out_blue} == 24'hff8000 ||
+                               {out_red,out_green,out_blue} == 24'h46c8ff ||
+                               {out_red,out_green,out_blue} == 24'hff8c64))
+                emulator_color_count = emulator_color_count + 1;
         end
     endtask
 
@@ -64,6 +75,7 @@ module ntsc_artifact_filter_tb;
             black_count = 0;
             blue_count = 0;
             orange_count = 0;
+            emulator_color_count = 0;
         end
     endtask
 
@@ -72,6 +84,62 @@ module ntsc_artifact_filter_tb;
         repeat (3) @(posedge clock);
         reset = 0;
         enable = 1;
+
+        // Verify representative entries from the imported neighborhood
+        // decoders directly. These catch LUT ordering or transcription errors
+        // that a simple color-presence smoke test would miss.
+        if (dut.mame_artifact_index(7'h05) != 4'h6 ||
+            dut.mame_artifact_index(7'h2a) != 4'ha ||
+            dut.mame_artifact_index(7'h7f) != 4'hf) begin
+            $display("FAIL: MAME correction table mismatch");
+            $fatal(1);
+        end
+        if (dut.xroar_artifact_index(1'b0,5'h04) != 4'h7 ||
+            dut.xroar_artifact_index(1'b1,5'h04) != 4'h8 ||
+            dut.xroar_artifact_index(1'b0,5'h1f) != 4'hf) begin
+            $display("FAIL: XRoar phase-aware 5-pixel LUT mismatch");
+            $fatal(1);
+        end
+        if (dut.artifact_rgb(4'h7) != 24'hff8c64 ||
+            dut.artifact_rgb(4'hc) != 24'h64f0ff) begin
+            $display("FAIL: emulator artifact blend-color table mismatch");
+            $fatal(1);
+        end
+        if (dut.swap_artifact_phase(4'h9) != 4'ha ||
+            dut.swap_artifact_phase(4'ha) != 4'h9 ||
+            dut.swap_artifact_phase(4'h0) != 4'h0) begin
+            $display("FAIL: MAME artifact phase exchange mismatch");
+            $fatal(1);
+        end
+
+        // MAME's table address is not seven consecutive pixels. It is a
+        // six-pixel window followed by a first/second-output selector.
+        if (dut.mame_table_address(1'b0,13'h445) != 7'h56) begin
+            $display("FAIL: MAME even-pixel address mismatch");
+            $fatal(1);
+        end
+        if (dut.mame_table_address(1'b1,13'h544) != 7'h3b) begin
+            $display("FAIL: MAME odd-pixel address mismatch");
+            $fatal(1);
+        end
+
+        // Two pass fills exactly one black Thin-output pixel only when its
+        // immediate neighbors have the same blue or orange artifact phase.
+        if (dut.two_pass_code(1'b1,7'b0010100) != 2'd2 ||
+            dut.two_pass_code(1'b0,7'b0010100) != 2'd1) begin
+            $display("FAIL: two-pass same-color gap was not filled");
+            $fatal(1);
+        end
+        if (dut.two_pass_code(1'b1,7'b0010000) != 2'd0) begin
+            $display("FAIL: two-pass unmatched gap was filled");
+            $fatal(1);
+        end
+        // White and mixed-phase neighbors never trigger Two-pass filling.
+        if (dut.two_pass_code(1'b1,7'b0110110) != 2'd0 ||
+            dut.two_pass_code(1'b0,7'b0110110) != 2'd0) begin
+            $display("FAIL: two-pass filled a white/mixed-phase gap");
+            $fatal(1);
+        end
 
         // 00 -> black.
         start_line();
@@ -99,6 +167,48 @@ module ntsc_artifact_filter_tb;
             $display("FAIL: 01 pair did not decode to artifact color A");
             $fatal(1);
         end
+        classic_colored_count = colored_count;
+
+        // Thin mode retains one source-pixel-wide transitions rather than
+        // painting the decoded color over both halves of the artifact cell.
+        decoder_style = 1;
+        start_line();
+        for (i = 0; i < 4; i = i + 1) begin
+            repeat (2) drive_pixel(0);
+            repeat (2) drive_pixel(1);
+        end
+        if (colored_count == 0 || colored_count >= classic_colored_count) begin
+            $display("FAIL: thin mode did not reduce artifact width (%0d vs %0d)",
+                     colored_count, classic_colored_count);
+            $fatal(1);
+        end
+        decoder_style = 2;
+
+        // Exercise the complete delayed video path, not just the helper. A
+        // repeated alternating source leaves black gaps in Thin; Two pass must
+        // color more pixels while using the same input and pipeline timing.
+        decoder_style = 1;
+        start_line();
+        for (i = 0; i < 6; i = i + 1) begin
+            repeat (2) drive_pixel(0);
+            repeat (2) drive_pixel(1);
+        end
+        repeat (8) drive_pixel(0);
+        thin_gap_colored_count = colored_count;
+
+        decoder_style = 5;
+        start_line();
+        for (i = 0; i < 6; i = i + 1) begin
+            repeat (2) drive_pixel(0);
+            repeat (2) drive_pixel(1);
+        end
+        repeat (8) drive_pixel(0);
+        if (colored_count <= thin_gap_colored_count) begin
+            $display("FAIL: two-pass pipeline did not close Thin gaps (%0d vs %0d)",
+                     colored_count,thin_gap_colored_count);
+            $fatal(1);
+        end
+        decoder_style = 2;
 
         // 10 -> artifact color B (orange/red).
         start_line();
@@ -123,6 +233,40 @@ module ntsc_artifact_filter_tb;
             $fatal(1);
         end
         phase_reverse = 0;
+
+        // Alternate palettes change both phase colors.
+        color_set = 1;
+        start_line();
+        for (i = 0; i < 4; i = i + 1) begin
+            repeat (2) drive_pixel(0); repeat (2) drive_pixel(1);
+        end
+        if (colored_count != 0 || blue_count != 0 || orange_count != 0) begin
+            $display("FAIL: alternate artifact palette retained default colors");
+            $fatal(1);
+        end
+        color_set = 0;
+
+        // The MAME and XRoar models use their wider source neighborhoods and
+        // the shared 16-entry blend-color table.
+        decoder_style = 3;
+        start_line();
+        for (i = 0; i < 4; i = i + 1) begin
+            repeat (2) drive_pixel(0); repeat (2) drive_pixel(1);
+        end
+        if (emulator_color_count == 0) begin
+            $display("FAIL: MAME neighborhood decoder was not selected");
+            $fatal(1);
+        end
+        decoder_style = 4;
+        start_line();
+        for (i = 0; i < 4; i = i + 1) begin
+            repeat (2) drive_pixel(1); repeat (2) drive_pixel(0);
+        end
+        if (emulator_color_count == 0) begin
+            $display("FAIL: XRoar neighborhood decoder was not selected");
+            $fatal(1);
+        end
+        decoder_style = 2;
 
         // With the filter disabled, source RGB passes through unchanged.
         enable = 0;

@@ -1,9 +1,10 @@
 # CoCo3Elite HDMI CRT Filter
 
 The Wukong HDMI pipeline includes an optional streaming CRT presentation
-filter after NTSC artifact-color generation. F9 toggles horizontal scanlines,
-and F10 independently toggles phosphor bloom/glow. Both are disabled after
-FPGA reset, and full bypass mode preserves the incoming RGB
+filter after NTSC artifact-color generation. F9 toggles horizontal scanlines.
+The former F10 phosphor bloom/glow shortcut is currently disabled; F10 now
+controls NTSC artifact color and F11 opens the setup design preview. Full
+bypass mode preserves the incoming RGB
 and video timing exactly apart from the filter's registered pipeline stage.
 
 The tuned hardware preset uses horizontal-scanline mask layout 7, mask intensity
@@ -38,5 +39,7 @@ BRAM-only design, particularly because optional embedded test disks
 substantially increase XC7A100T block-RAM use. Barrel remapping can be added after
 the management/video architecture has a framebuffer backend.
 
-The management GUI is not implemented; only F9/F10 toggles are available at
-runtime. See [video/audio status](video-post-processing.md) for the active HDMI path.
+The F11 Settings screen controls NTSC artifact style/colors, CoCo 2 palette,
+and MC6847 text-color themes. CRT glow remains disabled; its future control will be added only after
+the settings MMIO behavior is defined. See
+[video/audio status](video-post-processing.md) for the active HDMI path.

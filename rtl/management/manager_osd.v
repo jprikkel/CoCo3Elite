@@ -12,6 +12,9 @@ module manager_osd (
     input  wire [9:0]  screen_x,
     input  wire [9:0]  screen_y,
     input  wire [4:0]  selected_row,
+    input  wire        narrow_selection,
+    input  wire        option_selection,
+    input  wire [1:0]  font_style,
     output wire [10:0] char_address,
     input  wire [7:0]  char_data,
     output reg  [7:0]  red,
@@ -23,6 +26,7 @@ module manager_osd (
     localparam COLS = 10'd72;
     localparam ROWS = 10'd28;
     localparam LIST_RIGHT = 7'd46;
+    localparam SETUP_LIST_RIGHT = 7'd24;
 
     wire inside = screen_x >= X0 && screen_x < X0 + (COLS << 3) &&
                   screen_y >= Y0 && screen_y < Y0 + (ROWS << 4);
@@ -35,7 +39,7 @@ module manager_osd (
     assign char_address = row * 11'd72 + column;
 
     // The management font ROM is indexed by a seven-bit ASCII character code.
-    wire [10:0] font_address = {char_data[6:0], local_y[3:0]};
+    wire [12:0] font_address = {font_style, char_data[6:0], local_y[3:0]};
     wire [7:0] font_bits;
     reg inside_d, active_d, selected_d, icon_d;
     reg [6:0] glyph_code_d;
@@ -85,24 +89,28 @@ module manager_osd (
                 7'h10: custom_row = (y>=4'd7 && y<=4'd9) ? 8'hff : 8'h00; // horizontal
                 7'h11: custom_row = 8'h38;                                // pane vertical
                 7'h12: case (y) // rounded top left
-                    4'd3: custom_row=8'h0f; 4'd4: custom_row=8'h1f;
-                    4'd5,4'd6,4'd7,4'd8,4'd9: custom_row=8'h3f;
+                    4'd3: custom_row=8'h07; 4'd4: custom_row=8'h0e;
+                    4'd5: custom_row=8'h1c; 4'd6: custom_row=8'h38;
+                    4'd7,4'd8,4'd9: custom_row=8'h3f;
                     default: custom_row=(y>4'd9)?8'h38:8'h00;
                 endcase
                 7'h13: case (y) // rounded top right
-                    4'd3: custom_row=8'hf0; 4'd4: custom_row=8'hf8;
-                    4'd5,4'd6,4'd7,4'd8,4'd9: custom_row=8'hfc;
+                    4'd3: custom_row=8'he0; 4'd4: custom_row=8'h70;
+                    4'd5: custom_row=8'h38; 4'd6: custom_row=8'h1c;
+                    4'd7,4'd8,4'd9: custom_row=8'hfc;
                     default: custom_row=(y>4'd9)?8'h1c:8'h00;
                 endcase
                 7'h14: case (y) // rounded bottom left
-                    4'd6,4'd7,4'd8,4'd9,4'd10: custom_row=8'h3f;
-                    4'd11: custom_row=8'h1f; 4'd12: custom_row=8'h0f;
-                    default: custom_row=(y<4'd6)?8'h38:8'h00;
+                    4'd7,4'd8,4'd9: custom_row=8'h3f;
+                    4'd10: custom_row=8'h38; 4'd11: custom_row=8'h1c;
+                    4'd12: custom_row=8'h0e; 4'd13: custom_row=8'h07;
+                    default: custom_row=(y<4'd7)?8'h38:8'h00;
                 endcase
                 7'h15: case (y) // rounded bottom right
-                    4'd6,4'd7,4'd8,4'd9,4'd10: custom_row=8'hfc;
-                    4'd11: custom_row=8'hf8; 4'd12: custom_row=8'hf0;
-                    default: custom_row=(y<4'd6)?8'h1c:8'h00;
+                    4'd7,4'd8,4'd9: custom_row=8'hfc;
+                    4'd10: custom_row=8'h1c; 4'd11: custom_row=8'h38;
+                    4'd12: custom_row=8'h70; 4'd13: custom_row=8'he0;
+                    default: custom_row=(y<4'd7)?8'h1c:8'h00;
                 endcase
                 7'h16: custom_row = (y>=4'd7 && y<=4'd9) ? 8'h3f : 8'h38; // tee right
                 7'h17: custom_row = (y>=4'd7 && y<=4'd9) ? 8'hfc : 8'h1c; // tee left
@@ -121,6 +129,18 @@ module manager_osd (
                     4'd8,4'd9: custom_row=8'h38;
                     4'd10,4'd11: custom_row=8'h70;
                     4'd12,4'd13: custom_row=8'he0;
+                    default: custom_row=8'h00;
+                endcase
+                7'h21: case (y) // left setting arrow
+                    4'd5,4'd10: custom_row=8'h10;
+                    4'd6,4'd9: custom_row=8'h30;
+                    4'd7,4'd8: custom_row=8'h70;
+                    default: custom_row=8'h00;
+                endcase
+                7'h22: case (y) // right setting arrow
+                    4'd5,4'd10: custom_row=8'h08;
+                    4'd6,4'd9: custom_row=8'h0c;
+                    4'd7,4'd8: custom_row=8'h0e;
                     default: custom_row=8'h00;
                 endcase
                 default: custom_row=8'h00;
@@ -145,7 +165,10 @@ module manager_osd (
             active_d <= active;
             // The selected entry is reverse video across only the file-list
             // pane; details on the right retain the dark background.
-            selected_d <= row == selected_row && column >= 1 && column <= LIST_RIGHT;
+            selected_d <= row == selected_row &&
+                          column >= (option_selection ? 7'd27 : 7'd1) &&
+                          column <= (option_selection ? 7'd70 :
+                                     (narrow_selection ? SETUP_LIST_RIGHT : LIST_RIGHT));
             icon_d <= char_data[7];
             glyph_code_d <= char_data[6:0];
             icon_bits_d <= custom_row(char_data[6:0], local_y[3:0]);
