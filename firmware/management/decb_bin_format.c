@@ -70,7 +70,12 @@ int decb_bin_validate(decb_bin_read_byte_fn read_byte, void *context,
             continue;
         }
 
-        if (type != 0xffu || length != 0)
+        // Disk BASIC treats any nonzero record marker as the postamble and
+        // ignores its two length/dummy bytes.  SAVEM writes $ff,0,0, but some
+        // commercial loaders (including Zenix) deliberately leave a nonzero
+        // dummy value there.  Require the conventional $ff marker while
+        // matching LOADM's handling of the following two bytes.
+        if (type != 0xffu)
             return DECB_BIN_BAD_RECORD;
         if (!info->data_records)
             return DECB_BIN_MISSING_DATA;

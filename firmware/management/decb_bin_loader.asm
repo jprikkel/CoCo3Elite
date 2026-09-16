@@ -7,7 +7,6 @@ BINCTRL equ $FF64
 TRAMP   equ $FE00
 LENGTH  equ $FE80
 TARGET  equ $FE82
-BYTE    equ $FE84
 SAVEDS  equ $FE86
 
         org $C000
@@ -49,10 +48,9 @@ execrecord
         jsr getbyte            ; consume validated zero trailer length
         jsr getbyte
         jsr getbyte
-        sta TARGET
+        sta $009D              ; Disk BASIC's EXEC address vector
         jsr getbyte
-        sta TARGET+1
-        ldx TARGET             ; X = execution address
+        sta $009E
         leay trampoline,pcr
         ldu #TRAMP
         ldb #trampoline_end-trampoline
@@ -61,8 +59,6 @@ copytramp
         sta ,u+
         decb
         bne copytramp
-        tfr x,d
-        std TRAMP+15
         jmp TRAMP
 
 ; Return the next stream byte in A. The explicit acknowledge happens after
@@ -76,20 +72,23 @@ getbyte
         bita #$01
         beq getbyte
         lda BINDATA
-        sta BYTE
-        lda #2
-        sta BINCTRL
-        lda BYTE
+        ldb #2                 ; acknowledge without disturbing returned A
+        stb BINCTRL
         rts
 
 failed  bra failed
 
 trampoline
         lda #1
-        sta $FFDE              ; restore the normal ROM/RAM map used by LOADM
+        sta $FFDF              ; retain Disk BASIC's initialized all-RAM map
         sta BINCTRL            ; atomically disable the temporary ROM-Pak
         lds SAVEDS             ; match an EXEC issued from initialized BASIC
+        ldx #$ABAB
+        ldb #$44
+        clra                    ; A=0 and Z=1, matching the BASIC dispatcher
+        tfr a,dp                ; direct page zero is part of the EXEC contract
         andcc #$AF             ; BASIC enables IRQ and FIRQ before direct mode
-        jmp $0000              ; execution address patched at TRAMP+15
+        jmp [$009D]
 trampoline_end
+        fcb 0,0,0,0,0          ; preserve the original 160-byte firmware slot
         end entry

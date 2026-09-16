@@ -47,6 +47,7 @@ if ($Mode -eq 'COCO3_ELITE') {
         '-I' $firmwareDir `
         (Join-Path $repoRoot 'firmware\management\rv32_start.S') `
         (Join-Path $repoRoot 'firmware\management\decb_bin_format.c') `
+        (Join-Path $repoRoot 'firmware\management\coco3_banked_bin_format.c') `
         (Join-Path $repoRoot 'firmware\management\settings_ui.c') `
         (Join-Path $repoRoot 'firmware\management\rv32_sd_mount.c') '-o' $firmwareElf
     if ($LASTEXITCODE) { throw "RV32 SD mount firmware link failed: $LASTEXITCODE" }

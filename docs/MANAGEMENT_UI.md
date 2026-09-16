@@ -122,7 +122,7 @@ F11 opens the Settings screen. It uses a category list on the left and a design 
 The Video page provides five live settings:
 
 - management font: Spleen, Tamzen, or Terminus (Tamzen is the default);
-- artifact style: Off, Thin, Classic, MAME, XRoar, or Two pass;
+- artifact style: Off, Thin, Classic, MAME, XRoar, or Two pass (default);
 - artifact model: blue/orange, cyan/red, green/magenta, or violet/lime;
 - CoCo 2 palette: Original, Base, C64, Atari, CGA, Earth, Amber, Cool
   adventure, CoCo artifact, Forest, Fire, Ice, Purple dusk, Game Boy,

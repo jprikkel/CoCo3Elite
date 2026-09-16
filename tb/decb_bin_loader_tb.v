@@ -9,7 +9,7 @@ module decb_bin_loader_tb;
     reg [7:0] cartridge_write_data = 0;
     reg cartridge_write = 0;
     reg [7:0] loader [0:255];
-    reg [7:0] stream [0:25];
+    reg [7:0] stream [0:39];
     integer loader_size, n, stream_index = 0, cycles = 0;
     wire [15:0] pc, address;
     wire io_write, bin_fifo_pop, bin_loader_done;
@@ -24,7 +24,7 @@ module decb_bin_loader_tb;
         .cartridge_write_data(cartridge_write_data),
         .cartridge_write(cartridge_write), .cold_start_clear(1'b0),
         .bin_fifo_data(stream[stream_index]),
-        .bin_fifo_available(stream_index < 26),
+        .bin_fifo_available(stream_index < 40),
         .bin_transfer_active(1'b1), .bin_transfer_complete(1'b1),
         .bin_transfer_error(1'b0), .bin_fifo_pop(bin_fifo_pop),
         .bin_loader_done(bin_loader_done),
@@ -52,20 +52,38 @@ module decb_bin_loader_tb;
         .sd_fdc_request_toggle()
     );
 
+    function [7:0] physical_byte;
+        input [16:0] byte_address;
+        begin
+            if (byte_address[0])
+                physical_byte = dut.ram_i.memory_high[byte_address[16:1]];
+            else
+                physical_byte = dut.ram_i.memory_low[byte_address[16:1]];
+        end
+    endfunction
+
     initial begin
         $readmemh("decb_bin_loader.mem", loader);
         loader_size = `DECB_BIN_LOADER_SIZE;
-        stream[0]=8'h00; stream[1]=8'h00; stream[2]=8'h10;
+        // The loaded program snapshots its complete entry context before
+        // publishing the completion marker.  Disk BASIC's EXEC dispatcher
+        // enters with A=00, B=44, X=ABAB, DP=00, Z set, and its existing S.
+        stream[0]=8'h00; stream[1]=8'h00; stream[2]=8'h1e;
         stream[3]=8'h60; stream[4]=8'h00;
-        stream[5]=8'h1f; stream[6]=8'ha8;       // TFR CC,A
-        stream[7]=8'hb7; stream[8]=8'h60; stream[9]=8'h10; // STA $6010
-        stream[10]=8'h10; stream[11]=8'hff;     // STS $6011
-        stream[12]=8'h60; stream[13]=8'h11;
-        stream[14]=8'h86; stream[15]=8'ha5;     // LDA #$A5
-        stream[16]=8'hb7; stream[17]=8'hff; stream[18]=8'h70; // STA $FF70
-        stream[19]=8'h20; stream[20]=8'hfe;     // BRA *
-        stream[21]=8'hff; stream[22]=8'h00; stream[23]=8'h00;
-        stream[24]=8'h60; stream[25]=8'h00;
+        stream[5]=8'hb7; stream[6]=8'h60; stream[7]=8'h50; // STA $6050
+        stream[8]=8'hf7; stream[9]=8'h60; stream[10]=8'h51; // STB $6051
+        stream[11]=8'hbf; stream[12]=8'h60; stream[13]=8'h52; // STX $6052
+        stream[14]=8'h1f; stream[15]=8'hb8;       // TFR DP,A
+        stream[16]=8'hb7; stream[17]=8'h60; stream[18]=8'h54;
+        stream[19]=8'h1f; stream[20]=8'ha8;       // TFR CC,A
+        stream[21]=8'hb7; stream[22]=8'h60; stream[23]=8'h55;
+        stream[24]=8'h10; stream[25]=8'hff;       // STS $6056
+        stream[26]=8'h60; stream[27]=8'h56;
+        stream[28]=8'h86; stream[29]=8'ha5;       // LDA #$A5
+        stream[30]=8'hb7; stream[31]=8'hff; stream[32]=8'h70; // STA $FF70
+        stream[33]=8'h20; stream[34]=8'hfe;       // BRA *
+        stream[35]=8'hff; stream[36]=8'h00; stream[37]=8'h00;
+        stream[38]=8'h60; stream[39]=8'h00;
         // Fill the manager port while the CoCo remains in reset.
         for (n=0; n<loader_size; n=n+1) begin
             @(negedge clock);
@@ -92,14 +110,14 @@ module decb_bin_loader_tb;
     always @(posedge clock) begin
         if (!reset) begin
             cycles = cycles + 1;
-            if (bin_fifo_pop && stream_index < 26) begin
+            if (bin_fifo_pop && stream_index < 40) begin
                 stream_index <= stream_index + 1;
             end
             if (bin_loader_done)
                 cartridge_enabled <= 0;
             if (io_write && address == 16'hff70 && write_data == 8'ha5) begin
-                if (dut.all_ram)
-                    $fatal(1, "DECB BIN loader did not restore the ROM/RAM map");
+                if (!dut.all_ram)
+                    $fatal(1, "DECB BIN loader did not retain Disk BASIC's all-RAM map");
                 if ((dut.cpu_i.core.cc & 8'h50) != 0)
                     $fatal(1, "DECB BIN loader left IRQ/FIRQ masked: CC=%02h",
                            dut.cpu_i.core.cc);
@@ -107,7 +125,24 @@ module decb_bin_loader_tb;
                     {dut.ram_i.memory_low[16'hff43],
                      dut.ram_i.memory_high[16'hff43]})
                     $fatal(1, "DECB BIN loader did not restore entry stack");
-                $display("PASS: DECB BIN loader restored map, stack, interrupts, and executed $6000");
+                if (physical_byte(17'h16050) !== 8'h00 ||
+                    physical_byte(17'h16051) !== 8'h44 ||
+                    physical_byte(17'h16052) !== 8'hAB ||
+                    physical_byte(17'h16053) !== 8'hAB ||
+                    physical_byte(17'h16054) !== 8'h00)
+                    $fatal(1, "DECB BIN EXEC registers A=%02h B=%02h X=%02h%02h DP=%02h",
+                           physical_byte(17'h16050), physical_byte(17'h16051),
+                           physical_byte(17'h16052), physical_byte(17'h16053),
+                           physical_byte(17'h16054));
+                if ((physical_byte(17'h16055) & 8'h54) !== 8'h04)
+                    $fatal(1, "DECB BIN EXEC condition code mismatch CC=%02h",
+                           physical_byte(17'h16055));
+                if ({physical_byte(17'h16056), physical_byte(17'h16057)} !==
+                    {physical_byte(17'h1FE86), physical_byte(17'h1FE87)})
+                    $fatal(1, "DECB BIN EXEC stack mismatch got=%02h%02h saved=%02h%02h",
+                           physical_byte(17'h16056), physical_byte(17'h16057),
+                           physical_byte(17'h1FE86), physical_byte(17'h1FE87));
+                $display("PASS: DECB BIN loader matches Disk BASIC EXEC registers, all-RAM map, stack, and interrupts");
                 $finish;
             end
             if (cycles == 1000000) begin

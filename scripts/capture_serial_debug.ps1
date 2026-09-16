@@ -1,7 +1,8 @@
 param(
     [string]$PortName = 'COM5',
     [ValidateRange(1, 600)]
-    [int]$Seconds = 8
+    [int]$Seconds = 8,
+    [string]$OutputPath
 )
 
 $ErrorActionPreference = 'Stop'
@@ -24,6 +25,14 @@ try {
     }
     if ($received.Length -eq 0) {
         throw "No UART data received from $PortName in $Seconds seconds. Verify the board is powered and the CH340 port is not open in PuTTY."
+    }
+    if ($OutputPath) {
+        $absoluteOutput = [System.IO.Path]::GetFullPath($OutputPath)
+        $parent = Split-Path -Parent $absoluteOutput
+        if ($parent) { New-Item -ItemType Directory -Force -Path $parent | Out-Null }
+        [System.IO.File]::WriteAllText($absoluteOutput, $received.ToString(),
+            [System.Text.UTF8Encoding]::new($false))
+        Write-Host "Captured UART trace: $absoluteOutput"
     }
 } finally {
     if ($serial.IsOpen) { $serial.Close() }

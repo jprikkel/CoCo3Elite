@@ -37,6 +37,12 @@ module coco3_boot_machine #(
     output wire        debug_ram_write,
     output wire        debug_io_write,
     output wire [7:0]  debug_write_data,
+    // Passive state exported only for UART diagnostics.  It does not feed
+    // back into the CPU, RAM, or video timing paths.
+    output wire [7:0]  debug_gime_init0,
+    output wire [7:0]  debug_gime_init1,
+    output wire [2:0]  debug_memory_flags,
+    output wire [127:0] debug_mmu,
     input  wire [55:0] keyboard_keys,
     input  wire        keyboard_shift,
     input  wire        keyboard_shift_override,
@@ -670,6 +676,15 @@ module coco3_boot_machine #(
     assign debug_ram_write = ram_write;
     assign debug_io_write = io_write;
     assign debug_write_data = write_data;
+    assign debug_gime_init0 = gime_init0;
+    assign debug_gime_init1 = gime_init1;
+    assign debug_memory_flags = {mmu_enable, mmu_task, all_ram};
+    assign debug_mmu = {
+        mmu[0], mmu[1], mmu[2], mmu[3],
+        mmu[4], mmu[5], mmu[6], mmu[7],
+        mmu[8], mmu[9], mmu[10], mmu[11],
+        mmu[12], mmu[13], mmu[14], mmu[15]
+    };
     // PIA1 PB1 is the CoCo's single-bit sound source.  Keep the six-bit DAC
     // unchanged in the low bits and combine PB1 exactly as CoCo3FPGA's
     // {SBS, SOUND_DTOA} path does.  Some games (notably DDEVIL) use PB1

@@ -64,6 +64,11 @@ int main(void)
         0x00,0x00,0x01,0x60,0x00,0xaa,
         0xff,0x00,0x00,0x60,0x00,0x99
     };
+    static const uint8_t zenix_postamble[] = {
+        0x00,0x00,0x02,0x0e,0x00,0x0e,0x9f,
+        0xff,0x00,0x03,0x0e,0x00,
+        0x12,0x0e,0x9f,0x00,0x00
+    };
     static const uint8_t raw[] = {0x12,0x34,0x56,0x78,0x9a};
 
     expect("one record", one_record, sizeof one_record, DECB_BIN_OK, 0x6000, 3, sizeof one_record);
@@ -74,6 +79,8 @@ int main(void)
     expect("GIME register write", gime_write, sizeof gime_write, DECB_BIN_OK, 0x6000, 1, sizeof gime_write);
     expect("loader overlap", loader_overlap, sizeof loader_overlap, DECB_BIN_LOADER_OVERLAP, 0, 0, 0);
     expect("trailing granule padding", trailing, sizeof trailing, DECB_BIN_OK, 0x6000, 1, sizeof trailing - 1u);
+    expect("Zenix nonzero postamble dummy", zenix_postamble, sizeof zenix_postamble,
+           DECB_BIN_OK, 0x0e00, 2, 12);
     expect("raw binary", raw, sizeof raw, DECB_BIN_BAD_RECORD, 0, 0, 0);
     return failures != 0;
 }

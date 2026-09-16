@@ -17,6 +17,11 @@ module coco3_uart_debug (
     input  wire [7:0]   sd_status,
     // Mode, resolution, bank, base(16), horizontal offset, palettes(96), RAM word.
     input  wire [159:0] video_state,
+    // INIT0, INIT1, MMU-enable/task/all-RAM flags, then task-0/task-1 maps.
+    input  wire [7:0]   gime_init0,
+    input  wire [7:0]   gime_init1,
+    input  wire [2:0]   memory_flags,
+    input  wire [127:0] mmu_state,
     output wire         uart_tx_o
 );
     localparam [2:0] MSG_READY = 3'd0;
@@ -32,6 +37,10 @@ module coco3_uart_debug (
     reg [2:0] message_kind;
     reg [6:0] message_index;
     reg [159:0] captured_video;
+    reg [7:0] captured_gime_init0;
+    reg [7:0] captured_gime_init1;
+    reg [2:0] captured_memory_flags;
+    reg [127:0] captured_mmu;
     reg [15:0] captured_pc;
     reg captured_cart;
     reg captured_key;
@@ -59,7 +68,7 @@ module coco3_uart_debug (
                 MSG_READY: message_length = 18;
                 MSG_CART:  message_length = 9;
                 MSG_ENTRY: message_length = 17;
-                default:   message_length = 76;
+                default:   message_length = 119;
             endcase
         end
     endfunction
@@ -74,6 +83,10 @@ module coco3_uart_debug (
         input [7:0] column;
         input [7:0] sd_status_value;
         input [159:0] video;
+        input [7:0] init0;
+        input [7:0] init1;
+        input [2:0] flags;
+        input [127:0] mmu;
         begin
             message_byte = 8'h20;
             case (kind)
@@ -134,9 +147,23 @@ module coco3_uart_debug (
                     30:message_byte=(cart ? "1" : "0");
                     31:message_byte=" "; 32:message_byte="V";
                     33:message_byte="=";
-                    74:message_byte=8'h0d;
-                    75:message_byte=8'h0a;
-                    default:message_byte=hex_digit(video[159-(index-34)*4 -: 4]);
+                    74:message_byte=" "; 75:message_byte="G";
+                    76:message_byte="=";
+                    77:message_byte=hex_digit(init0[7:4]);
+                    78:message_byte=hex_digit(init0[3:0]);
+                    79:message_byte=hex_digit(init1[7:4]);
+                    80:message_byte=hex_digit(init1[3:0]);
+                    81:message_byte=hex_digit({1'b0,flags});
+                    82:message_byte=" "; 83:message_byte="M";
+                    84:message_byte="=";
+                    117:message_byte=8'h0d;
+                    118:message_byte=8'h0a;
+                    default: begin
+                        if (index >= 34 && index <= 73)
+                            message_byte=hex_digit(video[159-(index-34)*4 -: 4]);
+                        else if (index >= 85 && index <= 116)
+                            message_byte=hex_digit(mmu[127-(index-85)*4 -: 4]);
+                    end
                 endcase
             endcase
         end
@@ -158,6 +185,10 @@ module coco3_uart_debug (
             message_index <= 7'd0;
             captured_pc <= 16'd0;
             captured_video <= 160'd0;
+            captured_gime_init0 <= 8'd0;
+            captured_gime_init1 <= 8'd0;
+            captured_memory_flags <= 3'd0;
+            captured_mmu <= 128'd0;
             captured_cart <= 1'b0;
             captured_key <= 1'b0;
             captured_row <= 8'hff;
@@ -205,6 +236,10 @@ module coco3_uart_debug (
                 end else if (second_count == 25'd25199999) begin
                     captured_pc <= sampled_cpu_pc;
                     captured_video <= video_state;
+                    captured_gime_init0 <= gime_init0;
+                    captured_gime_init1 <= gime_init1;
+                    captured_memory_flags <= memory_flags;
+                    captured_mmu <= mmu_state;
                     captured_cart <= cartridge_enabled;
                     captured_key <= keyboard_active;
                     captured_row <= last_keyboard_row;
@@ -218,7 +253,10 @@ module coco3_uart_debug (
                 tx_data <= message_byte(message_kind, message_index,
                                         captured_pc, captured_cart, captured_key,
                                         captured_row, captured_column,
-                                        captured_sd_status, captured_video);
+                                        captured_sd_status, captured_video,
+                                        captured_gime_init0,
+                                        captured_gime_init1,
+                                        captured_memory_flags, captured_mmu);
                 tx_start <= 1'b1;
                 if (message_index + 1'b1 == message_length(message_kind)) begin
                     message_active <= 1'b0;

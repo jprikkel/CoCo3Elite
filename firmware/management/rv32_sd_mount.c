@@ -1,6 +1,8 @@
 #include <stdint.h>
 #include "decb_bin_format.h"
 #include "decb_bin_loader_image.h"
+#include "coco3_banked_bin_format.h"
+#include "coco3_banked_bin_loader_image.h"
 #include "settings_ui.h"
 void *memcpy(void *dst,const void *src,unsigned long n){unsigned char *d=dst;const unsigned char *s=src;while(n--)*d++=*s++;return dst;}
 
@@ -92,6 +94,7 @@ static struct browser_entry browser_entries[MAX_DSK_FILES];
 static struct disk mounted_disk;
 static struct disk pending_bin;
 static uint8_t bin_pending;
+static uint32_t bin_stream_skip,bin_stream_bytes;
 static uint8_t browser_count, card_online;
 static uint32_t root_cluster, current_directory, parent_directory;
 static uint32_t directory_stack[8];
@@ -324,11 +327,11 @@ static int load_cartridge(const struct browser_entry *e){
     CARTRIDGE_CONTROL=3;
     return 0;
 }
-static int install_bin_loader(void){
+static int install_bin_loader(const uint8_t *image,uint16_t image_size){
     uint32_t signature=0;
     CARTRIDGE_CONTROL=0;
-    for(uint16_t address=0;address<DECB_BIN_LOADER_SIZE;++address){
-        uint8_t value=decb_bin_loader_image[address];
+    for(uint16_t address=0;address<image_size;++address){
+        uint8_t value=image[address];
         CARTRIDGE_ADDRESS=address;CARTRIDGE_DATA=value;
         signature=cartridge_signature_step(signature,address,value);
     }
@@ -340,11 +343,31 @@ static int prepare_bin(const struct browser_entry *entry,struct decb_bin_info *i
     for(uint16_t n=0;n<MAX_NAME;++n)file.name[n]=entry->name[n];
     file.cluster=entry->cluster;file.size=entry->size;
     file_reader_init(&reader,&file);
-    int result=decb_bin_validate(file_reader_byte,&reader,file.size,info);
-    if(result)return result;
-    if(install_bin_loader())return 0x20;
+    struct coco3_banked_bin_info banked_info;
+    int banked_result=coco3_banked_bin_validate(file_reader_byte,&reader,
+                                                file.size,&banked_info);
+    int result;
+    if(!banked_result){
+        info->data_records=banked_info.data_records;
+        info->data_bytes=banked_info.payload_bytes;
+        info->stream_bytes=banked_info.payload_bytes;
+        info->execution_address=banked_info.execution_descriptor;
+        if(install_bin_loader(coco3_banked_bin_loader_image,
+                              COCO3_BANKED_BIN_LOADER_SIZE))
+            return 0x20;
+        bin_stream_skip=COCO3_BANKED_BIN_HEADER_SIZE;
+        bin_stream_bytes=banked_info.payload_bytes;
+    }else{
+        if(banked_result!=COCO3_BANKED_BIN_NOT_FORMAT)return 0x21;
+        file_reader_init(&reader,&file);
+        result=decb_bin_validate(file_reader_byte,&reader,file.size,info);
+        if(result)return result;
+        if(install_bin_loader(decb_bin_loader_image,DECB_BIN_LOADER_SIZE))
+            return 0x20;
+        bin_stream_skip=0;
+        bin_stream_bytes=info->stream_bytes;
+    }
     copy_disk(&pending_bin,&file);bin_pending=1;
-    pending_bin.size=info->stream_bytes; // Disk BASIC ignores granule padding after the postamble.
     BIN_FIFO_CONTROL=3;        // reset FIFO and mark producer active
     CARTRIDGE_CONTROL=3;       // proven cold-start/CART launch sequence
     return 0;
@@ -353,7 +376,9 @@ static int stream_bin(void){
     struct fat_file_reader reader;
     uint8_t value;
     file_reader_init(&reader,&pending_bin);
-    while(reader.offset<reader.size){
+    while(reader.offset<bin_stream_skip)
+        if(file_reader_byte(&reader,&value)){BIN_FIFO_CONTROL=8;return 1;}
+    for(uint32_t sent=0;sent<bin_stream_bytes;++sent){
         uint32_t status;
         if(file_reader_byte(&reader,&value)){BIN_FIFO_CONTROL=8;return 1;}
         do {status=BIN_FIFO_STATUS;if(status&(1u<<20))return 2;} while((status&31u)==16u);

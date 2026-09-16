@@ -20,6 +20,17 @@ The tests cover CPU arithmetic, BASIC array RAM, non-destructive installed-RAM
 capacity detection from 64K through 512K, all five legacy PMODE graphics
 modes, all four CoCo 3 HSCREEN graphics modes, HDMI audio, 32/40/80-column
 display positioning, keyboard input, both joystick axes, and both fire buttons.
+`ELITEDIAG.BIN` consolidates the deterministic checks into a self-contained
+6809 assembly program. It uses native 80-column text, prints one mixed-case
+PASS/FAIL result per line, and publishes machine-readable progress through the
+passive UART mailbox. Build it separately with
+`scripts/build_elite_diagnostic.ps1`, or run `LOADM"ELTDIAG":EXEC` from this
+disk. See `docs/ELITE_DIAGNOSTIC.md` for the exact scope and limitations.
+`ELITEMEM.CCC` is the complementary destructive 128 KiB memory cartridge.
+Build it with the same script, copy it to the FAT32 SD card, and launch it from
+F12. Its Q, L, and A choices run quick, long March C-, or combined suites.
+It intentionally erases all CoCo RAM and therefore is not placed inside the
+diagnostic DSK.
 `HVEN.BAS` V2 loads `HVENFILL.BIN` to quickly fill 96 virtual 256-byte rows
 inside BASIC's graphics allocation, displayed twice each for 192 scanlines.
 A/D step left/right by 32 pixels, Space toggles automatic scrolling, and Q

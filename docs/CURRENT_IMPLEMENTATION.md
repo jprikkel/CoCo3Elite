@@ -185,8 +185,8 @@ Important FPGA controls are:
 | --- | --- |
 | F3 | Normal CoCo keyboard function key; no fixed cartridge action |
 | F6 | Toggle the board turbo override |
-| F7 | Toggle W/S/A/D/F control of the right joystick |
-| F8 | Toggle arrow/Space control of the left joystick |
+| F7 | Reserved |
+| F8 | Cycle keyboard joystick mapping: Off, Left, Right. Arrows control direction, Space is primary fire, and Left Ctrl is the second logical fire line. |
 | F9 | Toggle horizontal scanlines |
 | F10 | Toggle NTSC artifact-color decoding |
 | F11 | Open live video and management-font Settings |
@@ -206,6 +206,12 @@ FF9D/FF9E (4), FF9F (2), the sixteen packed six-bit palette registers
 (24, palette 15 first and palette 0 last), and the current video RAM word (4).
 All fields are captured together once per second. The RAM word is an
 instantaneous fetch sample, not a framebuffer dump.
+
+The same line ends with `G=` and `M=` fields for direct-BIN diagnostics.
+`G=` contains FF90, FF91, and one flags digit (`4` MMU enabled, `2` task 1,
+`1` all-RAM). `M=` contains FFA0-FFA7 followed by FFA8-FFAF. Comparing these
+fields between a working DSK launch and a blank direct-BIN launch distinguishes
+bad video-register setup from loading into a different physical RAM page.
 
 ## Disk and SD behavior
 
@@ -270,6 +276,8 @@ Focused PowerShell launchers under `scripts/` cover the principal boundaries:
 | Test | Coverage |
 | --- | --- |
 | `test_boot_machine.ps1` | CPU boot and machine bus behavior |
+| `test_elite_diagnostic.ps1` | Production direct-BIN loading plus 17 self-checking 6809 CPU, RAM, ROM, MMU, GIME, video, audio-control, FDC, and serial-telemetry results in native 80-column text |
+| `test_elite_memory_diagnostic.ps1` | Cartridge-resident destructive tests of every byte in all 128 KiB: data-bus walking bits, page isolation, full-RAM patterns, address uniqueness, and ascending/descending March C- transitions |
 | `test_boot_video.ps1` | Boot video and palette/border mapping |
 | `test_fdc_read.ps1` | WD1773-compatible embedded-image reads |
 | `test_gime_border.ps1` | GIME border register behavior |

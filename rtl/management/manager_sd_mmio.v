@@ -271,7 +271,9 @@ module manager_sd_mmio #(
             osd_narrow_selection <= 1'b0;
             osd_option_selection <= 1'b0;
             osd_font_style <= 2'd1;
-            artifact_mode <= 3'd1;
+            // Two pass keeps Thin's detail while closing isolated same-color
+            // artifact gaps, and is the preferred power-on presentation.
+            artifact_mode <= 3'd5;
             artifact_palette <= 2'd0;
             coco2_palette <= 4'd0;
             text_color_theme <= 4'd0;

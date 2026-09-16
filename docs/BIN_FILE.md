@@ -81,8 +81,8 @@ FIFO, status registers, and final RAM trampoline consume new storage.
    all-RAM mode for the store while preserving the mapping expected at entry.
 9. The loader copies a short final trampoline into safe low RAM and jumps to
    it.
-10. The trampoline disables the temporary cartridge, restores the required ROM
-    mapping and the stack established by the cold-start ROM, enables IRQ/FIRQ
+10. The trampoline disables the temporary cartridge, retains Disk BASIC's
+    initialized all-RAM mapping and stack, enables IRQ/FIRQ
     as BASIC does before its command loop, and jumps to the execution address
     from the BIN trailer.
 
@@ -169,14 +169,27 @@ Programs that polled hardware directly often worked, while programs dependent
 on interrupts either returned to BASIC, produced a continuous sound, or
 stalled. The loader now preserves the stack established by the cold-start ROM,
 uses a private stack only while receiving records, restores the original stack,
-and enables IRQ/FIRQ before transferring control. The MC6809 regression test
-checks this complete execution contract.
+and enables IRQ/FIRQ before transferring control. The private stack grows below
+`$FE80`; an earlier `$FEFF` stack corrupted `$FEFD/$FEFE` on every byte-fetch
+subroutine call. The MC6809 regression test checks the complete execution
+contract and verifies that the top of the vector page remains unchanged.
 
-Some binaries now run their sound and controls but still have blank or corrupt
-CoCo 3 graphics. Those cases are tracked as GIME/MMU/video compatibility work,
-not as FAT32 transfer or DECB execution failures. A program that deliberately
-returns to BASIC may also require program-specific startup parameters that are
-not represented by the standard DECB postamble.
+A second path-specific defect was isolated with programs that displayed
+correctly after Disk BASIC `LOADM`/`EXEC`, but produced sound with a blank or
+corrupt screen when launched directly. Color BASIC dispatches a plain `EXEC`
+with `A=$00`, `B=$44`, `X=$ABAB`, `DP=$00`, the zero flag set, and the normal
+BASIC stack. The temporary loader instead leaked its own transfer-loop register
+values into the program. The final trampoline now stores the transfer address
+in BASIC's `$009D` EXEC vector and reproduces the ROM's register/flag handoff
+before performing the same indirect jump. Serial telemetry subsequently showed
+that forcing `$FFDE` here changed Disk BASIC's initialized all-RAM state before
+program entry. The trampoline now retains `$FFDF`; the regression checks this
+state in addition to stack, interrupt, and vector-page integrity.
+
+A program that deliberately returns to BASIC may still require startup
+parameters or trailing data that are not represented by a standard DECB
+postamble. A remaining video difference must be reproduced through both DSK
+and direct-BIN loading before it is classified as GIME/MMU compatibility work.
 
 ## Current implementation limits
 
@@ -187,11 +200,62 @@ not represented by the standard DECB postamble.
 - LOADM records may write ordinary CoCo hardware registers, matching Disk
   BASIC behavior. Writes to the temporary loader mailbox at `$FF62-$FF64` are
   rejected because they would corrupt the active transfer.
+- The postamble must use the conventional `$FF` marker. Its two dummy bytes
+  are ignored, matching Disk BASIC `LOADM`; this accepts older loaders such as
+  Zenix that store a nonzero value there.
 - Bytes after the first valid execution postamble are treated as disk granule
-  padding and are neither validated nor sent to the CoCo.
-- The FAT32 file is validated completely before the loader cartridge starts.
+  padding and are neither validated nor sent to the CoCo. Disk-dependent
+  programs that use meaningful trailing payload still require a mounted or
+  temporary virtual disk path.
+- Banked CoCo 3 programs may use the generic `C3B1` container documented below.
+  Firmware validates its structure and CRC, then a reusable 6809 loader applies
+  its physical MMU placement records. The production firmware contains no
+  program-specific signatures, decryption, or patches.
+- The original Zenix image is encrypted and disk-dependent, so it is converted
+  offline with `scripts/patch_zenix_bin.ps1`. The tool removes score-file I/O,
+  bypasses its disk copy check, reproduces the check's menu-unlock edits, and
+  preserves `DISKDEINIT`'s `$FFD9` double-speed restore after removing disk I/O.
+  It writes a new generic C3B1 file; it never modifies the source BIN or a DSK.
+  The converted file is copyrighted output and must not be committed.
+- Zenix's 6,816-byte trailing planet payload is separate from the main program.
+  Full diskless play still requires converting or servicing that read-only data;
+  it must not be implemented by silently writing a source `.DSK` image.
+- Both standard DECB and C3B1 records are completely validated before the
+  temporary loader cartridge starts.
 - The same validator and FIFO boundary can later accept bytes from serial or
   Ethernet without changing the 6809 loader.
+
+### Generic banked CoCo 3 BIN (`C3B1`)
+
+The C3B1 format is intended for programs that cannot be represented by ordinary
+16-bit DECB load records because their data occupies multiple MMU banks.
+
+The 16-byte header is:
+
+| Offset | Size | Meaning |
+| --- | ---: | --- |
+| 0 | 4 | ASCII magic `C3B1` |
+| 4 | 4 | Big-endian payload length |
+| 8 | 4 | Big-endian IEEE CRC32 of the payload |
+| 12 | 4 | Reserved; must be zero |
+
+The payload uses the banked records consumed by
+`coco3_banked_bin_loader.asm`. Each record starts with zero, a big-endian
+length, and a logical address. When that address is discontinuous, the next
+word is a physical MMU placement descriptor included in the record length.
+The final record has length four, logical address zero, placement zero, and a
+final execution descriptor. The validator rejects malformed sizes, missing
+data, extra bytes, and CRC mismatches before resetting the CoCo.
+
+To make a local, read-only Zenix test file:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\patch_zenix_bin.ps1 `
+  -InputPath C:\path\to\ZENIX.BIN `
+  -OutputPath C:\path\to\ZENIX-PATCHED.BIN
+```
+
+Do not add `ZENIX-PATCHED.BIN` to the repository.
 
 ## Relationship to BAS files
 

@@ -25,6 +25,9 @@ module coco3_boot_system #(
     wire [7:0] cpu_read_data;
     wire io_write;
     wire [7:0] cpu_data;
+    wire [7:0] debug_gime_init0, debug_gime_init1;
+    wire [2:0] debug_memory_flags;
+    wire [127:0] debug_mmu;
     wire [19:0] video_address;
     wire [15:0] video_data;
     wire [8:0] color;
@@ -73,7 +76,6 @@ module coco3_boot_system #(
     wire keyboard_f10;
     wire keyboard_f12;
     reg [1:0] keyboard_f6_sync;
-    reg [1:0] keyboard_f7_sync;
     reg [1:0] keyboard_f10_sync;
     reg [1:0] keyboard_f8_sync;
     reg [1:0] keyboard_f9_sync;
@@ -82,14 +84,16 @@ module coco3_boot_system #(
     reg [1:0] keyboard_reset_sync;
     reg keyboard_reset_previous;
     reg keyboard_f6_previous;
-    reg keyboard_f7_previous;
     reg cpu_fast_mode;
-    reg keyboard_right_joystick_enabled;
+    // F8 cycles keyboard joystick emulation: 0=off, 1=left, 2=right.
+    // A real CoCo exposes one fire input per joystick connector.  Space drives
+    // the selected connector's fire input; Ctrl drives the other connector's
+    // fire input so software that treats both lines as two buttons can use it.
+    reg [1:0] keyboard_joystick_mode;
     reg artifact_enabled;
     reg keyboard_f10_previous;
     reg keyboard_f8_previous;
     reg keyboard_f9_previous;
-    reg keyboard_joystick_enabled;
     reg scanlines_enabled;
     reg soft_reset_active;
     reg [21:0] soft_reset_release_count;
@@ -101,13 +105,14 @@ module coco3_boot_system #(
     // reset.  COCOKEY only updates RESET on a Delete scan code; without this
     // wrapper reset, releasing Ctrl or Alt before Delete can leave RESET high.
     wire keyboard_decoder_reset = reset | soft_reset_active;
+    wire keyboard_joystick_enabled = keyboard_joystick_mode != 2'd0;
+    wire keyboard_joystick_left = keyboard_joystick_mode == 2'd1;
+    wire keyboard_joystick_right = keyboard_joystick_mode == 2'd2;
     wire [55:0] keyboard_joystick_mask = keyboard_joystick_enabled
-        ? 56'h000000F8000000 : 56'b0;
-    wire [55:0] keyboard_right_joystick_mask = keyboard_right_joystick_enabled
-        ? ((56'b1 << 23) | (56'b1 << 19) | (56'b1 << 1) |
-           (56'b1 << 4) | (56'b1 << 6)) : 56'b0;
+        ? ((56'b1 << 27) | (56'b1 << 28) | (56'b1 << 29) |
+           (56'b1 << 30) | (56'b1 << 31) | (56'b1 << 52)) : 56'b0;
     wire [55:0] machine_keyboard_keys = (soft_reset_active | menu_active) ? 56'b0 :
-        (keyboard_keys & ~keyboard_joystick_mask & ~keyboard_right_joystick_mask);
+        (keyboard_keys & ~keyboard_joystick_mask);
     wire machine_keyboard_shift = soft_reset_active ? 1'b0 : keyboard_shift;
     wire machine_keyboard_shift_override = soft_reset_active ? 1'b0 :
                                            keyboard_shift_override;
@@ -115,24 +120,24 @@ module coco3_boot_system #(
     wire joystick_right_only = keyboard_keys[30] && !keyboard_keys[29];
     wire joystick_up_only = keyboard_keys[27] && !keyboard_keys[28];
     wire joystick_down_only = keyboard_keys[28] && !keyboard_keys[27];
-    wire [5:0] joystick_left_x = !keyboard_joystick_enabled ? 6'd32 :
+    wire [5:0] joystick_left_x = !keyboard_joystick_left ? 6'd32 :
                                  joystick_left_only ? 6'd0 :
                                  joystick_right_only ? 6'd63 : 6'd32;
-    wire [5:0] joystick_left_y = !keyboard_joystick_enabled ? 6'd32 :
+    wire [5:0] joystick_left_y = !keyboard_joystick_left ? 6'd32 :
                                  joystick_up_only ? 6'd0 :
                                  joystick_down_only ? 6'd63 : 6'd32;
-    wire joystick_left_fire = keyboard_joystick_enabled && keyboard_keys[31];
-    wire joystick_right_left_only = keyboard_keys[1] && !keyboard_keys[4];
-    wire joystick_right_right_only = keyboard_keys[4] && !keyboard_keys[1];
-    wire joystick_right_up_only = keyboard_keys[23] && !keyboard_keys[19];
-    wire joystick_right_down_only = keyboard_keys[19] && !keyboard_keys[23];
-    wire [5:0] joystick_right_x = !keyboard_right_joystick_enabled ? 6'd32 :
-                                  joystick_right_left_only ? 6'd0 :
-                                  joystick_right_right_only ? 6'd63 : 6'd32;
-    wire [5:0] joystick_right_y = !keyboard_right_joystick_enabled ? 6'd32 :
-                                  joystick_right_up_only ? 6'd0 :
-                                  joystick_right_down_only ? 6'd63 : 6'd32;
-    wire joystick_right_fire = keyboard_right_joystick_enabled && keyboard_keys[6];
+    wire [5:0] joystick_right_x = !keyboard_joystick_right ? 6'd32 :
+                                  joystick_left_only ? 6'd0 :
+                                  joystick_right_only ? 6'd63 : 6'd32;
+    wire [5:0] joystick_right_y = !keyboard_joystick_right ? 6'd32 :
+                                  joystick_up_only ? 6'd0 :
+                                  joystick_down_only ? 6'd63 : 6'd32;
+    wire joystick_left_fire =
+        (keyboard_joystick_left && keyboard_keys[31]) ||
+        (keyboard_joystick_right && keyboard_keys[52]);
+    wire joystick_right_fire =
+        (keyboard_joystick_right && keyboard_keys[31]) ||
+        (keyboard_joystick_left && keyboard_keys[52]);
     // The manager owns the SD pins and filesystem.  The CoCo sees only a
     // WD1773-like sector service, preserving Disk BASIC's normal protocol.
     wire manager_uart_tx, manager_uart_busy, manager_ready, manager_done_toggle, manager_success;
@@ -323,7 +328,6 @@ module coco3_boot_system #(
     always @(posedge pixel_clk) begin
         if (reset) begin
             keyboard_f6_sync <= 2'b00;
-            keyboard_f7_sync <= 2'b00;
             keyboard_f11_sync <= 2'b00;
             keyboard_f12_sync <= 2'b00;
             keyboard_f10_sync <= 2'b00;
@@ -332,18 +336,15 @@ module coco3_boot_system #(
             keyboard_reset_sync <= 2'b00;
             keyboard_reset_previous <= 1'b0;
             keyboard_f6_previous <= 1'b0;
-            keyboard_f7_previous <= 1'b0;
             cpu_fast_mode <= 1'b0;
-            keyboard_right_joystick_enabled <= 1'b0;
+            keyboard_joystick_mode <= 2'd0;
             artifact_enabled <= 1'b1;
             keyboard_f10_previous <= 1'b0;
             keyboard_f8_previous <= 1'b0;
             keyboard_f9_previous <= 1'b0;
-            keyboard_joystick_enabled <= 1'b0;
             scanlines_enabled <= 1'b0;
         end else begin
             keyboard_f6_sync <= {keyboard_f6_sync[0], keyboard_f6};
-            keyboard_f7_sync <= {keyboard_f7_sync[0], keyboard_f7};
             keyboard_f11_sync <= {keyboard_f11_sync[0], keyboard_f11};
             keyboard_f12_sync <= {keyboard_f12_sync[0], keyboard_f12};
             keyboard_f10_sync <= {keyboard_f10_sync[0], keyboard_f10};
@@ -352,7 +353,6 @@ module coco3_boot_system #(
             keyboard_reset_sync <= {keyboard_reset_sync[0], keyboard_reset};
             keyboard_reset_previous <= keyboard_reset_sync[1];
             keyboard_f6_previous <= keyboard_f6_sync[1];
-            keyboard_f7_previous <= keyboard_f7_sync[1];
             keyboard_f10_previous <= keyboard_f10_sync[1];
             keyboard_f8_previous <= keyboard_f8_sync[1];
             keyboard_f9_previous <= keyboard_f9_sync[1];
@@ -362,10 +362,9 @@ module coco3_boot_system #(
                 artifact_enabled <= ~artifact_enabled;
             if (keyboard_f6_sync[1] && !keyboard_f6_previous)
                 cpu_fast_mode <= ~cpu_fast_mode;
-            if (keyboard_f7_sync[1] && !keyboard_f7_previous)
-                keyboard_right_joystick_enabled <= ~keyboard_right_joystick_enabled;
             if (keyboard_f8_sync[1] && !keyboard_f8_previous)
-                keyboard_joystick_enabled <= ~keyboard_joystick_enabled;
+                keyboard_joystick_mode <= keyboard_joystick_mode == 2'd2
+                    ? 2'd0 : keyboard_joystick_mode + 1'b1;
             if (keyboard_f9_sync[1] && !keyboard_f9_previous)
                 scanlines_enabled <= ~scanlines_enabled;
         end
@@ -421,6 +420,9 @@ module coco3_boot_system #(
         .debug_opfetch(), .debug_read_data(cpu_read_data),
         .debug_ram_write(),
         .debug_io_write(io_write), .debug_write_data(cpu_data),
+        .debug_gime_init0(debug_gime_init0),
+        .debug_gime_init1(debug_gime_init1),
+        .debug_memory_flags(debug_memory_flags), .debug_mmu(debug_mmu),
         .keyboard_keys(machine_keyboard_keys),
         .keyboard_shift(machine_keyboard_shift),
         .keyboard_shift_override(machine_keyboard_shift_override),
@@ -481,6 +483,8 @@ module coco3_boot_system #(
         .sd_status(sd_status),
         .video_state({gime_video_mode,gime_video_resolution,{6'b0,start_hsb},
                       gime_video_offset,gime_horizontal_offset,machine_palette,video_data}),
+        .gime_init0(debug_gime_init0), .gime_init1(debug_gime_init1),
+        .memory_flags(debug_memory_flags), .mmu_state(debug_mmu),
         .uart_tx_o(coco_uart_debug_tx)
     );
 `endif

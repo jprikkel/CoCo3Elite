@@ -138,6 +138,8 @@ module manager_sd_mmio_tb;
         $display("checking OSD character and input MMIO");
         if (osd_font_style != 2'd1)
             $fatal(1, "Tamzen is not the default management font");
+        if (artifact_mode != 3'd5)
+            $fatal(1, "Two pass is not the default artifact style");
         write32(32'h8000024c, 10'd12);
         write32(32'h80000250, 8'h41);
         osd_char_address = 10'd12; #1;

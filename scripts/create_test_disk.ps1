@@ -47,5 +47,8 @@ if ($LASTEXITCODE -ne 0) { throw 'decb copy failed for HVENFILL.BIN' }
 & (Join-Path $PSScriptRoot 'build_zenix_fill.ps1')
 & $decb copy -2 -b (Join-Path $repoRoot 'build\tests\zenfill.bin') "$output,ZENFILL.BIN"
 if ($LASTEXITCODE -ne 0) { throw 'decb copy failed for ZENFILL.BIN' }
+& (Join-Path $PSScriptRoot 'build_elite_diagnostic.ps1')
+& $decb copy -2 -b (Join-Path $repoRoot 'build\diagnostics\ELITEDIAG.BIN') "$output,ELTDIAG.BIN"
+if ($LASTEXITCODE -ne 0) { throw 'decb copy failed for ELTDIAG.BIN' }
 & $decb dir "$output,"
 if ($LASTEXITCODE -ne 0) { throw "decb dir failed with exit code $LASTEXITCODE" }
