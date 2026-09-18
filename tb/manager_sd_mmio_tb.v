@@ -34,6 +34,10 @@ module manager_sd_mmio_tb;
     wire [1:0] artifact_palette;
     wire [3:0] coco2_palette;
     wire [3:0] text_color_theme;
+    wire [55:0] serial_keyboard_keys;
+    wire serial_keyboard_shift, serial_keyboard_shift_override;
+    wire [7:0] serial_function_keys;
+    wire serial_cold_reset;
     wire fdc_done_toggle, fdc_success;
     wire [7:0] fdc_buffer_data;
     integer rising_edges = 0;
@@ -61,6 +65,7 @@ module manager_sd_mmio_tb;
         .axi_wstrb(wstrb), .axi_bvalid(bvalid), .axi_bready(bready), .axi_bresp(bresp),
         .axi_arvalid(arvalid), .axi_arready(arready), .axi_araddr(araddr), .axi_rvalid(rvalid),
         .axi_rready(rready), .axi_rdata(rdata), .axi_rresp(rresp), .uart_tx(uart_tx),
+        .uart_rx(1'b1),
         .sd_cs_n(sd_cs_n), .sd_sck(sd_sck), .sd_mosi(sd_mosi), .sd_miso(1'b1),
         .fdc_drive(2'd0), .fdc_track(8'd0), .fdc_sector(8'd1),
         .fdc_last_type1(8'h17), .fdc_debug_word(32'd0),
@@ -78,6 +83,14 @@ module manager_sd_mmio_tb;
         .artifact_mode(artifact_mode),.artifact_palette(artifact_palette),
         .coco2_palette(coco2_palette),
         .text_color_theme(text_color_theme),
+        .serial_keyboard_keys(serial_keyboard_keys),
+        .serial_keyboard_shift(serial_keyboard_shift),
+        .serial_keyboard_shift_override(serial_keyboard_shift_override),
+        .serial_function_keys(serial_function_keys),
+        .serial_cold_reset(serial_cold_reset),
+        .debug_cpu_pc(16'ha7d5), .debug_gime_init0(8'h40),
+        .debug_gime_init1(8'h00), .debug_video_mode(8'h80),
+        .debug_video_resolution(8'h12),
         .fdc_done_toggle(fdc_done_toggle), .fdc_success(fdc_success),
         .fdc_write_done_toggle(), .fdc_write_success(), .fdc_present(),
         .manager_ready(), .cartridge_address(cartridge_address),
@@ -135,6 +148,26 @@ module manager_sd_mmio_tb;
     initial begin
         repeat (4) @(posedge clock);
         reset = 0;
+        $display("checking serial keyboard and machine status MMIO");
+        write32(32'h80000284, 32'h80000002);
+        write32(32'h80000288, 32'h00800001);
+        write32(32'h8000028c, 32'h00000003);
+        write32(32'h80000290, 32'h00000082);
+        if (serial_keyboard_keys !== 56'h80000180000002 ||
+            !serial_keyboard_shift || !serial_keyboard_shift_override ||
+            serial_function_keys !== 8'h82)
+            $fatal(1, "serial keyboard state was not published");
+        read32(32'h80000298, value);
+        if (value[15:0] !== 16'ha7d5)
+            $fatal(1, "CPU status readback mismatch");
+        read32(32'h8000029c, value);
+        if (value !== 32'h40008012)
+            $fatal(1, "video status readback mismatch: %h", value);
+        write32(32'h8000028c, 32'h00000100);
+        write32(32'h80000290, 32'h00000000);
+        if (serial_keyboard_keys !== 56'b0 || serial_keyboard_shift ||
+            serial_keyboard_shift_override || serial_function_keys !== 0)
+            $fatal(1, "serial keyboard release-all failed");
         $display("checking OSD character and input MMIO");
         if (osd_font_style != 2'd1)
             $fatal(1, "Tamzen is not the default management font");

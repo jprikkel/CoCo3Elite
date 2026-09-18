@@ -12,6 +12,8 @@ void *memcpy(void *dst,const void *src,unsigned long n){unsigned char *d=dst;con
 #define REG32(a) (*(volatile uint32_t *)(a))
 #define UART_DATA REG32(0x80000000u)
 #define UART_STATUS REG32(0x80000004u)
+#define UART_RX_DATA REG32(0x80000008u)
+#define UART_RX_STATUS REG32(0x8000000cu)
 #define SPI_CTRL REG32(0x80000100u)
 #define SPI_XFER REG32(0x80000104u)
 #define SPI_DATA REG32(0x80000108u)
@@ -45,6 +47,13 @@ void *memcpy(void *dst,const void *src,unsigned long n){unsigned char *d=dst;con
 #define BIN_FIFO_DATA REG32(0x8000026cu)
 #define BIN_FIFO_CONTROL REG32(0x80000270u)
 #define BIN_FIFO_STATUS REG32(0x80000274u)
+#define SERIAL_KEY_LO REG32(0x80000284u)
+#define SERIAL_KEY_HI REG32(0x80000288u)
+#define SERIAL_KEY_CONTROL REG32(0x8000028cu)
+#define SERIAL_FUNCTION_KEYS REG32(0x80000290u)
+#define SERIAL_MACHINE_CONTROL REG32(0x80000294u)
+#define DEBUG_CPU_STATUS REG32(0x80000298u)
+#define DEBUG_VIDEO_STATUS REG32(0x8000029cu)
 
 #define KEY_F12 1u
 #define KEY_UP 2u
@@ -102,11 +111,49 @@ static uint8_t directory_depth;
 static char current_path[MAX_NAME];
 static uint16_t lfn_utf16[260];
 static uint8_t lfn_valid, lfn_expected, lfn_checksum;
+static uint32_t serial_key_lo,serial_key_hi;
+static uint8_t serial_shift,serial_shift_override,serial_function_keys;
+static char serial_command[64];
+static uint8_t serial_command_length;
 
 static void putc(char c) { while (UART_STATUS & 1u) {} UART_DATA = (uint8_t)c; }
 static void puts(const char *s) { while (*s) putc(*s++); }
 static void hex(uint8_t n) { static const char h[]="0123456789ABCDEF"; putc(h[n>>4]); putc(h[n&15]); }
 static void hex32(uint32_t n) { hex((uint8_t)(n>>24)); hex((uint8_t)(n>>16)); hex((uint8_t)(n>>8)); hex((uint8_t)n); }
+static int equal(const char *a,const char *b){while(*a&&*a==*b){++a;++b;}return *a==*b;}
+static int hex_digit(char c){if(c>='0'&&c<='9')return c-'0';if(c>='A'&&c<='F')return c-'A'+10;if(c>='a'&&c<='f')return c-'a'+10;return -1;}
+static int parse_hex_byte(const char *p,uint8_t *value){int a=hex_digit(p[0]),b=hex_digit(p[1]);if(a<0||b<0||p[2])return 0;*value=(uint8_t)((a<<4)|b);return 1;}
+static void serial_apply_keys(void){SERIAL_KEY_LO=serial_key_lo;SERIAL_KEY_HI=serial_key_hi;SERIAL_KEY_CONTROL=(uint32_t)serial_shift|((uint32_t)serial_shift_override<<1);SERIAL_FUNCTION_KEYS=serial_function_keys;}
+static void serial_release_all(void){serial_key_lo=0;serial_key_hi=0;serial_shift=0;serial_shift_override=0;serial_function_keys=0;SERIAL_KEY_CONTROL=0x100u;SERIAL_FUNCTION_KEYS=0;}
+static void serial_reply_status(void){uint32_t cpu=DEBUG_CPU_STATUS,video=DEBUG_VIDEO_STATUS;puts("STATUS PC=");hex((uint8_t)(cpu>>8));hex((uint8_t)cpu);puts(" I0=");hex((uint8_t)(video>>24));puts(" I1=");hex((uint8_t)(video>>16));puts(" VM=");hex((uint8_t)(video>>8));puts(" VR=");hex((uint8_t)video);puts("\r\n");}
+static void serial_execute_command(void){
+    uint8_t value;
+    serial_command[serial_command_length]=0;
+    if(equal(serial_command,"PING")){puts("PONG\r\n");}
+    else if(equal(serial_command,"STATUS")){serial_reply_status();}
+    else if(equal(serial_command,"RELEASE")){serial_release_all();puts("OK RELEASE\r\n");}
+    else if(equal(serial_command,"RESET")){serial_release_all();SERIAL_MACHINE_CONTROL=3u;puts("OK RESET\r\n");}
+    else if(serial_command[0]=='K'&&(serial_command[1]=='D'||serial_command[1]=='U')&&serial_command[2]==' '&&parse_hex_byte(&serial_command[3],&value)&&value<56u){
+        if(value<32u){if(serial_command[1]=='D')serial_key_lo|=1u<<value;else serial_key_lo&=~(1u<<value);}
+        else {value=(uint8_t)(value-32u);if(serial_command[1]=='D')serial_key_hi|=1u<<value;else serial_key_hi&=~(1u<<value);}
+        serial_apply_keys();puts("OK KEY\r\n");
+    }
+    else if(serial_command[0]=='S'&&serial_command[2]==' '&&(serial_command[3]=='0'||serial_command[3]=='1')&&!serial_command[4]){
+        if(serial_command[1]=='H')serial_shift=(uint8_t)(serial_command[3]-'0');
+        else if(serial_command[1]=='O')serial_shift_override=(uint8_t)(serial_command[3]-'0');
+        else {puts("ERR COMMAND\r\n");return;}
+        serial_apply_keys();puts("OK SHIFT\r\n");
+    }
+    else if(serial_command[0]=='F'&&serial_command[1]=='K'&&serial_command[2]==' '&&parse_hex_byte(&serial_command[3],&value)&&value<16u){
+        uint8_t function=(uint8_t)(value>>1),pressed=value&1u;
+        if(function<8u){if(pressed)serial_function_keys|=(uint8_t)(1u<<function);else serial_function_keys&=(uint8_t)~(1u<<function);serial_apply_keys();puts("OK FUNCTION\r\n");}
+        else puts("ERR FUNCTION\r\n");
+    }
+    else puts("ERR COMMAND\r\n");
+}
+static void serial_poll(void){
+    while(UART_RX_STATUS&1u){char c=(char)UART_RX_DATA;if(c=='\r'||c=='\n'){if(serial_command_length){serial_execute_command();serial_command_length=0;}}else if(serial_command_length+1u<sizeof(serial_command))serial_command[serial_command_length++]=c;else {serial_command_length=0;puts("ERR LONG\r\n");}}
+}
 static uint32_t crc32_byte(uint32_t crc,uint8_t value){
     crc^=value;
     for(uint8_t bit=0;bit<8;++bit)crc=(crc>>1)^((crc&1u)?0xedb88320u:0u);
@@ -504,12 +551,13 @@ static int run_disk_menu(uint8_t *present){
         for(uint8_t n=0;n<browser_count;++n)if(browser_entries[n].cluster==mounted_disk.cluster){menu_selection=n;break;}
         draw_menu(browser_count?"Select DSK, CCC, BIN or directory":"No compatible DSK, CCC or BIN files");
     }
-    while(MENU_KEY_STATE&KEY_F12){}
+    while(MENU_KEY_STATE&KEY_F12){serial_poll();}
     previous=MENU_KEY_STATE;
     for(;;){
+        serial_poll();
         keys=MENU_KEY_STATE;pressed=keys&~previous;previous=keys;
         if(pressed&(KEY_ESCAPE|KEY_F12)){
-            while(MENU_KEY_STATE&(KEY_ESCAPE|KEY_F12)){}
+            while(MENU_KEY_STATE&(KEY_ESCAPE|KEY_F12)){serial_poll();}
             OSD_CONTROL=0;puts("MENU CLOSE\r\n");return scan_failed;
         }
         if((pressed&KEY_UP)&&browser_count){
@@ -528,14 +576,14 @@ static int run_disk_menu(uint8_t *present){
             }
             if(browser_entries[menu_selection].cartridge){
                 draw_menu("Loading cartridge - please wait");
-                if(!load_cartridge(&browser_entries[menu_selection])){puts("CARTRIDGE LOADED ");puts(browser_entries[menu_selection].name);puts("\r\n");while(MENU_KEY_STATE&KEY_ENTER){}OSD_CONTROL=0;return 0;}
+                if(!load_cartridge(&browser_entries[menu_selection])){puts("CARTRIDGE LOADED ");puts(browser_entries[menu_selection].name);puts("\r\n");while(MENU_KEY_STATE&KEY_ENTER){serial_poll();}OSD_CONTROL=0;return 0;}
                 draw_menu("Cartridge load failed");continue;
             }
             if(browser_entries[menu_selection].binary){
                 struct decb_bin_info info;
                 draw_menu("Validating DECB BIN - please wait");
                 int result=prepare_bin(&browser_entries[menu_selection],&info);
-                if(!result){puts("BIN READY ");puts(browser_entries[menu_selection].name);puts(" EXEC ");hex((uint8_t)(info.execution_address>>8));hex((uint8_t)info.execution_address);puts("\r\n");while(MENU_KEY_STATE&KEY_ENTER){}OSD_CONTROL=0;return 0;}
+                if(!result){puts("BIN READY ");puts(browser_entries[menu_selection].name);puts(" EXEC ");hex((uint8_t)(info.execution_address>>8));hex((uint8_t)info.execution_address);puts("\r\n");while(MENU_KEY_STATE&KEY_ENTER){serial_poll();}OSD_CONTROL=0;return 0;}
                 draw_menu(result==DECB_BIN_LOADER_OVERLAP?"BIN uses reserved FE00-FEFF":"Invalid or unsupported DECB BIN");continue;
             }
             struct disk candidate;
@@ -546,7 +594,7 @@ static int run_disk_menu(uint8_t *present){
             if(!load_disk_cache(&candidate)){
                 copy_disk(&mounted_disk,&candidate);*present=1;MOUNT_STATUS=0x101u;
                 short_name(&mounted_disk,name);puts("MOUNT D0 ");puts(name);puts(" CRC32 ");hex32(disk_cache_crc32);puts("\r\n");
-                while(MENU_KEY_STATE&KEY_ENTER){}
+                while(MENU_KEY_STATE&KEY_ENTER){serial_poll();}
                 OSD_CONTROL=0;return 0;
             }
             *present=0;MOUNT_STATUS=0x100u;
@@ -566,6 +614,7 @@ int main(void){
     // Treat F12 held during SD initialization as the first menu request.
     uint32_t menu_previous=0, retry=0, probe=0;
     for(;;){
+        serial_poll();
         if(!card_online){
             if(!retry--){
                 if(!init_card()){card_online=1;error=mount_filesystem();present=0;if(!error){puts("SD REINSERTED - F12\r\n");MOUNT_STATUS=0x100u;}else media_lost();retry=3000000u;}

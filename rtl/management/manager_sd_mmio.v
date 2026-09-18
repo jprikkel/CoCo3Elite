@@ -2,7 +2,8 @@
 `default_nettype none
 
 // Project-owned AXI-Lite peripheral for the manager firmware smoke test.
-// 0x80000000 UART byte write; 0x80000004 UART busy (bit 0).
+// 0x80000000 UART byte write; 0x80000004 UART TX busy (bit 0).
+// 0x80000008 UART RX byte/pop; 0x8000000c RX status/count.
 // 0x80000100 SPI control: bit 0 CS_n, bits 15:8 half-period divider.
 // 0x80000104 SPI transfer byte write (response is delayed until byte complete).
 // 0x80000108 SPI received byte read.  0x80000200..214 are the FDC mailbox and
@@ -23,7 +24,8 @@ module manager_sd_mmio #(
     input wire axi_arvalid, output wire axi_arready, input wire [31:0] axi_araddr,
     output reg axi_rvalid, input wire axi_rready, output reg [31:0] axi_rdata,
     output wire [1:0] axi_rresp,
-    output wire uart_tx, output wire uart_busy_o, output reg sd_cs_n, output reg sd_sck, output reg sd_mosi,
+    output wire uart_tx, output wire uart_busy_o, input wire uart_rx,
+    output reg sd_cs_n, output reg sd_sck, output reg sd_mosi,
     input wire sd_miso,
     input wire [1:0] fdc_drive, input wire [7:0] fdc_track,
     input wire [7:0] fdc_sector, input wire [7:0] fdc_last_type1, input wire [31:0] fdc_debug_word, input wire [31:0] fdc_completed_debug_word, input wire fdc_read_complete_toggle, input wire fdc_write_complete_toggle, input wire fdc_request_toggle,
@@ -41,6 +43,13 @@ module manager_sd_mmio #(
     output reg [1:0] artifact_palette,
     output reg [3:0] coco2_palette,
     output reg [3:0] text_color_theme,
+    output reg [55:0] serial_keyboard_keys,
+    output reg serial_keyboard_shift, output reg serial_keyboard_shift_override,
+    output reg [7:0] serial_function_keys,
+    output reg serial_cold_reset,
+    input wire [15:0] debug_cpu_pc,
+    input wire [7:0] debug_gime_init0, input wire [7:0] debug_gime_init1,
+    input wire [7:0] debug_video_mode, input wire [7:0] debug_video_resolution,
     output reg fdc_done_toggle, output reg fdc_success,
     output reg fdc_write_done_toggle, output reg fdc_write_success,
     output reg [2:0] fdc_present, output reg manager_ready
@@ -52,6 +61,7 @@ module manager_sd_mmio #(
     output reg bin_transfer_error
 );
     localparam UART_DATA = 32'h80000000, UART_STATUS = 32'h80000004,
+               UART_RX_DATA = 32'h80000008, UART_RX_STATUS = 32'h8000000c,
                SPI_CTRL = 32'h80000100, SPI_XFER = 32'h80000104,
                SPI_DATA = 32'h80000108, FDC_STATE = 32'h80000200,
                FDC_INFO = 32'h80000204, FDC_BUFFER_RESET = 32'h80000208,
@@ -74,7 +84,14 @@ module manager_sd_mmio #(
                BIN_FIFO_STATUS = 32'h80000274,
                OSD_FONT_STYLE = 32'h80000278,
                VIDEO_SETTINGS = 32'h8000027c,
-               TEXT_SETTINGS = 32'h80000280;
+               TEXT_SETTINGS = 32'h80000280,
+               SERIAL_KEY_LO = 32'h80000284,
+               SERIAL_KEY_HI = 32'h80000288,
+               SERIAL_KEY_CONTROL = 32'h8000028c,
+               SERIAL_FUNCTION_KEYS = 32'h80000290,
+               SERIAL_MACHINE_CONTROL = 32'h80000294,
+               DEBUG_CPU_STATUS = 32'h80000298,
+               DEBUG_VIDEO_STATUS = 32'h8000029c;
     reg have_address, have_data, transaction_active, await_spi, spi_seen_busy;
     reg [31:0] write_address, write_data;
     reg [7:0] spi_tx, spi_rx, spi_tx_shift, spi_rx_shift;
@@ -83,6 +100,12 @@ module manager_sd_mmio #(
     reg spi_busy, spi_start;
     reg [7:0] uart_data;
     reg uart_start;
+    wire [7:0] uart_rx_data;
+    wire uart_rx_valid, uart_rx_framing_error;
+    (* ram_style = "distributed" *) reg [7:0] uart_rx_fifo [0:15];
+    reg [3:0] uart_rx_write_pointer, uart_rx_read_pointer;
+    reg [4:0] uart_rx_count;
+    reg uart_rx_overflow, uart_rx_frame_seen;
     // The manager firmware compares this rolling signature after every raw
     // cartridge load.  It covers both byte values and their target addresses,
     // catching a dropped, repeated, or misaddressed MMIO write before the
@@ -196,6 +219,41 @@ module manager_sd_mmio #(
         .tx(uart_tx), .busy(uart_busy)
     );
 
+    uart_rx #(.CLKS_PER_BIT(UART_CLKS_PER_BIT)) uart_rx_i (
+        .clock(clock), .reset(reset), .rx(uart_rx), .data(uart_rx_data),
+        .data_valid(uart_rx_valid), .framing_error(uart_rx_framing_error)
+    );
+
+    // Reading UART_RX_DATA consumes one byte.  A simultaneous receive and
+    // consume keeps occupancy stable, allowing sustained full-duplex traffic.
+    wire uart_rx_pop = axi_arvalid && axi_arready &&
+                       axi_araddr == UART_RX_DATA && uart_rx_count != 0;
+    wire uart_rx_push = uart_rx_valid && uart_rx_count != 5'd16;
+    always @(posedge clock) begin
+        if (reset) begin
+            uart_rx_write_pointer <= 0;
+            uart_rx_read_pointer <= 0;
+            uart_rx_count <= 0;
+            uart_rx_overflow <= 1'b0;
+            uart_rx_frame_seen <= 1'b0;
+        end else begin
+            if (uart_rx_framing_error) uart_rx_frame_seen <= 1'b1;
+            if (uart_rx_valid && uart_rx_count == 5'd16 && !uart_rx_pop)
+                uart_rx_overflow <= 1'b1;
+            if (uart_rx_push) begin
+                uart_rx_fifo[uart_rx_write_pointer] <= uart_rx_data;
+                uart_rx_write_pointer <= uart_rx_write_pointer + 1'b1;
+            end
+            if (uart_rx_pop)
+                uart_rx_read_pointer <= uart_rx_read_pointer + 1'b1;
+            case ({uart_rx_push, uart_rx_pop})
+                2'b10: uart_rx_count <= uart_rx_count + 1'b1;
+                2'b01: uart_rx_count <= uart_rx_count - 1'b1;
+                default: uart_rx_count <= uart_rx_count;
+            endcase
+        end
+    end
+
     // The FDC owns the write staging buffer.  Firmware reads it after the
     // complete 256-byte sector transfer and merges it into the FAT32 block.
     always @(posedge clock) begin
@@ -277,6 +335,11 @@ module manager_sd_mmio #(
             artifact_palette <= 2'd0;
             coco2_palette <= 4'd0;
             text_color_theme <= 4'd0;
+            serial_keyboard_keys <= 56'b0;
+            serial_keyboard_shift <= 1'b0;
+            serial_keyboard_shift_override <= 1'b0;
+            serial_function_keys <= 8'b0;
+            serial_cold_reset <= 1'b0;
             fdc_done_toggle <= 0; fdc_success <= 0;
             fdc_write_done_toggle <= 0; fdc_write_success <= 0;
             fdc_present <= 0; manager_ready <= 0;
@@ -295,6 +358,7 @@ module manager_sd_mmio #(
         end else begin
             cartridge_write <= 1'b0;
             cartridge_launch <= 1'b0;
+            serial_cold_reset <= 1'b0;
             // Registered block-RAM read matches the proven embedded/full-disk
             // timing. During a CoCo write, update the cached byte immediately;
             // firmware separately persists the staged sector to FAT32.
@@ -405,6 +469,33 @@ module manager_sd_mmio #(
                 end else if (write_address == TEXT_SETTINGS) begin
                     text_color_theme <= write_data[3:0];
                     axi_bvalid <= 1'b1;
+                end else if (write_address == SERIAL_KEY_LO) begin
+                    serial_keyboard_keys[31:0] <= write_data;
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == SERIAL_KEY_HI) begin
+                    serial_keyboard_keys[55:32] <= write_data[23:0];
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == SERIAL_KEY_CONTROL) begin
+                    serial_keyboard_shift <= write_data[0];
+                    serial_keyboard_shift_override <= write_data[1];
+                    if (write_data[8]) begin
+                        serial_keyboard_keys <= 56'b0;
+                        serial_keyboard_shift <= 1'b0;
+                        serial_keyboard_shift_override <= 1'b0;
+                    end
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == SERIAL_FUNCTION_KEYS) begin
+                    serial_function_keys <= write_data[7:0];
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == SERIAL_MACHINE_CONTROL) begin
+                    serial_cold_reset <= write_data[0];
+                    if (write_data[1]) begin
+                        serial_keyboard_keys <= 56'b0;
+                        serial_keyboard_shift <= 1'b0;
+                        serial_keyboard_shift_override <= 1'b0;
+                        serial_function_keys <= 8'b0;
+                    end
+                    axi_bvalid <= 1'b1;
                 end else if (write_address == CARTRIDGE_ADDRESS) begin
                     cartridge_address <= write_data[14:0];
                     axi_bvalid <= 1'b1;
@@ -497,6 +588,11 @@ module manager_sd_mmio #(
                 axi_rvalid <= 1'b1;
                 case (axi_araddr)
                     UART_STATUS: axi_rdata <= {31'b0, uart_busy};
+                    UART_RX_DATA: axi_rdata <= uart_rx_count != 0
+                        ? {24'b0, uart_rx_fifo[uart_rx_read_pointer]} : 32'b0;
+                    UART_RX_STATUS: axi_rdata <= {8'b0, uart_rx_frame_seen,
+                        uart_rx_overflow, uart_rx_count, 15'b0,
+                        uart_rx_count == 5'd16, uart_rx_count != 0};
                     SPI_CTRL: axi_rdata <= {16'b0, spi_divider, 7'b0, sd_cs_n};
                     SPI_XFER: axi_rdata <= {31'b0, spi_busy};
                     SPI_DATA: axi_rdata <= {24'b0, spi_rx};
@@ -524,6 +620,14 @@ module manager_sd_mmio #(
                         artifact_mode[2], coco2_palette[2:0],
                         artifact_palette, artifact_mode[1:0]};
                     TEXT_SETTINGS: axi_rdata <= {28'b0, text_color_theme};
+                    SERIAL_KEY_LO: axi_rdata <= serial_keyboard_keys[31:0];
+                    SERIAL_KEY_HI: axi_rdata <= {8'b0, serial_keyboard_keys[55:32]};
+                    SERIAL_KEY_CONTROL: axi_rdata <= {30'b0,
+                        serial_keyboard_shift_override, serial_keyboard_shift};
+                    SERIAL_FUNCTION_KEYS: axi_rdata <= {24'b0, serial_function_keys};
+                    DEBUG_CPU_STATUS: axi_rdata <= {16'b0, debug_cpu_pc};
+                    DEBUG_VIDEO_STATUS: axi_rdata <= {debug_gime_init0,
+                        debug_gime_init1, debug_video_mode, debug_video_resolution};
                     CARTRIDGE_SIGNATURE: axi_rdata <= cartridge_signature;
                     BIN_FIFO_STATUS: axi_rdata <= {
                         11'b0, bin_cancelled, bin_transfer_error,

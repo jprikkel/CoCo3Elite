@@ -73,7 +73,7 @@ $sources = @($managerCpuSources) + (@(
     'rtl\core\coco3_fdc.v', 'rtl\core\coco3_gime_timer.v',
     'rtl\core\coco3_gime_interrupt.v',
     'rtl\core\coco3_boot_machine.v',
-    'rtl\third-party\coco3fpga\coco3vid.v', 'rtl\wukong\uart_tx.v',
+    'rtl\third-party\coco3fpga\coco3vid.v', 'rtl\wukong\uart_tx.v', 'rtl\wukong\uart_rx.v',
     'rtl\wukong\coco3_uart_debug.v', 'rtl\wukong\ntsc_artifact_filter.v',
     'rtl\wukong\crt_filter.v', 'rtl\wukong\coco3_boot_system.v',
     'tb\boot_video_tb.v'

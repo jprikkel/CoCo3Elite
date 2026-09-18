@@ -9,6 +9,7 @@ module wukong_top (
     output wire       sd_mosi,
     input  wire       sd_miso,
     output wire       uart_tx,
+    input  wire       uart_rx,
     output wire [2:0] hdmi_tx_p,
     output wire [2:0] hdmi_tx_n,
     output wire       hdmi_clk_p,
@@ -139,7 +140,7 @@ module wukong_top (
         .red(library_red), .green(library_green), .blue(library_blue),
         .audio_dac(audio_dac), .narrow_video_mode(narrow_video_mode),
         .menu_active(menu_active),
-        .uart_debug_tx(uart_tx)
+        .uart_debug_tx(uart_tx), .uart_rx(uart_rx)
     );
     // The post-processing pipeline can retain non-black RGB values while the
     // GIME is blanked. The previous encoder honored video_enable; preserve

@@ -15,7 +15,7 @@ module coco3_boot_system #(
     output wire [6:0] audio_dac,
     output wire narrow_video_mode,
     output wire menu_active,
-    output wire uart_debug_tx,
+    output wire uart_debug_tx, input wire uart_rx,
     output wire [7:0] red, output wire [7:0] green, output wire [7:0] blue
 );
     wire [15:0] cpu_address;
@@ -99,7 +99,14 @@ module coco3_boot_system #(
     reg [21:0] soft_reset_release_count;
     wire keyboard_reset_event = keyboard_reset_sync[1] &&
                                 !keyboard_reset_previous;
-    wire soft_reset_keys_held = keyboard_keys[51] || keyboard_keys[52];
+    wire [55:0] manager_serial_keyboard_keys;
+    wire manager_serial_keyboard_shift, manager_serial_keyboard_shift_override;
+    wire [7:0] manager_serial_function_keys;
+    wire manager_serial_cold_reset;
+    wire [55:0] effective_keyboard_keys = keyboard_keys |
+                                                manager_serial_keyboard_keys;
+    wire soft_reset_keys_held = effective_keyboard_keys[51] ||
+                                effective_keyboard_keys[52];
     wire system_reset = reset | soft_reset_active;
     // Clear the decoder's internal key and RESET latches as part of a soft
     // reset.  COCOKEY only updates RESET on a Delete scan code; without this
@@ -112,14 +119,15 @@ module coco3_boot_system #(
         ? ((56'b1 << 27) | (56'b1 << 28) | (56'b1 << 29) |
            (56'b1 << 30) | (56'b1 << 31) | (56'b1 << 52)) : 56'b0;
     wire [55:0] machine_keyboard_keys = (soft_reset_active | menu_active) ? 56'b0 :
-        (keyboard_keys & ~keyboard_joystick_mask);
-    wire machine_keyboard_shift = soft_reset_active ? 1'b0 : keyboard_shift;
+        (effective_keyboard_keys & ~keyboard_joystick_mask);
+    wire machine_keyboard_shift = soft_reset_active ? 1'b0 :
+        (keyboard_shift | manager_serial_keyboard_shift);
     wire machine_keyboard_shift_override = soft_reset_active ? 1'b0 :
-                                           keyboard_shift_override;
-    wire joystick_left_only = keyboard_keys[29] && !keyboard_keys[30];
-    wire joystick_right_only = keyboard_keys[30] && !keyboard_keys[29];
-    wire joystick_up_only = keyboard_keys[27] && !keyboard_keys[28];
-    wire joystick_down_only = keyboard_keys[28] && !keyboard_keys[27];
+        (keyboard_shift_override | manager_serial_keyboard_shift_override);
+    wire joystick_left_only = effective_keyboard_keys[29] && !effective_keyboard_keys[30];
+    wire joystick_right_only = effective_keyboard_keys[30] && !effective_keyboard_keys[29];
+    wire joystick_up_only = effective_keyboard_keys[27] && !effective_keyboard_keys[28];
+    wire joystick_down_only = effective_keyboard_keys[28] && !effective_keyboard_keys[27];
     wire [5:0] joystick_left_x = !keyboard_joystick_left ? 6'd32 :
                                  joystick_left_only ? 6'd0 :
                                  joystick_right_only ? 6'd63 : 6'd32;
@@ -133,11 +141,11 @@ module coco3_boot_system #(
                                   joystick_up_only ? 6'd0 :
                                   joystick_down_only ? 6'd63 : 6'd32;
     wire joystick_left_fire =
-        (keyboard_joystick_left && keyboard_keys[31]) ||
-        (keyboard_joystick_right && keyboard_keys[52]);
+        (keyboard_joystick_left && effective_keyboard_keys[31]) ||
+        (keyboard_joystick_right && effective_keyboard_keys[52]);
     wire joystick_right_fire =
-        (keyboard_joystick_right && keyboard_keys[31]) ||
-        (keyboard_joystick_left && keyboard_keys[52]);
+        (keyboard_joystick_right && effective_keyboard_keys[31]) ||
+        (keyboard_joystick_left && effective_keyboard_keys[52]);
     // The manager owns the SD pins and filesystem.  The CoCo sees only a
     // WD1773-like sector service, preserving Disk BASIC's normal protocol.
     wire manager_uart_tx, manager_uart_busy, manager_ready, manager_done_toggle, manager_success;
@@ -188,16 +196,17 @@ module coco3_boot_system #(
     wire [3:0] manager_coco2_palette;
     wire [3:0] manager_text_color_theme;
     wire [8:0] manager_menu_key_state = {
-        keyboard_keys[49],
-        keyboard_keys[30], keyboard_keys[29], keyboard_f11_sync[1],
-        keyboard_keys[50], keyboard_keys[48], keyboard_keys[28],
-        keyboard_keys[27], keyboard_f12_sync[1]};
+        effective_keyboard_keys[49],
+        effective_keyboard_keys[30], effective_keyboard_keys[29], keyboard_f11_sync[1],
+        effective_keyboard_keys[50], effective_keyboard_keys[48], effective_keyboard_keys[28],
+        effective_keyboard_keys[27], keyboard_f12_sync[1]};
     wire [7:0] sd_status = {4'b1010, manager_ready, manager_drive_present};
     wire [7:0] sd_detail = {5'b0, manager_drive_present};
     wire coco_uart_debug_tx;
 
     ultraembedded_manager_sd_mount manager_i (
         .clock(pixel_clk), .reset(reset), .uart_tx(manager_uart_tx), .uart_busy(manager_uart_busy),
+        .uart_rx(uart_rx),
         .sd_cs_n(sd_cs_n), .sd_sck(sd_sck), .sd_mosi(sd_mosi), .sd_miso(sd_miso),
         .fdc_drive(manager_fdc_drive), .fdc_track(manager_fdc_track),
         .fdc_sector(manager_fdc_sector), .fdc_request_toggle(manager_fdc_request_toggle),
@@ -219,6 +228,15 @@ module coco3_boot_system #(
         .artifact_palette(manager_artifact_palette),
         .coco2_palette(manager_coco2_palette),
         .text_color_theme(manager_text_color_theme),
+        .serial_keyboard_keys(manager_serial_keyboard_keys),
+        .serial_keyboard_shift(manager_serial_keyboard_shift),
+        .serial_keyboard_shift_override(manager_serial_keyboard_shift_override),
+        .serial_function_keys(manager_serial_function_keys),
+        .serial_cold_reset(manager_serial_cold_reset),
+        .debug_cpu_pc(cpu_pc), .debug_gime_init0(debug_gime_init0),
+        .debug_gime_init1(debug_gime_init1),
+        .debug_video_mode(gime_video_mode),
+        .debug_video_resolution(gime_video_resolution),
         .fdc_done_toggle(manager_done_toggle), .fdc_success(manager_success),
         .fdc_write_done_toggle(manager_write_done_toggle), .fdc_write_success(manager_write_success),
         .fdc_present(manager_drive_present), .manager_ready(manager_ready)
@@ -295,8 +313,7 @@ module coco3_boot_system #(
     // diagnostics. Keep the pin with that trace for the entire cartridge
     // session: switching sources mid-character corrupts both UART lines.
     // Before a cartridge is active, retain firmware/menu status output.
-    assign uart_debug_tx = effective_cartridge_enabled ? coco_uart_debug_tx :
-                           manager_uart_busy ? manager_uart_tx : coco_uart_debug_tx;
+    assign uart_debug_tx = manager_uart_busy ? manager_uart_tx : coco_uart_debug_tx;
 `else
     // Control build: remove the CPU/MMU tracer entirely. The manager UART
     // remains available, but it cannot share the pin with a CoCo trace.
@@ -344,12 +361,12 @@ module coco3_boot_system #(
             keyboard_f9_previous <= 1'b0;
             scanlines_enabled <= 1'b0;
         end else begin
-            keyboard_f6_sync <= {keyboard_f6_sync[0], keyboard_f6};
-            keyboard_f11_sync <= {keyboard_f11_sync[0], keyboard_f11};
-            keyboard_f12_sync <= {keyboard_f12_sync[0], keyboard_f12};
-            keyboard_f10_sync <= {keyboard_f10_sync[0], keyboard_f10};
-            keyboard_f8_sync <= {keyboard_f8_sync[0], keyboard_f8};
-            keyboard_f9_sync <= {keyboard_f9_sync[0], keyboard_f9};
+            keyboard_f6_sync <= {keyboard_f6_sync[0], keyboard_f6 | manager_serial_function_keys[1]};
+            keyboard_f11_sync <= {keyboard_f11_sync[0], keyboard_f11 | manager_serial_function_keys[6]};
+            keyboard_f12_sync <= {keyboard_f12_sync[0], keyboard_f12 | manager_serial_function_keys[7]};
+            keyboard_f10_sync <= {keyboard_f10_sync[0], keyboard_f10 | manager_serial_function_keys[5]};
+            keyboard_f8_sync <= {keyboard_f8_sync[0], keyboard_f8 | manager_serial_function_keys[3]};
+            keyboard_f9_sync <= {keyboard_f9_sync[0], keyboard_f9 | manager_serial_function_keys[4]};
             keyboard_reset_sync <= {keyboard_reset_sync[0], keyboard_reset};
             keyboard_reset_previous <= keyboard_reset_sync[1];
             keyboard_f6_previous <= keyboard_f6_sync[1];
@@ -378,7 +395,7 @@ module coco3_boot_system #(
         if (reset) begin
             soft_reset_active <= 1'b0;
             soft_reset_release_count <= 22'd0;
-        end else if (keyboard_reset_event) begin
+        end else if (keyboard_reset_event || manager_serial_cold_reset) begin
             soft_reset_active <= 1'b1;
             soft_reset_release_count <= 22'd0;
         end else if (soft_reset_active) begin

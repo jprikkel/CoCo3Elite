@@ -72,6 +72,7 @@ if {$mode eq "COCO3_ELITE"} {
         [file join $repo_dir rtl core coco3_gime_interrupt.v] \
         [file join $repo_dir rtl core coco3_boot_machine.v] \
         [file join $rtl_dir uart_tx.v] \
+        [file join $rtl_dir uart_rx.v] \
         [file join $rtl_dir ntsc_artifact_filter.v] \
         [file join $rtl_dir crt_filter.v] \
         [file join $rtl_dir coco3_boot_system.v]
