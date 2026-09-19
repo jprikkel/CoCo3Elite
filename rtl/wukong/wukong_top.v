@@ -124,10 +124,11 @@ module wukong_top (
 `ifdef HDMI_LIBRARY_COCO
     // The GIME exposes a 656-pixel-wide visible region and wraps its 486
     // visible scanlines across the 800x525 frame boundary. Start the HDMI
-    // Resync the GIME 19 clocks before horizontal wrap so all 640 source
-    // pixels reach HDMI x=0..639. Border-transition artifacts must be fixed
-    // in the GIME path rather than hidden by clipping valid source pixels.
-    wire library_frame_start = (library_x == 10'd781) &&
+    // Resync the GIME 23 clocks before horizontal wrap. The four clocks of
+    // downstream RGB processing then place all 640 source pixels at HDMI
+    // x=0..639. Border-transition artifacts must be fixed in the GIME path
+    // rather than hidden by clipping valid source pixels.
+    wire library_frame_start = (library_x == 10'd777) &&
                                (library_y == 10'd18);
     coco3_boot_system source_i (
         .pixel_clk(pixel_clk), .reset(video_reset),
@@ -149,7 +150,12 @@ module wukong_top (
         ? {library_red, library_green, library_blue} : 24'd0;
 
     always @(posedge pixel_clk) begin
-        if (video_reset || library_frame_start) begin
+        // Keep the horizontal alignment history across the per-frame GIME
+        // resync. Clearing all 64 taps only 19 clocks before HDMI wraps to
+        // x=0 exposes the zero-filled delay as a deterministic black segment
+        // at the start of scanline 19. The delay contains pixels, not raster
+        // state, so only the board-level video reset needs to initialize it.
+        if (video_reset) begin
             for (narrow_delay_index = 0; narrow_delay_index < 64;
                  narrow_delay_index = narrow_delay_index + 1)
                 narrow_rgb_delay[narrow_delay_index] <= 24'd0;

@@ -21,6 +21,8 @@ module hdmi_window_tb;
  reg [3:0] test_hres=1;
  integer m,n,count,first,last,lost,tag,failures=0;
  integer capture_file, capture_pixels;
+ integer top_left_pixel_one_valid;
+ integer top_left_black_run, top_left_max_black_run;
  wukong_top dut(.clk_50mhz(clk),.ps2_clk(1'b1),.ps2_data(1'b1),.sd_miso(1'b1));
  initial begin
   // This test checks RGB window alignment, not HDMI data-island encoding.
@@ -71,9 +73,28 @@ module hdmi_window_tb;
    $fwrite(capture_file,"P6\n640 480\n255\n");
    wait(dut.library_x==0 && dut.library_y==0);
    capture_pixels=0;
+   top_left_pixel_one_valid=0;
+   top_left_black_run=0;
+   top_left_max_black_run=0;
    for(n=0;n<800*525;n=n+1) begin
     @(posedge clk); #1;
     if(dut.library_x<640 && dut.library_y<480) begin
+     // Narrow video previously cleared its 64-pixel alignment delay at the
+     // frame resync. Scanline 19 then exposed most of that black-filled delay
+     // at the top-left of HDMI. Pixel zero is the normal boundary sample in
+     // this tagged source; valid RGB must begin at pixel one.
+     if(m==2 && capture_pixels==(19*640+1) &&
+        dut.library_hdmi_i.mode==1 &&
+        dut.library_hdmi_i.video_data!=24'd0)
+      top_left_pixel_one_valid=1;
+     if(m==2 && capture_pixels>(19*640) &&
+        capture_pixels<(20*640-1) && dut.library_hdmi_i.mode==1) begin
+      if(dut.library_hdmi_i.video_data==24'd0) begin
+       top_left_black_run=top_left_black_run+1;
+       if(top_left_black_run>top_left_max_black_run)
+        top_left_max_black_run=top_left_black_run;
+      end else top_left_black_run=0;
+     end
      if(dut.library_hdmi_i.mode==1)
       $fwrite(capture_file,"%c%c%c",
        dut.library_hdmi_i.video_data[23:16],
@@ -86,6 +107,18 @@ module hdmi_window_tb;
    $fclose(capture_file);
    if(capture_pixels!=640*480)
     $fatal(1,"Capture contained %0d pixels",capture_pixels);
+   if(m==2) begin
+    if(!top_left_pixel_one_valid)
+     $fatal(1,"Narrow HDMI scanline 19 is still black at x=1");
+    // The tagged source has one naturally black counter-turnover sample.
+    // Reject a line segment: the hardware defect was 54 pixels before the
+    // delay fix and eight pixels while raster reset still occurred per frame.
+    if(top_left_max_black_run>1)
+     $fatal(1,"Narrow HDMI scanline 19 contains a %0d-pixel black run",
+            top_left_max_black_run);
+    $display("TOP_LEFT scanline=19 max_internal_black_run=%0d",
+             top_left_max_black_run);
+   end
   end
   if(failures) $fatal(1,"HDMI window clipped in %0d modes",failures);
   $display("PASS: full HDMI content window in 32/40/80-column modes");$finish;

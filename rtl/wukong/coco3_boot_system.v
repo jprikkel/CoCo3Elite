@@ -184,6 +184,18 @@ module coco3_boot_system #(
                                        (cartridge_session_active ||
                                         cartridge_boot_state == CART_BOOT_LAUNCH);
     wire machine_reset = system_reset | cartridge_cold_reset;
+    // Keep the GIME stopped until the first HDMI alignment pulse after each
+    // machine reset, then let both rasters free-run from the same pixel clock.
+    // Resetting the GIME on every transport frame creates a short invalid RGB
+    // interval which appears later in narrow modes through their pixel delay.
+    reg video_raster_wait;
+    always @(posedge pixel_clk) begin
+        if (machine_reset)
+            video_raster_wait <= 1'b1;
+        else if (video_raster_wait && raster_resync)
+            video_raster_wait <= 1'b0;
+    end
+    wire video_core_reset = machine_reset | video_raster_wait;
     wire [10:0] manager_osd_char_address;
     wire [7:0] manager_osd_char_data;
     wire [4:0] manager_osd_selected_row;
@@ -544,7 +556,7 @@ module coco3_boot_system #(
     end
 
     COCO3VIDEO video_i (
-        .PIX_CLK(pixel_clk), .RESET_N(~(machine_reset | raster_resync)),
+        .PIX_CLK(pixel_clk), .RESET_N(~video_core_reset),
         .COLOR(color), .HSYNC(raw_hsync),
         .SYNC_FLAG(sync_flag), .VSYNC(raw_vsync), .HBLANKING(hblank),
         .VBLANKING(vblank), .RAM_ADDRESS(video_address), .RAM_DATA(video_data),
@@ -792,10 +804,9 @@ module coco3_boot_system #(
     // user preference, while this mode qualification protects all other VDG
     // and GIME video modes.
     wire artifact_on_pixel = raw_red[7] && raw_green[7] && raw_blue[7];
-    // The HDMI wrapper realigns the GIME once per transport frame. Reset the
-    // downstream pixel pipelines at the same instant; otherwise their delay
-    // registers carry the tail of the previous frame into the visible border.
-    wire video_pipeline_reset = machine_reset | raster_resync;
+    // Keep the downstream pipelines in reset while the GIME waits for its
+    // one-shot raster alignment. Once released, all stages free-run together.
+    wire video_pipeline_reset = video_core_reset;
     ntsc_artifact_filter artifact_i (
         .pixel_clk(pixel_clk), .reset(video_pipeline_reset),
         .enable(artifact_enabled && artifact_compatible_mode &&
