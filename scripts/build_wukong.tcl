@@ -64,6 +64,8 @@ if {$mode eq "COCO3_ELITE"} {
         [file join $repo_dir rtl core coco3_keyboard_matrix.v] \
         [file join $repo_dir rtl core coco3_128k_ram.v] \
         [file join $rtl_dir coco3_sdram_ram.v] \
+        [file join $rtl_dir coco3_hybrid_512k_ram.v] \
+        [file join $rtl_dir manager_sdram_disk_cache.v] \
         [file join $repo_dir rtl core coco3_system_rom.v] \
         [file join $repo_dir rtl core coco3_disk_rom.v] \
         [file join $repo_dir rtl core coco3_sd_cartridge.v] \
@@ -83,7 +85,7 @@ if {$mode eq "COCO3_ELITE"} {
         [file join $rtl_dir coco3_boot_system.v]
     set coco3_defines {NEW_SRAM HDMI_TEST_PATTERN HDMI_LIBRARY_COCO HDMI_LIBRARY_AUDIO HDMI_RASTER_800X525}
     if {$use_sdram} {
-        lappend coco3_defines WUKONG_SDRAM
+        lappend coco3_defines WUKONG_HYBRID_512K
     }
     set_property include_dirs [list [file join $repo_dir rtl third-party ultraembedded-riscv core riscv] $output_dir] [current_fileset]
     if {$embedded_test_disks} {

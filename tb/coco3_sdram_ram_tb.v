@@ -3,6 +3,7 @@
 
 module coco3_sdram_ram_tb;
     reg memory_clock = 1'b0;
+    reg video_clock = 1'b0;
     reg reset = 1'b1;
     reg [16:0] cpu_address = 0;
     reg [7:0] cpu_write_data = 0;
@@ -44,6 +45,7 @@ module coco3_sdram_ram_tb;
     reg [7:0] expected_data [0:11];
 
     always #4 memory_clock = ~memory_clock;
+    always #20 video_clock = ~video_clock;
 
     coco3_sdram_ram #(
         .POWERUP_CLOCKS(4),
@@ -51,7 +53,7 @@ module coco3_sdram_ram_tb;
         .REFRESH_CLOCKS(20),
         .WRITE_FIFO_LOG2(4)
     ) dut (
-        .memory_clock(memory_clock), .reset(reset),
+        .memory_clock(memory_clock), .video_clock(video_clock), .reset(reset),
         .cpu_address(cpu_address), .cpu_write_data(cpu_write_data),
         .cpu_read_enable(cpu_read_enable),
         .cpu_write_enable(cpu_write_enable),
@@ -75,7 +77,7 @@ module coco3_sdram_ram_tb;
         .REFRESH_CLOCKS(40),
         .WRITE_FIFO_LOG2(4)
     ) refresh_dut (
-        .memory_clock(memory_clock), .reset(reset),
+        .memory_clock(memory_clock), .video_clock(video_clock), .reset(reset),
         .cpu_address(17'd0), .cpu_write_data(8'd0),
         .cpu_read_enable(1'b0), .cpu_write_enable(1'b0),
         .cpu_read_data(),
@@ -174,9 +176,9 @@ module coco3_sdram_ram_tb;
         reset = 1'b0;
         wait (ready);
 
-        // Keep video continuously demanding SDRAM while a complete 6809-style
-        // write burst is captured.  The sixteen-entry FIFO must preserve the
-        // sequence until video pressure is removed.
+        // Exercise a complete 6809-style write burst while video addresses
+        // churn independently in the pixel domain. SDRAM must preserve every
+        // write and the BRAM video shadow must receive the same bytes.
         video_churn = 1'b1;
         for (expected_index = 0; expected_index < 12;
              expected_index = expected_index + 1)
@@ -204,12 +206,31 @@ module coco3_sdram_ram_tb;
             $fatal(1, "Aligned refresh missed %0d video deadlines",
                    refresh_video_debug_status[15:8]);
 
+        video_address = 20'h00090;
+        @(posedge video_clock); #1;
+        if (video_read_data !== 16'h8180)
+            $fatal(1, "Video shadow word 0090 is %h expected 8180",
+                   video_read_data);
+        video_address = 20'h00095;
+        @(posedge video_clock); #1;
+        if (video_read_data !== 16'h8b8a)
+            $fatal(1, "Video shadow word 0095 is %h expected 8b8a",
+                   video_read_data);
+
         $display("PASS: SDRAM preserves queued writes and aligns refresh without video deadline misses");
+        $display("PASS: BRAM video shadow remains coherent with CPU writes");
         $finish;
     end
 
     initial begin
         #200000;
+        $display("TIMEOUT state=%0d ready=%0d issued=%0d fifo=%0d video_pending=%0d lookahead=%0d issue=%0d capture=%0d target=%0d pipe=%b refresh_state=%0d refresh_ready=%0d refresh_miss=%0d",
+                 dut.state, ready, issued_writes, dut.cpu_write_fifo_count,
+                 dut.video_pending, dut.video_lookahead_pending,
+                 dut.video_read_issue_count, dut.video_read_capture_count,
+                 dut.video_read_target_count, dut.video_read_valid_pipeline,
+                 refresh_dut.state, refresh_video_ready,
+                 refresh_video_debug_status[15:8]);
         $fatal(1, "SDRAM controller test timeout");
     end
 endmodule

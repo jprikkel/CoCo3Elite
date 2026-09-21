@@ -16,7 +16,7 @@ module manager_sd_mmio #(
     parameter integer UART_CLKS_PER_BIT = 434,
     parameter integer DISK_CACHE_BYTES = 161280
 ) (
-    input wire clock, input wire reset,
+    input wire clock, input wire memory_clock, input wire reset,
     input wire axi_awvalid, output wire axi_awready, input wire [31:0] axi_awaddr,
     input wire axi_wvalid, output wire axi_wready, input wire [31:0] axi_wdata,
     input wire [3:0] axi_wstrb, output reg axi_bvalid, input wire axi_bready,
@@ -68,7 +68,14 @@ module manager_sd_mmio #(
     input wire bin_fifo_pop, input wire bin_loader_done, input wire bin_cancel,
     output wire [7:0] bin_fifo_data, output wire bin_fifo_available,
     output reg bin_transfer_active, output reg bin_transfer_complete,
-    output reg bin_transfer_error
+    output reg bin_transfer_error,
+    output wire sdram_clk, output wire sdram_cke,
+    output wire sdram_cs_n, output wire sdram_ras_n,
+    output wire sdram_cas_n, output wire sdram_we_n,
+    output wire [1:0] sdram_dqm,
+    output wire [12:0] sdram_address,
+    output wire [1:0] sdram_bank,
+    inout wire [15:0] sdram_data
 );
     localparam UART_DATA = 32'h80000000, UART_STATUS = 32'h80000004,
                UART_RX_DATA = 32'h80000008, UART_RX_STATUS = 32'h8000000c,
@@ -164,6 +171,13 @@ module manager_sd_mmio #(
     reg [17:0] disk_cache_debug_address;
     reg disk_cache_ready;
     wire [7:0] disk_cache_fdc_data;
+    reg disk_sector_request_toggle;
+    reg [17:0] disk_sector_base_address;
+    reg disk_sector_ack_wait;
+    wire disk_sector_done_toggle;
+    reg [1:0] disk_sector_done_sync;
+    wire disk_sdram_ready;
+    wire [31:0] disk_sdram_debug_status;
     wire [10:0] disk_cache_linear_sector = ({3'b000, fdc_track} << 4) +
                                             ({3'b000, fdc_track} << 1) +
                                             {3'b000, fdc_sector} - 11'd1;
@@ -208,6 +222,27 @@ module manager_sd_mmio #(
                                           ? disk_cache_fdc_address[17:0]
                                           : disk_cache_debug_address;
 
+`ifdef WUKONG_SDRAM
+    // Keep CoCo RAM/video on the proven dual-port BRAM.  SDRAM holds only the
+    // mounted drive-0 image; a complete sector is prefetched before FDC_ACK.
+    manager_sdram_disk_cache disk_cache_i (
+        .memory_clock(memory_clock), .cache_clock(clock), .reset(reset),
+        .cache_write(disk_cache_port_write),
+        .cache_write_address(disk_cache_port_write_address),
+        .cache_write_data(disk_cache_port_write_data),
+        .sector_request_toggle(disk_sector_request_toggle),
+        .sector_base_address(disk_sector_base_address),
+        .sector_read_address(fdc_buffer_address),
+        .sector_read_data(disk_cache_fdc_data),
+        .sector_done_toggle(disk_sector_done_toggle),
+        .ready(disk_sdram_ready), .debug_status(disk_sdram_debug_status),
+        .sdram_clk(sdram_clk), .sdram_cke(sdram_cke),
+        .sdram_cs_n(sdram_cs_n), .sdram_ras_n(sdram_ras_n),
+        .sdram_cas_n(sdram_cas_n), .sdram_we_n(sdram_we_n),
+        .sdram_dqm(sdram_dqm), .sdram_address(sdram_address),
+        .sdram_bank(sdram_bank), .sdram_data(sdram_data)
+    );
+`else
     // An explicit primitive avoids synthesis-dependent inference for the
     // boot-loader/runtime-write address mux and guarantees that the 161 KB
     // image consumes block RAM with a one-clock FDC read latency.
@@ -238,6 +273,20 @@ module manager_sd_mmio #(
         .sleep(1'b0), .injectdbiterra(1'b0), .injectsbiterra(1'b0),
         .dbiterrb(), .sbiterrb()
     );
+    assign disk_sector_done_toggle = disk_sector_request_toggle;
+    assign disk_sdram_ready = 1'b1;
+    assign disk_sdram_debug_status = 32'b0;
+    assign sdram_clk = 1'b0;
+    assign sdram_cke = 1'b0;
+    assign sdram_cs_n = 1'b1;
+    assign sdram_ras_n = 1'b1;
+    assign sdram_cas_n = 1'b1;
+    assign sdram_we_n = 1'b1;
+    assign sdram_dqm = 2'b11;
+    assign sdram_address = 13'b0;
+    assign sdram_bank = 2'b0;
+    assign sdram_data = 16'hzzzz;
+`endif
 
     uart_tx #(.CLKS_PER_BIT(UART_CLKS_PER_BIT)) uart_i (
         .clock(clock), .reset(reset), .data(uart_data), .start(uart_start),
@@ -348,6 +397,10 @@ module manager_sd_mmio #(
             disk_cache_write_address <= 0;
             disk_cache_debug_address <= 0;
             disk_cache_ready <= 1'b0;
+            disk_sector_request_toggle <= 1'b0;
+            disk_sector_base_address <= 0;
+            disk_sector_ack_wait <= 1'b0;
+            disk_sector_done_sync <= 2'b00;
             osd_write_address <= 0;
             osd_preview_write_address <= 0;
             osd_preview_read_data <= 0;
@@ -389,6 +442,8 @@ module manager_sd_mmio #(
             bin_transfer_complete <= 1'b0;
             bin_transfer_error <= 1'b0;
         end else begin
+            disk_sector_done_sync <= {disk_sector_done_sync[0],
+                                      disk_sector_done_toggle};
             // Clock-enable the preview BRAM only while it can be visible.
             // This removes continuous BRAM address/data switching from normal
             // CoCo video operation after the menu has closed.
@@ -414,6 +469,17 @@ module manager_sd_mmio #(
             // additional clocks.  This prevents the FDC from observing the
             // previous sector when firmware immediately follows the final
             // data store with FDC_ACK.
+`ifdef WUKONG_SDRAM
+            // The firmware's FDC_ACK starts a 256-byte SDRAM prefetch.  Do
+            // not release the WD1773 from busy until the sector buffer is
+            // complete and stable in this clock domain.
+            if (disk_sector_ack_wait &&
+                disk_sector_done_sync[1] == disk_sector_request_toggle) begin
+                disk_sector_ack_wait <= 1'b0;
+                fdc_ack_delay <= 2'd2;
+                fdc_ack_pending <= 1'b1;
+            end
+`endif
             if (fdc_ack_pending) begin
                 if (fdc_ack_delay != 0) begin
                     fdc_ack_delay <= fdc_ack_delay - 1'b1;
@@ -471,6 +537,7 @@ module manager_sd_mmio #(
                 end else if (write_address == DISK_CACHE_RESET) begin
                     disk_cache_write_address <= 0;
                     disk_cache_ready <= 1'b0;
+                    disk_sector_ack_wait <= 1'b0;
                     axi_bvalid <= 1'b1;
                 end else if (write_address == DISK_CACHE_DATA) begin
                     if (disk_cache_write_address < DISK_CACHE_BYTES) begin
@@ -479,7 +546,8 @@ module manager_sd_mmio #(
                     axi_bvalid <= 1'b1;
                 end else if (write_address == DISK_CACHE_COMMIT) begin
                     disk_cache_ready <= write_data[0] &&
-                                        disk_cache_write_address == DISK_CACHE_BYTES;
+                                        disk_cache_write_address == DISK_CACHE_BYTES &&
+                                        disk_sdram_ready;
                     axi_bvalid <= 1'b1;
                 end else if (write_address == DISK_CACHE_DEBUG_ADDRESS) begin
                     disk_cache_debug_address <= write_data[17:0];
@@ -622,12 +690,28 @@ module manager_sd_mmio #(
                     // sector bank before acknowledging.  Drive 0 instead
                     // reads directly from the committed full-disk cache and
                     // must not depend on the unrelated sector-bank count.
+                    fdc_ack_toggle_pending <= fdc_request_toggle;
+`ifdef WUKONG_SDRAM
+                    if (write_data[0] && disk_cache_fdc_valid) begin
+                        disk_sector_base_address <=
+                            {disk_cache_fdc_address[17:8], 8'b0};
+                        disk_sector_request_toggle <=
+                            ~disk_sector_request_toggle;
+                        disk_sector_ack_wait <= 1'b1;
+                        fdc_ack_success_pending <= 1'b1;
+                    end else begin
+                        fdc_ack_success_pending <= write_data[0] &&
+                                                   fdc_buffer_fill_count == 9'd256;
+                        fdc_ack_delay <= 2'd2;
+                        fdc_ack_pending <= 1'b1;
+                    end
+`else
                     fdc_ack_success_pending <= write_data[0] &&
                                                (disk_cache_fdc_valid ||
                                                 fdc_buffer_fill_count == 9'd256);
-                    fdc_ack_toggle_pending <= fdc_request_toggle;
                     fdc_ack_delay <= 2'd2;
                     fdc_ack_pending <= 1'b1;
+`endif
                     axi_bvalid <= 1'b1;
                 end else if (write_address == FDC_WRITE_ACK) begin
                     fdc_write_success <= write_data[0];

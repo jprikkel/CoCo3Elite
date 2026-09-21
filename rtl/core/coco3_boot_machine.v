@@ -106,6 +106,7 @@ module coco3_boot_machine #(
     output wire        sd_fdc_request_toggle
 );
     reg [4:0] divider;
+    wire ram_cpu_wait;
     reg hold;
     reg sam_fast_mode;
     reg fast_divide_phase;
@@ -220,11 +221,20 @@ module coco3_boot_machine #(
         : mmu_enable
         ? mmu[{mmu_task, address[15:13]}]
         : {5'b00111, address[15:13]};
+`ifdef WUKONG_HYBRID_512K
+    // A 512 KiB CoCo implements all six GIME MMU page bits.  The normal
+    // reset map is $38-$3f; the hybrid backend keeps the encompassing
+    // $30-$3f 128 KiB region in the proven block RAM.
+    wire [18:0] physical_address = {mapped_page[5:0], address[12:0]};
+    wire [18:0] ram_cpu_address = cold_start_clear
+        ? {6'h38, 13'h071} : physical_address;
+`else
     // A 128K machine implements 16 physical 8K pages. Higher GIME page
     // numbers alias modulo 16, matching absent physical address pins.
     wire [16:0] physical_address = {mapped_page[3:0], address[12:0]};
     wire [16:0] ram_cpu_address = cold_start_clear
         ? 17'h10071 : physical_address;
+`endif
     wire [7:0] ram_cpu_write_data = cold_start_clear
         ? 8'h00 : write_data;
     wire active = !hold && vma;
@@ -382,10 +392,18 @@ module coco3_boot_machine #(
         end else if (divider == ((cpu_fast_mode || sam_fast_mode)
                                  ? (fast_divide_phase ? 5'd2 : 5'd3)
                                  : 5'd6)) begin
-            divider <= 0;
-            hold <= 1'b0;
-            if (cpu_fast_mode || sam_fast_mode)
-                fast_divide_phase <= ~fast_divide_phase;
+            if (ram_cpu_wait) begin
+                // Keep the terminal divider phase stable. Once the SDRAM
+                // completion arrives, the next pixel edge supplies the one
+                // normal CPU enable pulse without shortening the bus cycle.
+                divider <= divider;
+                hold <= 1'b1;
+            end else begin
+                divider <= 0;
+                hold <= 1'b0;
+                if (cpu_fast_mode || sam_fast_mode)
+                    fast_divide_phase <= ~fast_divide_phase;
+            end
         end else begin
             divider <= divider + 1'b1;
             hold <= 1'b1;
@@ -674,9 +692,26 @@ module coco3_boot_machine #(
     );
     assign cpu_firq = gime_cpu_firq;
 
-`ifdef WUKONG_SDRAM
+`ifdef WUKONG_HYBRID_512K
+    coco3_hybrid_512k_ram ram_i (
+        .memory_clock(memory_clock), .video_clock(clock),
+        .reset(memory_reset), .cpu_address(ram_cpu_address),
+        .cpu_write_data(ram_cpu_write_data), .cpu_read_enable(ram_read),
+        .cpu_write_enable(cold_start_clear || ram_write),
+        .cpu_read_data(ram_data), .cpu_wait(ram_cpu_wait),
+        .video_address(video_address), .video_blank(video_hblank),
+        .video_read_data(video_read_data), .ready(memory_ready),
+        .debug_status(memory_debug_status),
+        .sdram_clk(sdram_clk), .sdram_cke(sdram_cke),
+        .sdram_cs_n(sdram_cs_n), .sdram_ras_n(sdram_ras_n),
+        .sdram_cas_n(sdram_cas_n), .sdram_we_n(sdram_we_n),
+        .sdram_dqm(sdram_dqm), .sdram_address(sdram_address),
+        .sdram_bank(sdram_bank), .sdram_data(sdram_data)
+    );
+`elsif WUKONG_COCO_RAM_SDRAM
     coco3_sdram_ram ram_i (
         .memory_clock(memory_clock),
+        .video_clock(clock),
         .reset(memory_reset),
         .cpu_address(ram_cpu_address),
         .cpu_write_data(ram_cpu_write_data),
@@ -692,6 +727,7 @@ module coco3_boot_machine #(
         .sdram_dqm(sdram_dqm), .sdram_address(sdram_address),
         .sdram_bank(sdram_bank), .sdram_data(sdram_data)
     );
+    assign ram_cpu_wait = 1'b0;
 `else
     coco3_128k_ram #(.INIT_VALUE(8'h00)) ram_i (
         .clock(clock), .cpu_address(ram_cpu_address),
@@ -712,6 +748,7 @@ module coco3_boot_machine #(
     assign sdram_address = 13'b0;
     assign sdram_bank = 2'b0;
     assign sdram_data = 16'hzzzz;
+    assign ram_cpu_wait = 1'b0;
     wire _unused_memory_inputs = memory_clock ^ memory_reset;
 `endif
 

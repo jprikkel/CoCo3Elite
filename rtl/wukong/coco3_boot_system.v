@@ -236,9 +236,22 @@ module coco3_boot_system #(
     wire [7:0] sd_status = {4'b1010, manager_ready, manager_drive_present};
     wire [7:0] sd_detail = {5'b0, manager_drive_present};
     wire coco_uart_debug_tx;
+    wire machine_sdram_clk, machine_sdram_cke, machine_sdram_cs_n;
+    wire machine_sdram_ras_n, machine_sdram_cas_n, machine_sdram_we_n;
+    wire [1:0] machine_sdram_dqm;
+    wire [12:0] machine_sdram_address;
+    wire [1:0] machine_sdram_bank;
+    wire [15:0] machine_sdram_data;
+    wire manager_sdram_clk, manager_sdram_cke, manager_sdram_cs_n;
+    wire manager_sdram_ras_n, manager_sdram_cas_n, manager_sdram_we_n;
+    wire [1:0] manager_sdram_dqm;
+    wire [12:0] manager_sdram_address;
+    wire [1:0] manager_sdram_bank;
+    wire [15:0] manager_sdram_data;
 
     ultraembedded_manager_sd_mount manager_i (
-        .clock(pixel_clk), .reset(reset), .uart_tx(manager_uart_tx), .uart_busy(manager_uart_busy),
+        .clock(pixel_clk), .memory_clock(memory_clk), .reset(reset),
+        .uart_tx(manager_uart_tx), .uart_busy(manager_uart_busy),
         .uart_claim(manager_uart_claim),
         .uart_rx(uart_rx),
         .sd_cs_n(sd_cs_n), .sd_sck(sd_sck), .sd_mosi(sd_mosi), .sd_miso(sd_miso),
@@ -292,8 +305,43 @@ module coco3_boot_system #(
         .bin_fifo_available(manager_bin_fifo_available),
         .bin_transfer_active(manager_bin_transfer_active),
         .bin_transfer_complete(manager_bin_transfer_complete),
-        .bin_transfer_error(manager_bin_transfer_error)
+        .bin_transfer_error(manager_bin_transfer_error),
+        .sdram_clk(manager_sdram_clk), .sdram_cke(manager_sdram_cke),
+        .sdram_cs_n(manager_sdram_cs_n),
+        .sdram_ras_n(manager_sdram_ras_n),
+        .sdram_cas_n(manager_sdram_cas_n),
+        .sdram_we_n(manager_sdram_we_n),
+        .sdram_dqm(manager_sdram_dqm),
+        .sdram_address(manager_sdram_address),
+        .sdram_bank(manager_sdram_bank),
+        .sdram_data(manager_sdram_data)
     );
+
+`ifdef WUKONG_HYBRID_512K
+    // The hybrid CoCo RAM controller owns external SDRAM. The manager keeps
+    // its disk cache in BRAM in this build, so its inactive SDRAM pins remain
+    // isolated rather than creating a second driver on the board bus.
+    assign sdram_clk = machine_sdram_clk;
+    assign sdram_cke = machine_sdram_cke;
+    assign sdram_cs_n = machine_sdram_cs_n;
+    assign sdram_ras_n = machine_sdram_ras_n;
+    assign sdram_cas_n = machine_sdram_cas_n;
+    assign sdram_we_n = machine_sdram_we_n;
+    assign sdram_dqm = machine_sdram_dqm;
+    assign sdram_address = machine_sdram_address;
+    assign sdram_bank = machine_sdram_bank;
+`else
+    assign sdram_clk = manager_sdram_clk;
+    assign sdram_cke = manager_sdram_cke;
+    assign sdram_cs_n = manager_sdram_cs_n;
+    assign sdram_ras_n = manager_sdram_ras_n;
+    assign sdram_cas_n = manager_sdram_cas_n;
+    assign sdram_we_n = manager_sdram_we_n;
+    assign sdram_dqm = manager_sdram_dqm;
+    assign sdram_address = manager_sdram_address;
+    assign sdram_bank = manager_sdram_bank;
+    tran manager_sdram_bus[15:0](sdram_data, manager_sdram_data);
+`endif
 
     // The SD manager intentionally survives both Ctrl-Alt-Delete and a
     // cartridge power cycle, preserving mounted disks and dirty-cache
@@ -470,11 +518,19 @@ module coco3_boot_system #(
         .memory_clock(memory_clk), .memory_reset(reset),
         .memory_ready(machine_memory_ready),
         .memory_debug_status(machine_memory_debug_status),
-        .sdram_clk(sdram_clk), .sdram_cke(sdram_cke),
-        .sdram_cs_n(sdram_cs_n), .sdram_ras_n(sdram_ras_n),
-        .sdram_cas_n(sdram_cas_n), .sdram_we_n(sdram_we_n),
-        .sdram_dqm(sdram_dqm), .sdram_address(sdram_address),
-        .sdram_bank(sdram_bank), .sdram_data(sdram_data),
+        .sdram_clk(machine_sdram_clk), .sdram_cke(machine_sdram_cke),
+        .sdram_cs_n(machine_sdram_cs_n),
+        .sdram_ras_n(machine_sdram_ras_n),
+        .sdram_cas_n(machine_sdram_cas_n),
+        .sdram_we_n(machine_sdram_we_n),
+        .sdram_dqm(machine_sdram_dqm),
+        .sdram_address(machine_sdram_address),
+        .sdram_bank(machine_sdram_bank),
+`ifdef WUKONG_HYBRID_512K
+        .sdram_data(sdram_data),
+`else
+        .sdram_data(machine_sdram_data),
+`endif
         .debug_address(cpu_address),
         .debug_pc(cpu_pc),
         .cpu_fast_mode(cpu_fast_mode),
