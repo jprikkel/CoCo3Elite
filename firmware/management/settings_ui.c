@@ -8,6 +8,7 @@
 #define OSD_FONT_STYLE REG32(0x80000278u)
 #define VIDEO_SETTINGS REG32(0x8000027cu)
 #define TEXT_SETTINGS REG32(0x80000280u)
+#define SERIAL_MACHINE_CONTROL REG32(0x80000294u)
 
 #define KEY_F12 1u
 #define KEY_UP 2u
@@ -18,6 +19,7 @@
 #define KEY_LEFT 64u
 #define KEY_RIGHT 128u
 #define KEY_TAB 256u
+#define KEY_CONTROL 512u
 
 #define COLS 72u
 #define ROWS 28u
@@ -179,11 +181,11 @@ static void draw(uint8_t category_index,uint8_t option_index,uint8_t option_pane
         }else text(row,58,page[category_index][item].value);
     }
     text(17,29,"Quick actions");text(19,29,"Soft power   Hard reset");
-    text(20,29,"Reboot       (planned)");
+    text(20,29,"Reboot       Ctrl+Esc");
     if(editing)text(25,2,"Editing: left/right preview, Enter apply, Esc cancel");
     else if(option_pane)text(25,2,"Enter edit, Tab/left categories, up/down option");
     else text(25,2,"Tab/right/Enter settings, up/down category");
-    center(26,"F11/F12 exit");
+    center(26,"F11/F12 exit   Ctrl+Esc hard reset");
     if(option_pane)OSD_CONTROL=((uint32_t)(6u+option_index*2u)<<8)|5u;
     else OSD_CONTROL=((uint32_t)(CATEGORY_FIRST_ROW+category_index)<<8)|3u;
 }
@@ -220,6 +222,18 @@ void settings_ui_run(void){
     previous=MENU_KEY_STATE;
     for(;;){
         keys=MENU_KEY_STATE;pressed=keys&~previous;previous=keys;
+        /* Give the reset chord priority over Escape's edit-cancel and menu
+           close actions.  The manager reset register cold-resets only the
+           CoCo; SD service, mounted-disk state, and this firmware survive. */
+        if((keys&(KEY_CONTROL|KEY_ESCAPE))==(KEY_CONTROL|KEY_ESCAPE)&&
+           (pressed&(KEY_CONTROL|KEY_ESCAPE))){
+            saved_category_index=category_index;
+            saved_option_index=option_index;
+            saved_option_pane=option_pane;
+            OSD_CONTROL=0;
+            SERIAL_MACHINE_CONTROL=3u;
+            return;
+        }
         if(editing&&(pressed&KEY_ESCAPE)){
             if(option_index==0u)font=original;
             else if(option_index==1u)artifact_mode=original;

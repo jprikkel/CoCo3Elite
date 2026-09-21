@@ -249,6 +249,9 @@ BSD-3-Clause; the XRoar lookup data is GPL-3.0-or-later.
 - **Escape while editing:** cancel and restore the value active before editing.
 - **Left from an option:** return to the category pane.
 - **Esc, F11, or F12 when not editing:** close Settings and return to the CoCo.
+- **Ctrl+Esc:** close Settings and hard-reset the CoCo through the same guarded
+  cold-start path used by cartridge installation. The management processor,
+  SD-card service, and mounted-disk state remain active.
 
 Closing and reopening Settings restores the last category, pane, and highlighted
 option. Edit mode itself is not retained, so reopening returns safely to the
@@ -265,7 +268,10 @@ The lower panel reserves shortcuts for:
 - hard CoCo reset;
 - management-system reboot.
 
-Quick actions are commands, not persistent settings. Hard reset and reboot should require confirmation. Resetting the CoCo must leave the management processor, mounted-disk metadata, and SD service in a defined state.
+Quick actions are commands, not persistent settings. Ctrl+Esc performs the
+implemented hard CoCo reset immediately; reboot remains planned. Resetting the
+CoCo leaves the management processor, mounted-disk metadata, and SD service in
+a defined state.
 
 ## SD-card behavior
 

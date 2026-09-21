@@ -32,7 +32,7 @@ module manager_sd_mmio #(
     input wire [7:0] fdc_sector, input wire [7:0] fdc_last_type1, input wire [31:0] fdc_debug_word, input wire [31:0] fdc_completed_debug_word, input wire fdc_read_complete_toggle, input wire fdc_write_complete_toggle, input wire fdc_request_toggle,
     input wire [7:0] fdc_buffer_address, output wire [7:0] fdc_buffer_data,
     input wire fdc_write_strobe, input wire [7:0] fdc_write_data,
-    input wire [8:0] menu_key_state,
+    input wire [9:0] menu_key_state,
     input wire [10:0] osd_char_address,
     output wire [7:0] osd_char_data,
     input wire [11:0] osd_preview_read_address,
@@ -685,7 +685,7 @@ module manager_sd_mmio #(
                                                osd_option_selection,
                                                osd_narrow_selection, osd_active};
                     OSD_PREVIEW_CONTROL: axi_rdata <= {31'b0, osd_preview_active};
-                    MENU_KEY_STATE: axi_rdata <= {23'b0, menu_key_state};
+                    MENU_KEY_STATE: axi_rdata <= {22'b0, menu_key_state};
                     OSD_FONT_STYLE: axi_rdata <= {30'b0, osd_font_style};
                     VIDEO_SETTINGS: axi_rdata <= {23'b0, coco2_palette[3],
                         artifact_mode[2], coco2_palette[2:0],

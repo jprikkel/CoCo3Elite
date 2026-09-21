@@ -103,6 +103,29 @@ module boot_video_tb;
   release dut.manager_cartridge_enabled;
   $display("PASS: soft reset disarms persistent cartridge state");
 
+  // Settings Ctrl+Esc and the UART RESET command use the manager's hard
+  // reset request.  Unlike Ctrl-Alt-Delete, this must also clear BASIC's
+  // retained warm-start flag while preserving the manager itself.
+  dut.machine_i.ram_i.memory_high[16'h8038] = 8'h55;
+  force dut.manager_serial_cold_reset = 1'b1;
+  wait(dut.soft_reset_active);
+  @(posedge clock); #1;
+  release dut.manager_serial_cold_reset;
+  if (!dut.soft_reset_cold_start ||
+      dut.machine_i.ram_i.memory_high[16'h8038] !== 8'h00) begin
+   $display("FAIL: manager hard reset did not force a BASIC cold start");
+   $fatal;
+  end
+  wait(dut.soft_reset_release_count == 3);
+  raster_resync = 1'b1;
+  @(posedge clock); #1;
+  raster_resync = 1'b0;
+  if (dut.soft_reset_active || dut.soft_reset_cold_start) begin
+   $display("FAIL: manager hard reset did not release cleanly");
+   $fatal;
+  end
+  $display("PASS: manager hard reset forces a BASIC cold start");
+
   // GIME palette bits are R2 G2 B2 R1 G1 B1. Full green must not decode
   // as magenta, which catches the adjacent-pair mapping used by the first
   // Wukong checkpoint.

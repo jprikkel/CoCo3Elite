@@ -27,7 +27,7 @@ module manager_sd_mmio_tb;
     reg [7:0] fdc_buffer_address = 0;
     reg fdc_write_strobe = 0;
     reg [7:0] fdc_write_data = 0;
-    reg [8:0] menu_key_state = 0;
+    reg [9:0] menu_key_state = 0;
     reg [10:0] osd_char_address = 0;
     wire [7:0] osd_char_data;
     reg [11:0] osd_preview_read_address = 0;
@@ -259,10 +259,10 @@ module manager_sd_mmio_tb;
         if(text_color_theme!=4'd9)$fatal(1,"text theme was not published");
         read32(32'h80000280,value);
         if(value[3:0]!=4'd9)$fatal(1,"text theme readback mismatch: %h",value);
-        menu_key_state = 9'b110110101;
+        menu_key_state = 10'b1110110101;
         read32(32'h80000258, value);
-        if (value[8:0] !== 9'b110110101)
-            $fatal(1, "menu key state mismatch: %h", value[8:0]);
+        if (value[9:0] !== 10'b1110110101)
+            $fatal(1, "menu key state mismatch: %h", value[9:0]);
         $display("checking cartridge control ownership");
         write32(32'h80000264, 32'h0);
         write32(32'h8000025c, 15'h1234);

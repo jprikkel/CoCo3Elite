@@ -194,6 +194,7 @@ Important FPGA controls are:
 | F10 | Toggle NTSC artifact-color decoding |
 | F11 | Open live video and management-font Settings |
 | F12 | Open the SD-card file and disk browser |
+| Ctrl+Esc in Settings | Hard-reset the CoCo through a BASIC cold start while preserving the manager and SD state |
 | Ctrl+Alt+Delete | Guarded CoCo soft reset |
 
 CoCo software selects the normal approximately 0.9 MHz rate with the SAM

@@ -108,6 +108,7 @@ module coco3_boot_system #(
     reg keyboard_f9_previous;
     reg scanlines_enabled;
     reg soft_reset_active;
+    reg soft_reset_cold_start;
     reg [21:0] soft_reset_release_count;
     wire keyboard_reset_event = keyboard_reset_sync[1] &&
                                 !keyboard_reset_previous;
@@ -227,8 +228,8 @@ module coco3_boot_system #(
     wire [1:0] manager_artifact_palette;
     wire [3:0] manager_coco2_palette;
     wire [3:0] manager_text_color_theme;
-    wire [8:0] manager_menu_key_state = {
-        effective_keyboard_keys[49],
+    wire [9:0] manager_menu_key_state = {
+        effective_keyboard_keys[52], effective_keyboard_keys[49],
         effective_keyboard_keys[30], effective_keyboard_keys[29], keyboard_f11_sync[1],
         effective_keyboard_keys[50], effective_keyboard_keys[48], effective_keyboard_keys[28],
         effective_keyboard_keys[27], keyboard_f12_sync[1]};
@@ -439,9 +440,11 @@ module coco3_boot_system #(
     always @(posedge pixel_clk) begin
         if (reset) begin
             soft_reset_active <= 1'b0;
+            soft_reset_cold_start <= 1'b0;
             soft_reset_release_count <= 22'd0;
         end else if (keyboard_reset_event || manager_serial_cold_reset) begin
             soft_reset_active <= 1'b1;
+            soft_reset_cold_start <= manager_serial_cold_reset;
             soft_reset_release_count <= 22'd0;
         end else if (soft_reset_active) begin
             if (soft_reset_keys_held) begin
@@ -449,6 +452,7 @@ module coco3_boot_system #(
             end else if (soft_reset_release_count == SOFT_RESET_GUARD_CLOCKS &&
                          raster_resync) begin
                 soft_reset_active <= 1'b0;
+                soft_reset_cold_start <= 1'b0;
                 soft_reset_release_count <= 22'd0;
             end else if (soft_reset_release_count == SOFT_RESET_GUARD_CLOCKS) begin
                 // Saturate after the key-release guard interval.  The HDMI
@@ -478,7 +482,8 @@ module coco3_boot_system #(
         .cartridge_launch(effective_cartridge_launch),
         .cartridge_address(manager_cartridge_address), .cartridge_write_data(manager_cartridge_data),
         .cartridge_write(manager_cartridge_write),
-        .cold_start_clear(cartridge_cold_reset),
+        .cold_start_clear(cartridge_cold_reset |
+                          (soft_reset_active && soft_reset_cold_start)),
         .bin_fifo_data(manager_bin_fifo_data),
         .bin_fifo_available(manager_bin_fifo_available),
         .bin_transfer_active(manager_bin_transfer_active),
