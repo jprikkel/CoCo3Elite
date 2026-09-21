@@ -54,6 +54,15 @@ void *memcpy(void *dst,const void *src,unsigned long n){unsigned char *d=dst;con
 #define SERIAL_MACHINE_CONTROL REG32(0x80000294u)
 #define DEBUG_CPU_STATUS REG32(0x80000298u)
 #define DEBUG_VIDEO_STATUS REG32(0x8000029cu)
+#define UART_CONTROL REG32(0x800002a0u)
+#define VIDEO_CAPTURE_CONTROL REG32(0x800002a4u)
+#define VIDEO_CAPTURE_STATUS REG32(0x800002a8u)
+#define VIDEO_CAPTURE_ADDRESS REG32(0x800002acu)
+#define VIDEO_CAPTURE_DATA REG32(0x800002b0u)
+#define OSD_PREVIEW_ADDRESS REG32(0x800002b4u)
+#define OSD_PREVIEW_DATA REG32(0x800002b8u)
+#define OSD_PREVIEW_PALETTE REG32(0x800002bcu)
+#define OSD_PREVIEW_CONTROL REG32(0x800002c0u)
 
 #define KEY_F12 1u
 #define KEY_UP 2u
@@ -116,6 +125,17 @@ static uint8_t serial_shift,serial_shift_override,serial_function_keys;
 static char serial_command[64];
 static uint8_t serial_command_length;
 
+struct browser_metadata {
+    char title[48],description[128];
+    char year[12],players[12],test_result[16];
+    uint8_t joystick,keyboard,left_joystick,verified,valid;
+};
+static struct browser_metadata selected_metadata;
+static uint8_t selected_preview,sidecar_attempted;
+static uint8_t sidecar_loading;
+static uint32_t sidecar_key_previous,sidecar_key_pending;
+static uint8_t sidecar_up_pending,sidecar_down_pending;
+
 static void putc(char c) { while (UART_STATUS & 1u) {} UART_DATA = (uint8_t)c; }
 static void puts(const char *s) { while (*s) putc(*s++); }
 static void hex(uint8_t n) { static const char h[]="0123456789ABCDEF"; putc(h[n>>4]); putc(h[n&15]); }
@@ -123,14 +143,18 @@ static void hex32(uint32_t n) { hex((uint8_t)(n>>24)); hex((uint8_t)(n>>16)); he
 static int equal(const char *a,const char *b){while(*a&&*a==*b){++a;++b;}return *a==*b;}
 static int hex_digit(char c){if(c>='0'&&c<='9')return c-'0';if(c>='A'&&c<='F')return c-'A'+10;if(c>='a'&&c<='f')return c-'a'+10;return -1;}
 static int parse_hex_byte(const char *p,uint8_t *value){int a=hex_digit(p[0]),b=hex_digit(p[1]);if(a<0||b<0||p[2])return 0;*value=(uint8_t)((a<<4)|b);return 1;}
+static void serial_capture_frame(void);
 static void serial_apply_keys(void){SERIAL_KEY_LO=serial_key_lo;SERIAL_KEY_HI=serial_key_hi;SERIAL_KEY_CONTROL=(uint32_t)serial_shift|((uint32_t)serial_shift_override<<1);SERIAL_FUNCTION_KEYS=serial_function_keys;}
 static void serial_release_all(void){serial_key_lo=0;serial_key_hi=0;serial_shift=0;serial_shift_override=0;serial_function_keys=0;SERIAL_KEY_CONTROL=0x100u;SERIAL_FUNCTION_KEYS=0;}
+static void serial_browser_root(void){current_directory=root_cluster;parent_directory=root_cluster;directory_depth=0;current_path[0]='/';current_path[1]=0;puts("OK ROOT\r\n");}
 static void serial_reply_status(void){uint32_t cpu=DEBUG_CPU_STATUS,video=DEBUG_VIDEO_STATUS;puts("STATUS PC=");hex((uint8_t)(cpu>>8));hex((uint8_t)cpu);puts(" I0=");hex((uint8_t)(video>>24));puts(" I1=");hex((uint8_t)(video>>16));puts(" VM=");hex((uint8_t)(video>>8));puts(" VR=");hex((uint8_t)video);puts("\r\n");}
 static void serial_execute_command(void){
     uint8_t value;
     serial_command[serial_command_length]=0;
     if(equal(serial_command,"PING")){puts("PONG\r\n");}
     else if(equal(serial_command,"STATUS")){serial_reply_status();}
+    else if(equal(serial_command,"CAPTURE")){serial_capture_frame();}
+    else if(equal(serial_command,"ROOT")){if(card_online)serial_browser_root();else puts("ERR NO SD\r\n");}
     else if(equal(serial_command,"RELEASE")){serial_release_all();puts("OK RELEASE\r\n");}
     else if(equal(serial_command,"RESET")){serial_release_all();SERIAL_MACHINE_CONTROL=3u;puts("OK RESET\r\n");}
     else if(serial_command[0]=='K'&&(serial_command[1]=='D'||serial_command[1]=='U')&&serial_command[2]==' '&&parse_hex_byte(&serial_command[3],&value)&&value<56u){
@@ -154,10 +178,44 @@ static void serial_execute_command(void){
 static void serial_poll(void){
     while(UART_RX_STATUS&1u){char c=(char)UART_RX_DATA;if(c=='\r'||c=='\n'){if(serial_command_length){serial_execute_command();serial_command_length=0;}}else if(serial_command_length+1u<sizeof(serial_command))serial_command[serial_command_length++]=c;else {serial_command_length=0;puts("ERR LONG\r\n");}}
 }
+static void capture_sidecar_keys(void){
+    uint32_t keys;
+    if(!sidecar_loading)return;
+    serial_poll();
+    keys=MENU_KEY_STATE;
+    {
+        uint32_t pressed=keys&~sidecar_key_previous;
+        if((pressed&KEY_UP)&&sidecar_up_pending!=0xffu)sidecar_up_pending++;
+        if((pressed&KEY_DOWN)&&sidecar_down_pending!=0xffu)sidecar_down_pending++;
+        sidecar_key_pending|=pressed&(KEY_ENTER|KEY_ESCAPE|KEY_F12);
+    }
+    sidecar_key_previous=keys;
+}
 static uint32_t crc32_byte(uint32_t crc,uint8_t value){
     crc^=value;
     for(uint8_t bit=0;bit<8;++bit)crc=(crc>>1)^((crc&1u)?0xedb88320u:0u);
     return crc;
+}
+static void serial_capture_frame(void){
+    const uint32_t stripe_bytes=640u*60u;
+    uint32_t crc=0xffffffffu;
+    UART_CONTROL=1u;
+    puts("FRAME BEGIN 640 480 RGB332 307200\r\n");
+    for(uint32_t stripe=0;stripe<8u;++stripe){
+        uint32_t previous=VIDEO_CAPTURE_STATUS&1u,timeout=5000000u;
+        VIDEO_CAPTURE_CONTROL=(stripe<<8)|1u;
+        while(((VIDEO_CAPTURE_STATUS&1u)==previous)&&timeout)--timeout;
+        if(!timeout){puts("\r\nFRAME ERROR TIMEOUT\r\n");while(UART_STATUS&1u){}UART_CONTROL=0;return;}
+        VIDEO_CAPTURE_ADDRESS=0;
+        for(uint32_t n=0;n<stripe_bytes;++n){
+            uint8_t pixel=(uint8_t)VIDEO_CAPTURE_DATA;
+            putc((char)pixel);
+            crc=crc32_byte(crc,pixel);
+        }
+    }
+    puts("\r\nFRAME END CRC32 ");hex32(crc^0xffffffffu);puts("\r\n");
+    while(UART_STATUS&1u){}
+    UART_CONTROL=0;
 }
 static void print_buffer_head(void) {
     for(uint8_t n=0;n<4;++n){
@@ -193,7 +251,7 @@ static int init_card(void) {
     if(!block_addressed && command(16,512)!=0)return 8;
     deselect();spi_divider=8u;SPI_CTRL=((uint32_t)spi_divider<<8)|1u;return 0;
 }
-static void media_lost(void){card_online=0;browser_count=0;mounted_disk.cluster=0;DISK_CACHE_RESET=0;MOUNT_STATUS=0;puts("SD OFFLINE\r\n");}
+static void media_lost(void){card_online=0;browser_count=0;mounted_disk.cluster=0;DISK_CACHE_RESET=0;OSD_PREVIEW_CONTROL=0;selected_preview=0;puts("SD OFFLINE\r\n");MOUNT_STATUS=0;}
 static int read_sector(uint32_t lba) {
     if(!card_online)return 0x7f;
     if(!block_addressed && lba>0x007fffffu)return 4;
@@ -202,7 +260,7 @@ static int read_sector(uint32_t lba) {
     deselect();media_lost();return 3;
 data:
     for(uint16_t n=0;n<512;++n)sector[n]=xfer(0xff);
-    (void)xfer(0xff);(void)xfer(0xff);deselect();return 0;
+    (void)xfer(0xff);(void)xfer(0xff);deselect();capture_sidecar_keys();return 0;
 }
 // CMD24 single-block write.  The cache has already been updated by hardware;
 // a failure leaves the in-session cache intact but reports write fault to the
@@ -258,7 +316,129 @@ static int is_dsk_name(const char *name){uint16_t n=0;while(name[n])n++;return n
 static int is_ccc_name(const char *name){uint16_t n=0;while(name[n])n++;return n>=4u&&name[n-4]=='.'&&((name[n-3]=='C'||name[n-3]=='c')&&(name[n-2]=='C'||name[n-2]=='c')&&(name[n-1]=='C'||name[n-1]=='c'));}
 static int is_bin_name(const char *name){uint16_t n=0;while(name[n])n++;return n>=4u&&name[n-4]=='.'&&((name[n-3]=='B'||name[n-3]=='b')&&(name[n-2]=='I'||name[n-2]=='i')&&(name[n-1]=='N'||name[n-1]=='n'));}
 static void add_entry(const uint8_t *e,const char *name,uint8_t directory){uint8_t cartridge=!directory&&is_ccc_name(name),binary=!directory&&is_bin_name(name);uint32_t size=le32(&e[28]);if(browser_count>=MAX_DSK_FILES)return;if(!directory&&((!is_dsk_name(name)&&!cartridge&&!binary)||(is_dsk_name(name)&&size!=161280u)||(cartridge&&size!=2048u&&size!=4096u&&size!=8192u)||(binary&&(size<5u||size>262144u))))return;struct browser_entry *b=&browser_entries[browser_count++];uint16_t n=0;while(name[n]&&n<MAX_NAME-1u){b->name[n]=name[n];n++;}b->name[n]=0;b->cluster=((uint32_t)le16(&e[20])<<16)|le16(&e[26]);b->size=size;b->directory=directory;b->parent=0;b->cartridge=cartridge;b->binary=binary;}
-static int scan_directory(uint32_t directory){uint32_t cluster=directory;browser_count=0;lfn_reset();if(directory!=root_cluster){struct browser_entry *b=&browser_entries[browser_count++];b->name[0]='.';b->name[1]='.';b->name[2]=0;b->cluster=parent_directory;b->size=0;b->directory=1;b->parent=1;}for(;;){for(uint8_t s=0;s<sectors_per_cluster;++s){if(read_sector(first_data_lba+(cluster-2u)*sectors_per_cluster+s))return 1;for(uint16_t o=0;o<512;o+=32){const uint8_t *e=&sector[o];if(!e[0])return 0;if(e[0]==0xe5){lfn_reset();continue;}if(e[11]==0x0f){lfn_part(e);continue;}if(e[11]&0x08){lfn_reset();continue;}char name[MAX_NAME];if(lfn_valid&&lfn_expected==0&&short_checksum(e)==lfn_checksum)lfn_text(name);else short_text(e,name);lfn_reset();if(name[0]=='.')continue;add_entry(e,name,(e[11]&0x10u)!=0);}}if(next_cluster(cluster,&cluster))break;}return 0;}
+static int scan_directory(uint32_t directory){uint32_t cluster=directory;browser_count=0;lfn_reset();if(directory!=root_cluster){struct browser_entry *b=&browser_entries[browser_count++];b->name[0]='.';b->name[1]='.';b->name[2]=0;b->cluster=parent_directory;b->size=0;b->directory=1;b->parent=1;}for(;;){for(uint8_t s=0;s<sectors_per_cluster;++s){if(read_sector(first_data_lba+(cluster-2u)*sectors_per_cluster+s))return 1;for(uint16_t o=0;o<512;o+=32){const uint8_t *e=&sector[o];if(!e[0])return 0;if(e[0]==0xe5){lfn_reset();continue;}if(e[11]==0x0f){lfn_part(e);continue;}if(e[11]&0x08){lfn_reset();continue;}char name[MAX_NAME];if(lfn_valid&&lfn_expected==0&&short_checksum(e)==lfn_checksum)lfn_text(name);else short_text(e,name);lfn_reset();/* Dot-prefixed directories are management data, not browser entries. */if((e[11]&0x10u)&&name[0]=='.')continue;add_entry(e,name,(e[11]&0x10u)!=0);}}if(next_cluster(cluster,&cluster))break;}return 0;}
+static char lower_ascii(char c){return c>='A'&&c<='Z'?(char)(c+('a'-'A')):c;}
+static int equal_name(const char *a,const char *b){while(*a&&*b&&lower_ascii(*a)==lower_ascii(*b)){a++;b++;}return !*a&&!*b;}
+// Locate management sidecars without adding them to the visible browser list.
+// This shares the same FAT/LFN parser as normal directory scans and therefore
+// works with both short names and Windows/Linux long filenames.
+static int find_directory_entry(uint32_t directory,const char *target,uint8_t want_directory,struct disk *found){
+    uint32_t cluster=directory;lfn_reset();
+    for(;;){
+        for(uint8_t s=0;s<sectors_per_cluster;++s){
+            if(read_sector(first_data_lba+(cluster-2u)*sectors_per_cluster+s))return 1;
+            for(uint16_t o=0;o<512;o+=32){
+                const uint8_t *e=&sector[o];char name[MAX_NAME];uint8_t directory_entry;
+                if(!e[0])return 2;
+                if(e[0]==0xe5){lfn_reset();continue;}
+                if(e[11]==0x0f){lfn_part(e);continue;}
+                if(e[11]&0x08){lfn_reset();continue;}
+                if(lfn_valid&&lfn_expected==0&&short_checksum(e)==lfn_checksum)lfn_text(name);else short_text(e,name);
+                lfn_reset();directory_entry=(e[11]&0x10u)!=0;
+                if(directory_entry==want_directory&&equal_name(name,target)){
+                    uint16_t n=0;while(name[n]&&n<MAX_NAME-1u){found->name[n]=name[n];n++;}found->name[n]=0;
+                    found->cluster=((uint32_t)le16(&e[20])<<16)|le16(&e[26]);found->size=le32(&e[28]);return 0;
+                }
+            }
+        }
+        if(next_cluster(cluster,&cluster))break;
+    }
+    return 2;
+}
+static int sidecar_file(const struct browser_entry *entry,const char *extension,struct disk *file){
+    struct disk meta_directory;char name[MAX_NAME];uint16_t dot=0,n=0;
+    if(entry->directory||find_directory_entry(current_directory,".meta",1,&meta_directory))return 1;
+    while(entry->name[n]&&n<MAX_NAME-1u){if(entry->name[n]=='.')dot=n;n++;}
+    if(!dot)return 2;
+    n=0;while(n<dot&&n<MAX_NAME-1u){name[n]=entry->name[n];n++;}
+    for(uint8_t x=0;extension[x]&&n<MAX_NAME-1u;x++)name[n++]=extension[x];
+    name[n]=0;
+    return find_directory_entry(meta_directory.cluster,name,0,file);
+}
+static void copy_text(char *to,uint16_t capacity,const char *from){uint16_t n=0;if(!capacity)return;while(from[n]&&n+1u<capacity){to[n]=from[n];n++;}to[n]=0;}
+static int starts_with(const char *line,const char *key){while(*key&&*line==*key){line++;key++;}return !*key;}
+static void metadata_line(char *line){
+    if(starts_with(line,"title="))copy_text(selected_metadata.title,sizeof(selected_metadata.title),line+6);
+    else if(starts_with(line,"description="))copy_text(selected_metadata.description,sizeof(selected_metadata.description),line+12);
+    else if(starts_with(line,"year="))copy_text(selected_metadata.year,sizeof(selected_metadata.year),line+5);
+    else if(starts_with(line,"players="))copy_text(selected_metadata.players,sizeof(selected_metadata.players),line+8);
+    else if(starts_with(line,"test_result="))copy_text(selected_metadata.test_result,sizeof(selected_metadata.test_result),line+12);
+    else if(starts_with(line,"joystick="))selected_metadata.joystick=equal(line+9,"true");
+    else if(starts_with(line,"keyboard="))selected_metadata.keyboard=equal(line+9,"true");
+    else if(starts_with(line,"player1_left_joystick="))selected_metadata.left_joystick=equal(line+22,"true");
+    else if(starts_with(line,"verified="))selected_metadata.verified=equal(line+9,"true");
+}
+static int load_metadata(const struct browser_entry *entry){
+    struct disk file;struct fat_file_reader reader;char line[192];uint16_t at=0;uint8_t value;
+    if(sidecar_file(entry,".meta",&file)||!file.size||file.size>8192u)return 1;
+    file_reader_init(&reader,&file);
+    while(reader.offset<reader.size){
+        if(file_reader_byte(&reader,&value))return 2;
+        if(value=='\r')continue;
+        if(value=='\n'){
+            line[at]=0;metadata_line(line);at=0;
+        }else if(value>=32u&&value<127u&&at+1u<sizeof(line))line[at++]=(char)value;
+    }
+    if(at){line[at]=0;metadata_line(line);}
+    selected_metadata.valid=selected_metadata.title[0]||selected_metadata.description[0];
+    return selected_metadata.valid?0:3;
+}
+static uint32_t bmp_word(const uint8_t bytes[4]){
+    uint32_t word=0;
+    for(uint8_t n=0;n<4u;n++)word|=(uint32_t)(bytes[n]>>4)<<(n*8u)|(uint32_t)(bytes[n]&15u)<<(n*8u+4u);
+    return word;
+}
+static uint8_t rgb332(uint8_t red,uint8_t green,uint8_t blue){return(uint8_t)((red&0xe0u)|((green&0xe0u)>>3)|(blue>>6));}
+static int load_preview(const struct browser_entry *entry){
+    struct disk file;struct fat_file_reader reader;uint8_t header[54],value,bytes[4];
+    uint32_t pixel_offset;int32_t height;uint8_t top_down;
+    if(sidecar_file(entry,".bmp",&file)||file.size<118u||file.size>16384u)return 1;
+    file_reader_init(&reader,&file);
+    for(uint8_t n=0;n<54u;n++)if(file_reader_byte(&reader,&header[n]))return 2;
+    height=(int32_t)le32(&header[22]);pixel_offset=le32(&header[10]);
+    if(header[0]!='B'||header[1]!='M'||le32(&header[14])!=40u||le32(&header[18])!=184u||
+       (height!=138&&height!=-138)||le16(&header[26])!=1u||
+       le16(&header[28])!=4u||le32(&header[30])!=0u||
+       le32(&header[46])!=16u||pixel_offset<118u||pixel_offset>=file.size)return 3;
+    for(uint8_t index=0;index<16u;index++){
+        uint8_t blue,green,red,reserved;
+        if(file_reader_byte(&reader,&blue)||file_reader_byte(&reader,&green)||
+           file_reader_byte(&reader,&red)||file_reader_byte(&reader,&reserved))return 4;
+        (void)reserved;OSD_PREVIEW_PALETTE=((uint32_t)index<<8)|rgb332(red,green,blue);
+    }
+    while(reader.offset<pixel_offset)if(file_reader_byte(&reader,&value))return 5;
+    top_down=height<0;
+    for(uint8_t file_row=0;file_row<138u;file_row++){
+        uint8_t display_row=top_down?file_row:(uint8_t)(137u-file_row);
+        OSD_PREVIEW_ADDRESS=(uint32_t)display_row*23u;
+        for(uint8_t word=0;word<23u;word++){
+            for(uint8_t n=0;n<4u;n++)if(file_reader_byte(&reader,&bytes[n]))return 6;
+            OSD_PREVIEW_DATA=bmp_word(bytes);
+        }
+    }
+    OSD_PREVIEW_CONTROL=1u;selected_preview=1;return 0;
+}
+static void clear_sidecars(void){
+    uint8_t *p=(uint8_t *)&selected_metadata;
+    for(uint16_t n=0;n<sizeof(selected_metadata);n++)p[n]=0;
+    selected_preview=0;sidecar_attempted=0;sidecar_loading=0;
+    sidecar_key_pending=0;sidecar_up_pending=0;sidecar_down_pending=0;
+    OSD_PREVIEW_CONTROL=0;
+}
+static void load_sidecars(const struct browser_entry *entry){
+    uint8_t *p=(uint8_t *)&selected_metadata;
+    int preview_result=1;
+    sidecar_key_previous=MENU_KEY_STATE;
+    sidecar_loading=1;
+    for(uint16_t n=0;n<sizeof(selected_metadata);n++)p[n]=0;
+    // Keep the previous pane visible while FAT reads complete. The new
+    // preview replaces it in place and is disabled only when no replacement
+    // exists, avoiding a blank flash on every cursor movement.
+    if(!entry->directory){(void)load_metadata(entry);preview_result=load_preview(entry);}
+    if(preview_result){selected_preview=0;OSD_PREVIEW_CONTROL=0;}
+    sidecar_loading=0;
+    sidecar_attempted=1;
+}
 static int mount_filesystem(void) {
     uint32_t volume_lba;
     if(read_sector(0))return 0x10;
@@ -440,6 +620,12 @@ static int stream_bin(void){
 }
 static void osd_clear(void){OSD_ADDRESS=0;for(uint16_t n=0;n<OSD_COLS*OSD_ROWS;++n)OSD_DATA=' ';}
 static void osd_char(uint8_t row,uint8_t column,char value){OSD_ADDRESS=(uint32_t)row*OSD_COLS+column;OSD_DATA=(uint8_t)value;}
+static void osd_fill(uint8_t first_row,uint8_t last_row,uint8_t first_column,uint8_t last_column,char value){
+    for(uint8_t row=first_row;row<=last_row;row++){
+        OSD_ADDRESS=(uint32_t)row*OSD_COLS+first_column;
+        for(uint8_t column=first_column;column<=last_column;column++)OSD_DATA=(uint8_t)value;
+    }
+}
 static void osd_text_to(uint8_t row,uint8_t column,uint8_t last,const char *text){
     OSD_ADDRESS=(uint32_t)row*OSD_COLS+column;
     while(*text&&column<=last&&column<OSD_COLS){OSD_DATA=(uint8_t)*text++;column++;}
@@ -507,7 +693,46 @@ static const char *entry_action(const struct browser_entry *entry){
     if(entry->cluster==mounted_disk.cluster&&mounted_disk.cluster)return "Mounted D0";
     return "Ready to mount";
 }
+static void detail_pair(uint8_t row,const char *label,const char *value){
+    char line[32];uint8_t at=0,n=0;
+    while(label[at]&&at+1u<sizeof(line))line[at]=label[at],at++;
+    while(value[n]&&at+1u<sizeof(line))line[at++]=value[n++];
+    line[at]=0;osd_text_to(row,OSD_DETAIL_COLUMN,OSD_COLS-2u,line);
+}
+static void detail_description(uint8_t first_row,uint8_t last_row,const char *text){
+    uint16_t at=0;const uint8_t width=OSD_COLS-1u-OSD_DETAIL_COLUMN;
+    for(uint8_t row=first_row;row<=last_row&&text[at];row++){
+        char line[24];uint8_t count=0,last_space=0;
+        while(text[at]==' ')at++;
+        while(text[at]&&count<width){line[count]=(char)text[at++];if(line[count]==' ')last_space=count;count++;}
+        if(text[at]&&last_space){at-=(uint16_t)(count-last_space-1u);count=last_space;}
+        while(count&&line[count-1u]==' ')count--;
+        line[count]=0;
+        osd_text_to(row,OSD_DETAIL_COLUMN,OSD_COLS-2u,line);
+    }
+}
 static void draw_details(const struct browser_entry *entry){
+    if(selected_preview||selected_metadata.valid){
+        char summary[24];uint8_t at=0;
+        // The 4:3 preview fills rows 7-15. Lead with the useful description,
+        // then keep the machine-readable facts on one compact line:
+        // "1980 P:2 J:L K:N".
+        if(selected_metadata.description[0])
+            detail_description(16,20,selected_metadata.description);
+        if(selected_metadata.year[0]){for(uint8_t n=0;selected_metadata.year[n]&&at+12u<sizeof(summary);n++)summary[at++]=selected_metadata.year[n];}
+        if(at)summary[at++]=' ';
+        summary[at++]='P';summary[at++]=':';
+        if(selected_metadata.players[0])for(uint8_t n=0;selected_metadata.players[n]&&at+8u<sizeof(summary);n++)summary[at++]=selected_metadata.players[n];
+        else summary[at++]='?';
+        summary[at++]=' ';summary[at++]='J';summary[at++]=':';
+        summary[at++]=selected_metadata.joystick?(selected_metadata.left_joystick?'L':'R'):'N';
+        summary[at++]=' ';summary[at++]='K';summary[at++]=':';
+        summary[at++]=selected_metadata.keyboard?'Y':'N';summary[at]=0;
+        osd_text_to(21,OSD_DETAIL_COLUMN,OSD_COLS-2u,summary);
+        if(selected_metadata.verified)
+            detail_pair(22,"Test: ",selected_metadata.test_result[0]?selected_metadata.test_result:"verified");
+        return;
+    }
     osd_text(7,OSD_DETAIL_COLUMN,"Type");osd_text(8,OSD_DETAIL_COLUMN,entry_type(entry));
     if(!entry->directory){osd_text(10,OSD_DETAIL_COLUMN,"Size");osd_size(11,OSD_DETAIL_COLUMN,entry->size);}
     osd_text(13,OSD_DETAIL_COLUMN,entry_action(entry));
@@ -516,14 +741,13 @@ static void draw_details(const struct browser_entry *entry){
     else if(!entry->directory)osd_text(14,OSD_DETAIL_COLUMN,"CRC on mount");
 }
 static uint8_t menu_selection,menu_top;
-static void draw_menu(const char *status){
-    char name[MAX_NAME],line[OSD_COLS];
+static void normalize_menu_top(void){
     if(menu_selection<menu_top)menu_top=menu_selection;
     if(menu_selection>=menu_top+OSD_FILE_ROWS)menu_top=menu_selection-OSD_FILE_ROWS+1u;
-    osd_clear();osd_frame();
-    osd_logo(1);osd_center(2,"Disk browser");
-    osd_text(4,2,"Drive 0:");short_name(&mounted_disk,name);osd_text_to(4,11,OSD_COLS-2u,name[0]?name:"<empty>");
-    osd_text(5,2,"Path:");osd_tail(5,8,OSD_COLS-10u,current_path);
+}
+static void draw_file_list(void){
+    char line[OSD_COLS];
+    osd_fill(OSD_FIRST_FILE_ROW,OSD_FIRST_FILE_ROW+OSD_FILE_ROWS-1u,1,OSD_LIST_RIGHT,' ');
     for(uint8_t row=0;row<OSD_FILE_ROWS;++row){
         uint8_t index=menu_top+row;
         if(index>=browser_count)break;
@@ -533,16 +757,42 @@ static void draw_menu(const char *status){
         draw_entry_icon(OSD_FIRST_FILE_ROW+row,&browser_entries[index]);
         osd_text(OSD_FIRST_FILE_ROW+row,4,line);
     }
-    if(browser_count)draw_details(&browser_entries[menu_selection]);
+}
+static void draw_status(const char *status){
+    osd_fill(25,25,2,OSD_COLS-2u,' ');
     osd_text_to(25,2,OSD_COLS-2u,status);
+}
+static void select_menu_entry(const char *status){
+    uint8_t previous_top=menu_top;
+    normalize_menu_top();
+    if(menu_top!=previous_top)draw_file_list();
+    draw_status(status);
+    OSD_CONTROL=((uint32_t)(browser_count?(OSD_FIRST_FILE_ROW+menu_selection-menu_top):31u)<<8)|1u;
+}
+static void draw_selected_details(const char *status){
+    osd_fill(OSD_FIRST_FILE_ROW,23,OSD_DETAIL_COLUMN,OSD_COLS-2u,' ');
+    if(browser_count)draw_details(&browser_entries[menu_selection]);
+    draw_status(status);
+    OSD_CONTROL=((uint32_t)(browser_count?(OSD_FIRST_FILE_ROW+menu_selection-menu_top):31u)<<8)|1u;
+}
+static void draw_menu(const char *status){
+    char name[MAX_NAME];
+    normalize_menu_top();
+    osd_clear();osd_frame();
+    osd_logo(1);osd_center(2,"Disk browser");
+    osd_text(4,2,"Drive 0:");short_name(&mounted_disk,name);osd_text_to(4,11,OSD_COLS-2u,name[0]?name:"<empty>");
+    osd_text(5,2,"Path:");osd_tail(5,8,OSD_COLS-10u,current_path);
+    draw_file_list();
+    if(browser_count)draw_details(&browser_entries[menu_selection]);
+    draw_status(status);
     osd_center(26,"Up/down select   Enter mount/run   Esc/F12 exit");
     OSD_CONTROL=((uint32_t)(browser_count?(OSD_FIRST_FILE_ROW+menu_selection-menu_top):31u)<<8)|1u;
 }
 static int run_disk_menu(uint8_t *present){
-    uint32_t previous,keys,pressed;
+    uint32_t previous,keys,pressed,sidecar_idle=0;
     char name[MAX_NAME];
     uint8_t scan_failed=0;
-    menu_selection=0;menu_top=0;browser_count=0;
+    menu_selection=0;menu_top=0;browser_count=0;clear_sidecars();
     draw_menu("Reading SD directory - please wait");
     puts("MENU OPEN\r\n");
     if(!card_online||scan_directory(current_directory)){
@@ -555,35 +805,40 @@ static int run_disk_menu(uint8_t *present){
     previous=MENU_KEY_STATE;
     for(;;){
         serial_poll();
-        keys=MENU_KEY_STATE;pressed=keys&~previous;previous=keys;
+        keys=MENU_KEY_STATE;pressed=(keys&~previous)|sidecar_key_pending;sidecar_key_pending=0;previous=keys;
+        if(sidecar_up_pending){pressed|=KEY_UP;sidecar_up_pending--;}
+        if(sidecar_down_pending){pressed|=KEY_DOWN;sidecar_down_pending--;}
         if(pressed&(KEY_ESCAPE|KEY_F12)){
             while(MENU_KEY_STATE&(KEY_ESCAPE|KEY_F12)){serial_poll();}
-            OSD_CONTROL=0;puts("MENU CLOSE\r\n");return scan_failed;
+            OSD_PREVIEW_CONTROL=0;OSD_CONTROL=0;puts("MENU CLOSE\r\n");return scan_failed;
         }
         if((pressed&KEY_UP)&&browser_count){
+            sidecar_attempted=0;sidecar_idle=0;
             menu_selection=menu_selection?menu_selection-1u:browser_count-1u;
-            draw_menu("Select a disk for drive 0");
+            select_menu_entry("Loading details...");
         }
         if((pressed&KEY_DOWN)&&browser_count){
+            sidecar_attempted=0;sidecar_idle=0;
             menu_selection=(menu_selection+1u==browser_count)?0:menu_selection+1u;
-            draw_menu("Select a disk for drive 0");
+            select_menu_entry("Loading details...");
         }
         if((pressed&KEY_ENTER)&&browser_count){
             if(browser_entries[menu_selection].directory){
+                clear_sidecars();sidecar_idle=0;
                 if(browser_entries[menu_selection].parent){if(directory_depth){current_directory=directory_stack[--directory_depth];parent_directory=directory_depth?directory_stack[directory_depth-1u]:root_cluster;uint16_t p=0;while(current_path[p]&&p<MAX_NAME)p++;while(p>1u&&current_path[p-1u]!='/')p--;if(p==1u)current_path[1]=0;else current_path[p-1u]=0;scan_directory(current_directory);}}
                 else {if(directory_depth<8u)directory_stack[directory_depth++]=current_directory;parent_directory=current_directory;current_directory=browser_entries[menu_selection].cluster;uint16_t p=0;while(current_path[p])p++;if(p>1&&current_path[p-1]!='/'){current_path[p++]='/';}for(uint16_t n=0;browser_entries[menu_selection].name[n]&&p<MAX_NAME-1u;n++)current_path[p++]=browser_entries[menu_selection].name[n];current_path[p]=0;scan_directory(current_directory);}
                 menu_selection=0;menu_top=0;draw_menu("Select a disk for drive 0");continue;
             }
             if(browser_entries[menu_selection].cartridge){
                 draw_menu("Loading cartridge - please wait");
-                if(!load_cartridge(&browser_entries[menu_selection])){puts("CARTRIDGE LOADED ");puts(browser_entries[menu_selection].name);puts("\r\n");while(MENU_KEY_STATE&KEY_ENTER){serial_poll();}OSD_CONTROL=0;return 0;}
+                if(!load_cartridge(&browser_entries[menu_selection])){puts("CARTRIDGE LOADED ");puts(browser_entries[menu_selection].name);puts("\r\n");while(MENU_KEY_STATE&KEY_ENTER){serial_poll();}OSD_PREVIEW_CONTROL=0;OSD_CONTROL=0;return 0;}
                 draw_menu("Cartridge load failed");continue;
             }
             if(browser_entries[menu_selection].binary){
                 struct decb_bin_info info;
                 draw_menu("Validating DECB BIN - please wait");
                 int result=prepare_bin(&browser_entries[menu_selection],&info);
-                if(!result){puts("BIN READY ");puts(browser_entries[menu_selection].name);puts(" EXEC ");hex((uint8_t)(info.execution_address>>8));hex((uint8_t)info.execution_address);puts("\r\n");while(MENU_KEY_STATE&KEY_ENTER){serial_poll();}OSD_CONTROL=0;return 0;}
+                if(!result){puts("BIN READY ");puts(browser_entries[menu_selection].name);puts(" EXEC ");hex((uint8_t)(info.execution_address>>8));hex((uint8_t)info.execution_address);puts("\r\n");while(MENU_KEY_STATE&KEY_ENTER){serial_poll();}OSD_PREVIEW_CONTROL=0;OSD_CONTROL=0;return 0;}
                 draw_menu(result==DECB_BIN_LOADER_OVERLAP?"BIN uses reserved FE00-FEFF":"Invalid or unsupported DECB BIN");continue;
             }
             struct disk candidate;
@@ -595,10 +850,22 @@ static int run_disk_menu(uint8_t *present){
                 copy_disk(&mounted_disk,&candidate);*present=1;MOUNT_STATUS=0x101u;
                 short_name(&mounted_disk,name);puts("MOUNT D0 ");puts(name);puts(" CRC32 ");hex32(disk_cache_crc32);puts("\r\n");
                 while(MENU_KEY_STATE&KEY_ENTER){serial_poll();}
-                OSD_CONTROL=0;return 0;
+                OSD_PREVIEW_CONTROL=0;OSD_CONTROL=0;return 0;
             }
             *present=0;MOUNT_STATUS=0x100u;
             draw_menu("Mount failed - select another disk");
+        }
+        // SD reads are deferred until the highlight has remained still. This
+        // keeps cursor movement immediate even on slower cards and ensures a
+        // held navigation key cannot repeatedly open sidecar files.
+        if(browser_count&&!sidecar_attempted&&!(keys&(KEY_UP|KEY_DOWN|KEY_ENTER))){
+            if(++sidecar_idle>=100000u){
+                load_sidecars(&browser_entries[menu_selection]);
+                // If navigation arrived while the SD card was busy, leave the
+                // old pane untouched and consume that move on the next loop.
+                if(!sidecar_up_pending&&!sidecar_down_pending)
+                    draw_selected_details("Enter to mount or run selection");
+            }
         }
     }
 }

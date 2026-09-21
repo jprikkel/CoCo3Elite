@@ -36,7 +36,8 @@ $verilogSources=@($managerCpuSources)+(@('rtl/third-party/PS2_Key/ps2_keyboard.v
  'rtl/management/manager_sd_mmio.v','rtl/management/ultraembedded_manager_sd_mount.v','rtl/management/manager_font_rom.v','rtl/management/manager_osd.v',
  'rtl/core/coco3_fdc.v','rtl/core/coco3_gime_timer.v','rtl/core/coco3_gime_interrupt.v','rtl/core/coco3_boot_machine.v',
  'rtl/wukong/uart_tx.v','rtl/wukong/uart_rx.v','rtl/wukong/coco3_uart_debug.v','rtl/wukong/ntsc_artifact_filter.v',
- 'rtl/wukong/crt_filter.v','rtl/wukong/coco3_boot_system.v') | ForEach-Object {Join-Path $repoRoot $_})
+ 'rtl/wukong/crt_filter.v','rtl/wukong/video_frame_capture.v',
+ 'rtl/wukong/coco3_boot_system.v') | ForEach-Object {Join-Path $repoRoot $_})
 $systemVerilogSources=@((Join-Path $repoRoot 'rtl/wukong/wukong_top.v'),
  (Join-Path $repoRoot 'tb/hdmi_window_tb.sv'))
 $systemVerilogSources+=@(Get-ChildItem "$repoRoot\rtl\third-party\hdl-util-hdmi\src\*.sv" |

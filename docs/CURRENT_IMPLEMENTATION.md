@@ -42,6 +42,9 @@ Hardware-verified functions include:
   CoCo 2 four-color palettes; and ten foreground/background/border text themes.
 - The F3 key is available to the normal CoCo keyboard with no fixed cartridge.
 - CH340N UART diagnostic output through the board USB serial interface.
+- Full-resolution 640-by-480 RGB332 final-video capture over the debug serial
+  interface, with PNG conversion, CRC32 transfer checking, and reference-image
+  validation.
 - Optional embedded test disks when explicitly enabled at build time.
 - Optional NTSC artifact colors, horizontal scanlines, and CRT glow.
 - The standalone `BASIC_6809_DVI_TEST` image, displaying `CPU09`,
@@ -206,6 +209,11 @@ FF9D/FF9E (4), FF9F (2), the sixteen packed six-bit palette registers
 (24, palette 15 first and palette 0 last), and the current video RAM word (4).
 All fields are captured together once per second. The RAM word is an
 instantaneous fetch sample, not a framebuffer dump.
+
+The separate `CAPTURE` command records the complete final 640-by-480 HDMI
+image, including the management OSD and live video settings. See
+[Full-resolution video capture](VIDEO_FRAME_CAPTURE.md) for the host command,
+file format, and automated reference-image comparison.
 
 The same line ends with `G=` and `M=` fields for direct-BIN diagnostics.
 `G=` contains FF90, FF91, and one flags digit (`4` MMU enabled, `2` task 1,

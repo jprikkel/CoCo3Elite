@@ -10,6 +10,9 @@ set part       [expr {$argc > 0 ? [lindex $argv 0] : "xc7a100tfgg676-2"}]
 set mode       [string toupper [expr {$argc > 1 ? [lindex $argv 1] : "COCO3_ELITE"}]]
 set embedded_test_disks [expr {$argc > 2 ? [lindex $argv 2] : 0}]
 set cpu_uart_debug [expr {$argc > 3 ? [lindex $argv 3] : 1}]
+# Keep external SDRAM opt-in.  The default image uses the established 128 KB
+# block-RAM implementation; SDRAM is still available for isolated experiments.
+set use_sdram [expr {$argc > 4 ? [lindex $argv 4] : 0}]
 set top        wukong_top
 
 # Allow Vivado implementation phases to use the available host cores. Some
@@ -60,6 +63,7 @@ if {$mode eq "COCO3_ELITE"} {
         [file join $repo_dir rtl third-party coco3fpga cocokey.v] \
         [file join $repo_dir rtl core coco3_keyboard_matrix.v] \
         [file join $repo_dir rtl core coco3_128k_ram.v] \
+        [file join $rtl_dir coco3_sdram_ram.v] \
         [file join $repo_dir rtl core coco3_system_rom.v] \
         [file join $repo_dir rtl core coco3_disk_rom.v] \
         [file join $repo_dir rtl core coco3_sd_cartridge.v] \
@@ -73,10 +77,14 @@ if {$mode eq "COCO3_ELITE"} {
         [file join $repo_dir rtl core coco3_boot_machine.v] \
         [file join $rtl_dir uart_tx.v] \
         [file join $rtl_dir uart_rx.v] \
+        [file join $rtl_dir video_frame_capture.v] \
         [file join $rtl_dir ntsc_artifact_filter.v] \
         [file join $rtl_dir crt_filter.v] \
         [file join $rtl_dir coco3_boot_system.v]
     set coco3_defines {NEW_SRAM HDMI_TEST_PATTERN HDMI_LIBRARY_COCO HDMI_LIBRARY_AUDIO HDMI_RASTER_800X525}
+    if {$use_sdram} {
+        lappend coco3_defines WUKONG_SDRAM
+    }
     set_property include_dirs [list [file join $repo_dir rtl third-party ultraembedded-riscv core riscv] $output_dir] [current_fileset]
     if {$embedded_test_disks} {
         lappend coco3_defines EMBEDDED_TEST_DISKS

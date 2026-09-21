@@ -8,6 +8,10 @@ module manager_osd_tb;
     reg [1:0] font_style=0;
     wire [10:0] char_address;
     reg [7:0] char_data=8'h41;
+    wire [11:0] preview_read_address;
+    reg [31:0] preview_read_data=32'h00000001;
+    reg preview_active=0;
+    reg [127:0] preview_palette=128'b0;
     wire [7:0] red,green,blue;
     always #5 clock=~clock;
 
@@ -17,6 +21,9 @@ module manager_osd_tb;
         .option_selection(option_selection),
         .font_style(font_style),
         .char_address(char_address),.char_data(char_data),
+        .preview_read_address(preview_read_address),
+        .preview_read_data(preview_read_data),
+        .preview_active(preview_active),.preview_palette(preview_palette),
         .red(red),.green(green),.blue(blue));
 
     initial begin
@@ -36,6 +43,22 @@ module manager_osd_tb;
         if(dut.inside) $fatal(1,"right edge extends past centered 576-pixel window");
         x=31;#1;
         if(dut.inside) $fatal(1,"left edge starts before x=32");
+        // The 184x138 image fills the top of the details pane and uses
+        // RGB332 palette entries supplied by firmware.
+        preview_active=1;preview_palette[15:8]=8'he0;
+        x=32+384;y=16+112;
+        @(posedge clock);#1;
+        if(preview_read_address!==0||{red,green,blue}!==24'hff0000)
+            $fatal(1,"preview origin/address/color mismatch: %0d %02h%02h%02h",
+                   preview_read_address,red,green,blue);
+        x=32+567;y=16+249;#1;
+        if(preview_read_address!==3173)
+            $fatal(1,"preview final word address is %0d",preview_read_address);
+        active=0;#1;
+        if(preview_read_address!==0)
+            $fatal(1,"inactive menu continued scanning preview RAM");
+        active=1;
+        preview_active=0;
         // A selected row uses solid amber reverse video only in the file pane.
         selected_row=7;char_data=8'h20;x=32+5*8;y=16+7*16;
         @(posedge clock);#1;

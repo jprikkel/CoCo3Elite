@@ -1,7 +1,7 @@
 param(
     [string]$Port = 'COM5',
     [ValidateSet('Ping', 'Status', 'Reset', 'Release', 'TypeText',
-                 'KeyDown', 'KeyUp', 'FunctionKey')]
+                 'BrowserRoot', 'KeyDown', 'KeyUp', 'FunctionKey')]
     [string]$Command = 'Ping',
     [string]$Text = '',
     [ValidateRange(0,55)][int]$Key = 0,
@@ -60,6 +60,7 @@ try {
         'Status'  { Send-ManagerCommand 'STATUS' | Out-Null }
         'Reset'   { Send-ManagerCommand 'RESET' | Out-Null }
         'Release' { Send-ManagerCommand 'RELEASE' | Out-Null }
+        'BrowserRoot' { Send-ManagerCommand 'ROOT' | Out-Null }
         'KeyDown' { Send-ManagerCommand ('KD {0:X2}' -f $Key) | Out-Null }
         'KeyUp'   { Send-ManagerCommand ('KU {0:X2}' -f $Key) | Out-Null }
         'FunctionKey' {

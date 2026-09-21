@@ -12,7 +12,8 @@ param(
     [int]$GameplaySeconds = 45,
     [ValidateRange(20, 500)]
     [int]$FirePulseMs = 60,
-    [string]$OutputPath
+    [string]$OutputPath,
+    [switch]$SkipBrowserRoot
 )
 
 $ErrorActionPreference = 'Stop'
@@ -183,6 +184,12 @@ try {
     $serial.Open()
     Start-Sleep -Milliseconds 100
     Send-SerialCommand -Command 'RELEASE' -WaitMilliseconds 250
+    if (-not $SkipBrowserRoot) {
+        $rootMarker = $trace.Count
+        Send-SerialCommand -Command 'ROOT' -WaitMilliseconds 250
+        Wait-ForTrace -StartIndex $rootMarker -Pattern '^OK ROOT$' `
+            -TimeoutSeconds 5 -Description 'browser root reset' | Out-Null
+    }
 
     Write-Host 'STEP 1/11: Open the F12 disk browser'
     $menuMarker = $trace.Count

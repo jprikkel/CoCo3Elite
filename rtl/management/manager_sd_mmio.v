@@ -25,6 +25,7 @@ module manager_sd_mmio #(
     output reg axi_rvalid, input wire axi_rready, output reg [31:0] axi_rdata,
     output wire [1:0] axi_rresp,
     output wire uart_tx, output wire uart_busy_o, input wire uart_rx,
+    output reg uart_claim,
     output reg sd_cs_n, output reg sd_sck, output reg sd_mosi,
     input wire sd_miso,
     input wire [1:0] fdc_drive, input wire [7:0] fdc_track,
@@ -34,6 +35,10 @@ module manager_sd_mmio #(
     input wire [8:0] menu_key_state,
     input wire [10:0] osd_char_address,
     output wire [7:0] osd_char_data,
+    input wire [11:0] osd_preview_read_address,
+    output reg [31:0] osd_preview_read_data,
+    output reg osd_preview_active,
+    output reg [127:0] osd_preview_palette,
     output reg osd_active,
     output reg [4:0] osd_selected_row,
     output reg osd_narrow_selection,
@@ -50,6 +55,11 @@ module manager_sd_mmio #(
     input wire [15:0] debug_cpu_pc,
     input wire [7:0] debug_gime_init0, input wire [7:0] debug_gime_init1,
     input wire [7:0] debug_video_mode, input wire [7:0] debug_video_resolution,
+    output reg video_capture_request_toggle,
+    output reg [2:0] video_capture_stripe,
+    output reg [15:0] video_capture_read_address,
+    input wire [7:0] video_capture_read_data,
+    input wire video_capture_done_toggle, input wire video_capture_busy,
     output reg fdc_done_toggle, output reg fdc_success,
     output reg fdc_write_done_toggle, output reg fdc_write_success,
     output reg [2:0] fdc_present, output reg manager_ready
@@ -91,7 +101,16 @@ module manager_sd_mmio #(
                SERIAL_FUNCTION_KEYS = 32'h80000290,
                SERIAL_MACHINE_CONTROL = 32'h80000294,
                DEBUG_CPU_STATUS = 32'h80000298,
-               DEBUG_VIDEO_STATUS = 32'h8000029c;
+               DEBUG_VIDEO_STATUS = 32'h8000029c,
+               UART_CONTROL = 32'h800002a0,
+               VIDEO_CAPTURE_CONTROL = 32'h800002a4,
+               VIDEO_CAPTURE_STATUS = 32'h800002a8,
+               VIDEO_CAPTURE_ADDRESS = 32'h800002ac,
+               VIDEO_CAPTURE_DATA = 32'h800002b0,
+               OSD_PREVIEW_ADDRESS = 32'h800002b4,
+               OSD_PREVIEW_DATA = 32'h800002b8,
+               OSD_PREVIEW_PALETTE = 32'h800002bc,
+               OSD_PREVIEW_CONTROL = 32'h800002c0;
     reg have_address, have_data, transaction_active, await_spi, spi_seen_busy;
     reg [31:0] write_address, write_data;
     reg [7:0] spi_tx, spi_rx, spi_tx_shift, spi_rx_shift;
@@ -120,6 +139,12 @@ module manager_sd_mmio #(
     reg bin_loader_done_seen, bin_cancelled;
     (* ram_style = "distributed" *) reg [7:0] osd_chars [0:2047];
     reg [10:0] osd_write_address;
+    // The browser preview is a fixed 184x138, 4-bpp 4:3 surface. Eight pixels
+    // are packed into each 32-bit word, consuming 12.4 KiB of block RAM.
+    // The manager and HDMI OSD use the same pixel clock, so one synchronous
+    // read port is deterministic and needs no clock-domain crossing.
+    (* ram_style = "block" *) reg [31:0] osd_preview_words [0:3173];
+    reg [11:0] osd_preview_write_address;
     // These banks require asynchronous reads at the CoCo bus service edge.
     // Force LUT RAM so implementation cannot silently turn the FDC-facing
     // port into a clocked block-RAM read and retain the preceding sector.
@@ -324,6 +349,10 @@ module manager_sd_mmio #(
             disk_cache_debug_address <= 0;
             disk_cache_ready <= 1'b0;
             osd_write_address <= 0;
+            osd_preview_write_address <= 0;
+            osd_preview_read_data <= 0;
+            osd_preview_active <= 1'b0;
+            osd_preview_palette <= 128'b0;
             osd_active <= 1'b0;
             osd_selected_row <= 0;
             osd_narrow_selection <= 1'b0;
@@ -340,6 +369,10 @@ module manager_sd_mmio #(
             serial_keyboard_shift_override <= 1'b0;
             serial_function_keys <= 8'b0;
             serial_cold_reset <= 1'b0;
+            uart_claim <= 1'b0;
+            video_capture_request_toggle <= 1'b0;
+            video_capture_stripe <= 3'b0;
+            video_capture_read_address <= 16'b0;
             fdc_done_toggle <= 0; fdc_success <= 0;
             fdc_write_done_toggle <= 0; fdc_write_success <= 0;
             fdc_present <= 0; manager_ready <= 0;
@@ -356,6 +389,14 @@ module manager_sd_mmio #(
             bin_transfer_complete <= 1'b0;
             bin_transfer_error <= 1'b0;
         end else begin
+            // Clock-enable the preview BRAM only while it can be visible.
+            // This removes continuous BRAM address/data switching from normal
+            // CoCo video operation after the menu has closed.
+            if (osd_active && osd_preview_active)
+                osd_preview_read_data <=
+                    osd_preview_words[osd_preview_read_address];
+            else
+                osd_preview_read_data <= 32'b0;
             cartridge_write <= 1'b0;
             cartridge_launch <= 1'b0;
             serial_cold_reset <= 1'b0;
@@ -469,6 +510,21 @@ module manager_sd_mmio #(
                 end else if (write_address == TEXT_SETTINGS) begin
                     text_color_theme <= write_data[3:0];
                     axi_bvalid <= 1'b1;
+                end else if (write_address == OSD_PREVIEW_ADDRESS) begin
+                    osd_preview_write_address <= write_data[11:0];
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == OSD_PREVIEW_DATA) begin
+                    if (osd_preview_write_address < 12'd3174) begin
+                        osd_preview_words[osd_preview_write_address] <= write_data;
+                        osd_preview_write_address <= osd_preview_write_address + 1'b1;
+                    end
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == OSD_PREVIEW_PALETTE) begin
+                    osd_preview_palette[write_data[11:8]*8 +: 8] <= write_data[7:0];
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == OSD_PREVIEW_CONTROL) begin
+                    osd_preview_active <= write_data[0];
+                    axi_bvalid <= 1'b1;
                 end else if (write_address == SERIAL_KEY_LO) begin
                     serial_keyboard_keys[31:0] <= write_data;
                     axi_bvalid <= 1'b1;
@@ -495,6 +551,20 @@ module manager_sd_mmio #(
                         serial_keyboard_shift_override <= 1'b0;
                         serial_function_keys <= 8'b0;
                     end
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == UART_CONTROL) begin
+                    // Hold the shared TX pin on the manager UART throughout
+                    // binary frame transfers, including inter-byte idle gaps.
+                    uart_claim <= write_data[0];
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == VIDEO_CAPTURE_CONTROL) begin
+                    video_capture_stripe <= write_data[10:8];
+                    if (write_data[0])
+                        video_capture_request_toggle <=
+                            ~video_capture_request_toggle;
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == VIDEO_CAPTURE_ADDRESS) begin
+                    video_capture_read_address <= write_data[15:0];
                     axi_bvalid <= 1'b1;
                 end else if (write_address == CARTRIDGE_ADDRESS) begin
                     cartridge_address <= write_data[14:0];
@@ -614,6 +684,7 @@ module manager_sd_mmio #(
                     OSD_CONTROL: axi_rdata <= {19'b0, osd_selected_row, 5'b0,
                                                osd_option_selection,
                                                osd_narrow_selection, osd_active};
+                    OSD_PREVIEW_CONTROL: axi_rdata <= {31'b0, osd_preview_active};
                     MENU_KEY_STATE: axi_rdata <= {23'b0, menu_key_state};
                     OSD_FONT_STYLE: axi_rdata <= {30'b0, osd_font_style};
                     VIDEO_SETTINGS: axi_rdata <= {23'b0, coco2_palette[3],
@@ -628,6 +699,17 @@ module manager_sd_mmio #(
                     DEBUG_CPU_STATUS: axi_rdata <= {16'b0, debug_cpu_pc};
                     DEBUG_VIDEO_STATUS: axi_rdata <= {debug_gime_init0,
                         debug_gime_init1, debug_video_mode, debug_video_resolution};
+                    UART_CONTROL: axi_rdata <= {31'b0, uart_claim};
+                    VIDEO_CAPTURE_STATUS: axi_rdata <= {30'b0,
+                        video_capture_busy, video_capture_done_toggle};
+                    VIDEO_CAPTURE_ADDRESS: axi_rdata <= {16'b0,
+                        video_capture_read_address};
+                    VIDEO_CAPTURE_DATA: begin
+                        axi_rdata <= {24'b0, video_capture_read_data};
+                        if (video_capture_read_address != 16'hffff)
+                            video_capture_read_address <=
+                                video_capture_read_address + 1'b1;
+                    end
                     CARTRIDGE_SIGNATURE: axi_rdata <= cartridge_signature;
                     BIN_FIFO_STATUS: axi_rdata <= {
                         11'b0, bin_cancelled, bin_transfer_error,

@@ -27,6 +27,53 @@ set_property -dict { PACKAGE_PIN R20 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_port
 set_property -dict { PACKAGE_PIN T22 IOSTANDARD LVCMOS33 } [get_ports sd_sck]
 set_false_path -from [get_ports sd_miso]
 
+# Onboard 32 MB Winbond W9825G6KH-6 SDR SDRAM. Pin assignments are from the
+# official QMTECH Wukong V3 Test10_SDRAM project. The controller uses a
+# synchronous 126 MHz 5x pixel clock and forwards an inverted copy so commands
+# setup at the SDRAM pins. CAS latency two and strict
+# video-request priority keep each fixed-schedule GIME fetch inside its window.
+set_property -dict { PACKAGE_PIN G22 IOSTANDARD LVCMOS33 } [get_ports sdram_clk]
+set_property -dict { PACKAGE_PIN H22 IOSTANDARD LVCMOS33 } [get_ports sdram_cke]
+set_property -dict { PACKAGE_PIN L25 IOSTANDARD LVCMOS33 } [get_ports sdram_cs_n]
+set_property -dict { PACKAGE_PIN K26 IOSTANDARD LVCMOS33 } [get_ports sdram_ras_n]
+set_property -dict { PACKAGE_PIN K25 IOSTANDARD LVCMOS33 } [get_ports sdram_cas_n]
+set_property -dict { PACKAGE_PIN J26 IOSTANDARD LVCMOS33 } [get_ports sdram_we_n]
+set_property -dict { PACKAGE_PIN J25 IOSTANDARD LVCMOS33 } [get_ports {sdram_dqm[0]}]
+set_property -dict { PACKAGE_PIN K23 IOSTANDARD LVCMOS33 } [get_ports {sdram_dqm[1]}]
+
+set_property -dict { PACKAGE_PIN R26 IOSTANDARD LVCMOS33 } [get_ports {sdram_address[0]}]
+set_property -dict { PACKAGE_PIN P25 IOSTANDARD LVCMOS33 } [get_ports {sdram_address[1]}]
+set_property -dict { PACKAGE_PIN P26 IOSTANDARD LVCMOS33 } [get_ports {sdram_address[2]}]
+set_property -dict { PACKAGE_PIN N26 IOSTANDARD LVCMOS33 } [get_ports {sdram_address[3]}]
+set_property -dict { PACKAGE_PIN M24 IOSTANDARD LVCMOS33 } [get_ports {sdram_address[4]}]
+set_property -dict { PACKAGE_PIN M22 IOSTANDARD LVCMOS33 } [get_ports {sdram_address[5]}]
+set_property -dict { PACKAGE_PIN L24 IOSTANDARD LVCMOS33 } [get_ports {sdram_address[6]}]
+set_property -dict { PACKAGE_PIN L23 IOSTANDARD LVCMOS33 } [get_ports {sdram_address[7]}]
+set_property -dict { PACKAGE_PIN L22 IOSTANDARD LVCMOS33 } [get_ports {sdram_address[8]}]
+set_property -dict { PACKAGE_PIN K21 IOSTANDARD LVCMOS33 } [get_ports {sdram_address[9]}]
+set_property -dict { PACKAGE_PIN R25 IOSTANDARD LVCMOS33 } [get_ports {sdram_address[10]}]
+set_property -dict { PACKAGE_PIN K22 IOSTANDARD LVCMOS33 } [get_ports {sdram_address[11]}]
+set_property -dict { PACKAGE_PIN J21 IOSTANDARD LVCMOS33 } [get_ports {sdram_address[12]}]
+set_property -dict { PACKAGE_PIN M25 IOSTANDARD LVCMOS33 } [get_ports {sdram_bank[0]}]
+set_property -dict { PACKAGE_PIN M26 IOSTANDARD LVCMOS33 } [get_ports {sdram_bank[1]}]
+
+set_property -dict { PACKAGE_PIN D25 IOSTANDARD LVCMOS33 } [get_ports {sdram_data[0]}]
+set_property -dict { PACKAGE_PIN D26 IOSTANDARD LVCMOS33 } [get_ports {sdram_data[1]}]
+set_property -dict { PACKAGE_PIN E25 IOSTANDARD LVCMOS33 } [get_ports {sdram_data[2]}]
+set_property -dict { PACKAGE_PIN E26 IOSTANDARD LVCMOS33 } [get_ports {sdram_data[3]}]
+set_property -dict { PACKAGE_PIN F25 IOSTANDARD LVCMOS33 } [get_ports {sdram_data[4]}]
+set_property -dict { PACKAGE_PIN G25 IOSTANDARD LVCMOS33 } [get_ports {sdram_data[5]}]
+set_property -dict { PACKAGE_PIN G26 IOSTANDARD LVCMOS33 } [get_ports {sdram_data[6]}]
+set_property -dict { PACKAGE_PIN H26 IOSTANDARD LVCMOS33 } [get_ports {sdram_data[7]}]
+set_property -dict { PACKAGE_PIN J24 IOSTANDARD LVCMOS33 } [get_ports {sdram_data[8]}]
+set_property -dict { PACKAGE_PIN J23 IOSTANDARD LVCMOS33 } [get_ports {sdram_data[9]}]
+set_property -dict { PACKAGE_PIN H24 IOSTANDARD LVCMOS33 } [get_ports {sdram_data[10]}]
+set_property -dict { PACKAGE_PIN H23 IOSTANDARD LVCMOS33 } [get_ports {sdram_data[11]}]
+set_property -dict { PACKAGE_PIN G24 IOSTANDARD LVCMOS33 } [get_ports {sdram_data[12]}]
+set_property -dict { PACKAGE_PIN F24 IOSTANDARD LVCMOS33 } [get_ports {sdram_data[13]}]
+set_property -dict { PACKAGE_PIN F23 IOSTANDARD LVCMOS33 } [get_ports {sdram_data[14]}]
+set_property -dict { PACKAGE_PIN E23 IOSTANDARD LVCMOS33 } [get_ports {sdram_data[15]}]
+
 # Onboard CH340N USB-to-UART bridge. TX carries diagnostics and management
 # replies; RX feeds the RV32 automation command service.
 set_property -dict { PACKAGE_PIN E3 IOSTANDARD LVCMOS33 } [get_ports uart_tx]

@@ -17,6 +17,10 @@ module manager_osd (
     input  wire [1:0]  font_style,
     output wire [10:0] char_address,
     input  wire [7:0]  char_data,
+    output wire [11:0] preview_read_address,
+    input  wire [31:0] preview_read_data,
+    input  wire        preview_active,
+    input  wire [127:0] preview_palette,
     output reg  [7:0]  red,
     output reg  [7:0]  green,
     output reg  [7:0]  blue
@@ -27,6 +31,8 @@ module manager_osd (
     localparam ROWS = 10'd28;
     localparam LIST_RIGHT = 7'd46;
     localparam SETUP_LIST_RIGHT = 7'd24;
+    localparam PREVIEW_X = 10'd384;
+    localparam PREVIEW_Y = 10'd112;
 
     wire inside = screen_x >= X0 && screen_x < X0 + (COLS << 3) &&
                   screen_y >= Y0 && screen_y < Y0 + (ROWS << 4);
@@ -37,14 +43,39 @@ module manager_osd (
     // Seventy-two columns are not a power of two, so map the visible cell to
     // the same packed row-major address used by the management firmware.
     assign char_address = row * 11'd72 + column;
+    // Keep the preview port completely quiet while the browser or preview is
+    // disabled.  The original implementation scanned its BRAM on every HDMI
+    // frame even with the OSD closed, adding avoidable switching beside the
+    // timing-sensitive SDRAM video fetch path.
+    wire preview_inside = active && preview_active &&
+                          screen_x >= X0 + PREVIEW_X &&
+                          screen_x < X0 + PREVIEW_X + 10'd184 &&
+                          screen_y >= Y0 + PREVIEW_Y &&
+                          screen_y < Y0 + PREVIEW_Y + 10'd138;
+    wire [9:0] preview_local_x = local_x - PREVIEW_X;
+    wire [9:0] preview_local_y = local_y - PREVIEW_Y;
+    // 23 packed words per row.  Spell this out as shifts/adds so Vivado does
+    // not spend a DSP (and its placement/routing delay) in the live pixel
+    // path merely to multiply by a small constant.
+    (* use_dsp = "no" *) wire [11:0] preview_row_address =
+        {preview_local_y[7:0], 4'b0000} +
+        {2'b00, preview_local_y[7:0], 2'b00} +
+        {3'b000, preview_local_y[7:0], 1'b0} +
+        {4'b0000, preview_local_y[7:0]};
+    assign preview_read_address = preview_inside
+        ? preview_row_address + {5'b0, preview_local_x[9:3]}
+        : 12'd0;
 
     // The management font ROM is indexed by a seven-bit ASCII character code.
     wire [12:0] font_address = {font_style, char_data[6:0], local_y[3:0]};
     wire [7:0] font_bits;
-    reg inside_d, active_d, selected_d, icon_d;
+    reg inside_d, active_d, selected_d, icon_d, preview_inside_d;
     reg [6:0] glyph_code_d;
     reg [2:0] bit_index_d;
+    reg [2:0] preview_pixel_d;
     reg [7:0] icon_bits_d;
+    reg [3:0] preview_index;
+    reg [7:0] preview_color;
 
     function [7:0] custom_row;
         input [6:0] glyph;
@@ -157,12 +188,16 @@ module manager_osd (
             active_d <= 1'b0;
             selected_d <= 1'b0;
             icon_d <= 1'b0;
+            preview_inside_d <= 1'b0;
             glyph_code_d <= 7'h00;
             bit_index_d <= 3'd0;
+            preview_pixel_d <= 3'd0;
             icon_bits_d <= 8'h00;
         end else begin
             inside_d <= inside;
             active_d <= active;
+            preview_inside_d <= preview_inside;
+            preview_pixel_d <= preview_local_x[2:0];
             // The selected entry is reverse video across only the file-list
             // pane; details on the right retain the dark background.
             selected_d <= row == selected_row &&
@@ -180,8 +215,29 @@ module manager_osd (
         red = 8'h00;
         green = 8'h00;
         blue = 8'h00;
+        preview_index = 4'h0;
+        preview_color = 8'h00;
         if (active_d && inside_d) begin
-            if (selected_d) begin
+            if (preview_active && preview_inside_d) begin
+                // Firmware packs pixel zero into the least-significant
+                // nibble of each eight-pixel word. Palette entries are RGB332
+                // and expand here to the HDMI pipeline's 8-bit channels.
+                case (preview_pixel_d)
+                    3'd0: preview_index = preview_read_data[3:0];
+                    3'd1: preview_index = preview_read_data[7:4];
+                    3'd2: preview_index = preview_read_data[11:8];
+                    3'd3: preview_index = preview_read_data[15:12];
+                    3'd4: preview_index = preview_read_data[19:16];
+                    3'd5: preview_index = preview_read_data[23:20];
+                    3'd6: preview_index = preview_read_data[27:24];
+                    default: preview_index = preview_read_data[31:28];
+                endcase
+                preview_color = preview_palette[preview_index*8 +: 8];
+                red = {preview_color[7:5],preview_color[7:5],preview_color[7:6]};
+                green = {preview_color[4:2],preview_color[4:2],preview_color[4:3]};
+                blue = {preview_color[1:0],preview_color[1:0],
+                        preview_color[1:0],preview_color[1:0]};
+            end else if (selected_d) begin
                 red = 8'hff;
                 green = 8'hd0;
                 blue = 8'h70;

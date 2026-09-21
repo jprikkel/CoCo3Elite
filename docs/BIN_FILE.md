@@ -257,6 +257,32 @@ powershell -ExecutionPolicy Bypass -File scripts\patch_zenix_bin.ps1 `
 
 Do not add `ZENIX-PATCHED.BIN` to the repository.
 
+### Galactus diskless high scores
+
+The original `GALACTUS.BIN` is a valid single-record DECB binary, but its
+startup routine reads track 18, sector 10 from drive 0. On the original game
+disk that sector is the 256-byte `HIGHSCOR.BIN` file. Without the companion
+disk, the program returns to BASIC even though the main BIN loaded correctly.
+
+`scripts/patch_galactus_bin.ps1` produces a diskless copy. It leaves the
+original score decode, checksum, register handling, and cleanup code intact.
+Only the call to Disk BASIC's `DSKCON` is redirected to a local stub that puts
+the original disk's complete 256-byte default-score sector in the expected
+buffer—eight encoded bytes followed by 248 zero bytes—and reports success. The
+obsolete score-save entry supplies the stub space, making later save attempts
+harmless and non-persistent. Gameplay code, the `$2600` load address, and the
+`$2617` execution address are unchanged.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\patch_galactus_bin.ps1 `
+  -InputPath C:\path\to\GALACTUS.BIN `
+  -OutputPath C:\path\to\GALACTUS-PATCHED.BIN
+```
+
+The tool accepts only the verified 20,000-byte source image with CRC32
+`7DCEEB92`. Do not add the original or patched copyrighted binary to the
+repository.
+
 ## Relationship to BAS files
 
 ASCII and tokenized BASIC files are a separate problem. They require BASIC

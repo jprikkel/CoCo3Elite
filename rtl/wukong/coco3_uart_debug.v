@@ -22,6 +22,9 @@ module coco3_uart_debug (
     input  wire [7:0]   gime_init1,
     input  wire [2:0]   memory_flags,
     input  wire [127:0] mmu_state,
+    // DD WW RR CC: dropped writes, write-FIFO high-water mark, maximum
+    // refresh debt, and current refresh debt.
+    input  wire [31:0]  sdram_debug_status,
     output wire         uart_tx_o
 );
     localparam [2:0] MSG_READY = 3'd0;
@@ -35,12 +38,13 @@ module coco3_uart_debug (
     reg cart_entry_seen;
     reg message_active;
     reg [2:0] message_kind;
-    reg [6:0] message_index;
+    reg [7:0] message_index;
     reg [159:0] captured_video;
     reg [7:0] captured_gime_init0;
     reg [7:0] captured_gime_init1;
     reg [2:0] captured_memory_flags;
     reg [127:0] captured_mmu;
+    reg [31:0] captured_sdram_debug_status;
     reg [15:0] captured_pc;
     reg captured_cart;
     reg captured_key;
@@ -61,21 +65,21 @@ module coco3_uart_debug (
         end
     endfunction
 
-    function [6:0] message_length;
+    function [7:0] message_length;
         input [2:0] kind;
         begin
             case (kind)
                 MSG_READY: message_length = 18;
                 MSG_CART:  message_length = 9;
                 MSG_ENTRY: message_length = 17;
-                default:   message_length = 119;
+                default:   message_length = 130;
             endcase
         end
     endfunction
 
     function [7:0] message_byte;
         input [2:0] kind;
-        input [6:0] index;
+        input [7:0] index;
         input [15:0] pc;
         input cart;
         input key;
@@ -87,6 +91,7 @@ module coco3_uart_debug (
         input [7:0] init1;
         input [2:0] flags;
         input [127:0] mmu;
+        input [31:0] sdram_debug;
         begin
             message_byte = 8'h20;
             case (kind)
@@ -156,13 +161,19 @@ module coco3_uart_debug (
                     81:message_byte=hex_digit({1'b0,flags});
                     82:message_byte=" "; 83:message_byte="M";
                     84:message_byte="=";
-                    117:message_byte=8'h0d;
-                    118:message_byte=8'h0a;
+                    117:message_byte=" ";
+                    118:message_byte="D";
+                    119:message_byte="=";
+                    128:message_byte=8'h0d;
+                    129:message_byte=8'h0a;
                     default: begin
                         if (index >= 34 && index <= 73)
                             message_byte=hex_digit(video[159-(index-34)*4 -: 4]);
                         else if (index >= 85 && index <= 116)
                             message_byte=hex_digit(mmu[127-(index-85)*4 -: 4]);
+                        else if (index >= 120 && index <= 127)
+                            message_byte=hex_digit(
+                                sdram_debug[31-(index-120)*4 -: 4]);
                     end
                 endcase
             endcase
@@ -189,6 +200,7 @@ module coco3_uart_debug (
             captured_gime_init1 <= 8'd0;
             captured_memory_flags <= 3'd0;
             captured_mmu <= 128'd0;
+            captured_sdram_debug_status <= 32'd0;
             captured_cart <= 1'b0;
             captured_key <= 1'b0;
             captured_row <= 8'hff;
@@ -240,6 +252,7 @@ module coco3_uart_debug (
                     captured_gime_init1 <= gime_init1;
                     captured_memory_flags <= memory_flags;
                     captured_mmu <= mmu_state;
+                    captured_sdram_debug_status <= sdram_debug_status;
                     captured_cart <= cartridge_enabled;
                     captured_key <= keyboard_active;
                     captured_row <= last_keyboard_row;
@@ -256,7 +269,8 @@ module coco3_uart_debug (
                                         captured_sd_status, captured_video,
                                         captured_gime_init0,
                                         captured_gime_init1,
-                                        captured_memory_flags, captured_mmu);
+                                        captured_memory_flags, captured_mmu,
+                                        captured_sdram_debug_status);
                 tx_start <= 1'b1;
                 if (message_index + 1'b1 == message_length(message_kind)) begin
                     message_active <= 1'b0;

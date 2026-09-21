@@ -10,6 +10,16 @@ module wukong_top (
     input  wire       sd_miso,
     output wire       uart_tx,
     input  wire       uart_rx,
+    output wire       sdram_clk,
+    output wire       sdram_cke,
+    output wire       sdram_cs_n,
+    output wire       sdram_ras_n,
+    output wire       sdram_cas_n,
+    output wire       sdram_we_n,
+    output wire [1:0] sdram_dqm,
+    output wire [12:0] sdram_address,
+    output wire [1:0] sdram_bank,
+    inout  wire [15:0] sdram_data,
     output wire [2:0] hdmi_tx_p,
     output wire [2:0] hdmi_tx_n,
     output wire       hdmi_clk_p,
@@ -17,6 +27,7 @@ module wukong_top (
 );
     wire pixel_clk;
     wire serial_clk;
+    wire memory_clk;
     wire clocks_locked;
     wire video_reset;
 
@@ -40,6 +51,7 @@ module wukong_top (
         .clk_50mhz    (clk_50mhz),
         .pixel_clk    (pixel_clk),
         .serial_clk   (serial_clk),
+        .memory_clk   (memory_clk),
         .locked       (clocks_locked),
         .video_reset  (video_reset)
     );
@@ -76,6 +88,15 @@ module wukong_top (
     // already drawn in HDMI raster coordinates and must bypass that delay.
     wire [23:0] library_rgb = narrow_video_mode && !menu_active
         ? narrow_rgb_delay[63] : library_rgb_direct;
+
+`ifdef HDMI_LIBRARY_COCO
+    wire video_capture_request_toggle;
+    wire [2:0] video_capture_stripe;
+    wire [15:0] video_capture_read_address;
+    wire [7:0] video_capture_read_data;
+    wire video_capture_done_toggle;
+    wire video_capture_busy;
+`endif
 
 `ifdef HDMI_LIBRARY_AUDIO
 `ifdef HDMI_LIBRARY_COCO
@@ -131,7 +152,7 @@ module wukong_top (
     wire library_frame_start = (library_x == 10'd777) &&
                                (library_y == 10'd18);
     coco3_boot_system source_i (
-        .pixel_clk(pixel_clk), .reset(video_reset),
+        .pixel_clk(pixel_clk), .memory_clk(memory_clk), .reset(video_reset),
         .raster_resync(library_frame_start),
         .screen_x(library_x), .screen_y(library_y), .hsync(hsync),
         .ps2_clk(ps2_clk), .ps2_data(ps2_data),
@@ -141,7 +162,18 @@ module wukong_top (
         .red(library_red), .green(library_green), .blue(library_blue),
         .audio_dac(audio_dac), .narrow_video_mode(narrow_video_mode),
         .menu_active(menu_active),
-        .uart_debug_tx(uart_tx), .uart_rx(uart_rx)
+        .uart_debug_tx(uart_tx), .uart_rx(uart_rx),
+        .video_capture_request_toggle(video_capture_request_toggle),
+        .video_capture_stripe(video_capture_stripe),
+        .video_capture_read_address(video_capture_read_address),
+        .video_capture_read_data(video_capture_read_data),
+        .video_capture_done_toggle(video_capture_done_toggle),
+        .video_capture_busy(video_capture_busy),
+        .sdram_clk(sdram_clk), .sdram_cke(sdram_cke),
+        .sdram_cs_n(sdram_cs_n), .sdram_ras_n(sdram_ras_n),
+        .sdram_cas_n(sdram_cas_n), .sdram_we_n(sdram_we_n),
+        .sdram_dqm(sdram_dqm), .sdram_address(sdram_address),
+        .sdram_bank(sdram_bank), .sdram_data(sdram_data)
     );
     // The post-processing pipeline can retain non-black RGB values while the
     // GIME is blanked. The previous encoder honored video_enable; preserve
@@ -167,6 +199,16 @@ module wukong_top (
                     narrow_rgb_delay[narrow_delay_index - 1];
         end
     end
+
+    video_frame_capture capture_i (
+        .clock(pixel_clk), .reset(video_reset),
+        .screen_x(library_x), .screen_y(library_y), .rgb(library_rgb),
+        .request_toggle(video_capture_request_toggle),
+        .request_stripe(video_capture_stripe),
+        .done_toggle(video_capture_done_toggle), .busy(video_capture_busy),
+        .read_address(video_capture_read_address),
+        .read_data(video_capture_read_data)
+    );
 `else
     assign uart_tx = 1'b1;
     assign sd_cs_n = 1'b1;
@@ -180,6 +222,16 @@ module wukong_top (
     assign library_rgb_direct = {library_red, library_green, library_blue};
     assign narrow_video_mode = 1'b0;
     assign menu_active = 1'b0;
+    assign sdram_clk = 1'b0;
+    assign sdram_cke = 1'b0;
+    assign sdram_cs_n = 1'b1;
+    assign sdram_ras_n = 1'b1;
+    assign sdram_cas_n = 1'b1;
+    assign sdram_we_n = 1'b1;
+    assign sdram_dqm = 2'b11;
+    assign sdram_address = 13'b0;
+    assign sdram_bank = 2'b0;
+    assign sdram_data = 16'hzzzz;
 `endif
 
     hdmi #(

@@ -6,6 +6,9 @@ param(
     [switch]$KeepIntermediates,
     [switch]$EmbeddedTestDisks,
     [switch]$NoCpuUartDebug,
+    # The proven configuration keeps the CoCo's 128 KB in FPGA block RAM.
+    # External SDRAM remains an explicit experimental build option.
+    [switch]$UseSdram,
     [string]$Drive0Disk = 'disks\fpgatest.dsk',
     [string]$Drive1Disk = 'disks\games.dsk'
 )
@@ -98,7 +101,7 @@ $env:XILINX_LOCAL_USER_DATA = 'NO'
 Push-Location $buildDir
 try {
     & $Vivado -mode batch -nojournal -nolog `
-        -source $buildTcl -tclargs $Part $Mode ([int]$EmbeddedTestDisks.IsPresent) ([int](-not $NoCpuUartDebug.IsPresent))
+        -source $buildTcl -tclargs $Part $Mode ([int]$EmbeddedTestDisks.IsPresent) ([int](-not $NoCpuUartDebug.IsPresent)) ([int]$UseSdram.IsPresent)
     $vivadoExitCode = $LASTEXITCODE
 } finally {
     Pop-Location

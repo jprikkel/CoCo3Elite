@@ -5,7 +5,7 @@ module coco3_boot_system #(
     parameter integer SOFT_RESET_GUARD_CLOCKS = 2499999,
     parameter integer CARTRIDGE_COLD_RESET_CLOCKS = 2519999
 ) (
-    input wire pixel_clk, input wire reset,
+    input wire pixel_clk, input wire memory_clk, input wire reset,
     input wire raster_resync,
     input wire [9:0] screen_x, input wire [9:0] screen_y,
     input wire ps2_clk, input wire ps2_data,
@@ -16,6 +16,18 @@ module coco3_boot_system #(
     output wire narrow_video_mode,
     output wire menu_active,
     output wire uart_debug_tx, input wire uart_rx,
+    output wire video_capture_request_toggle,
+    output wire [2:0] video_capture_stripe,
+    output wire [15:0] video_capture_read_address,
+    input wire [7:0] video_capture_read_data,
+    input wire video_capture_done_toggle, input wire video_capture_busy,
+    output wire sdram_clk, output wire sdram_cke,
+    output wire sdram_cs_n, output wire sdram_ras_n,
+    output wire sdram_cas_n, output wire sdram_we_n,
+    output wire [1:0] sdram_dqm,
+    output wire [12:0] sdram_address,
+    output wire [1:0] sdram_bank,
+    inout wire [15:0] sdram_data,
     output wire [7:0] red, output wire [7:0] green, output wire [7:0] blue
 );
     wire [15:0] cpu_address;
@@ -148,7 +160,8 @@ module coco3_boot_system #(
         (keyboard_joystick_left && effective_keyboard_keys[52]);
     // The manager owns the SD pins and filesystem.  The CoCo sees only a
     // WD1773-like sector service, preserving Disk BASIC's normal protocol.
-    wire manager_uart_tx, manager_uart_busy, manager_ready, manager_done_toggle, manager_success;
+    wire manager_uart_tx, manager_uart_busy, manager_uart_claim;
+    wire manager_ready, manager_done_toggle, manager_success;
     wire manager_write_done_toggle, manager_write_success;
     wire [2:0] manager_drive_present;
     wire [1:0] manager_fdc_drive;
@@ -183,7 +196,10 @@ module coco3_boot_system #(
                                        !soft_reset_active &&
                                        (cartridge_session_active ||
                                         cartridge_boot_state == CART_BOOT_LAUNCH);
-    wire machine_reset = system_reset | cartridge_cold_reset;
+    wire machine_memory_ready;
+    wire [31:0] machine_memory_debug_status;
+    wire machine_reset = system_reset | cartridge_cold_reset |
+                         !machine_memory_ready;
     // Keep the GIME stopped until the first HDMI alignment pulse after each
     // machine reset, then let both rasters free-run from the same pixel clock.
     // Resetting the GIME on every transport frame creates a short invalid RGB
@@ -198,6 +214,10 @@ module coco3_boot_system #(
     wire video_core_reset = machine_reset | video_raster_wait;
     wire [10:0] manager_osd_char_address;
     wire [7:0] manager_osd_char_data;
+    wire [11:0] manager_osd_preview_read_address;
+    wire [31:0] manager_osd_preview_read_data;
+    wire manager_osd_preview_active;
+    wire [127:0] manager_osd_preview_palette;
     wire [4:0] manager_osd_selected_row;
     wire manager_osd_active;
     wire manager_osd_narrow_selection;
@@ -218,6 +238,7 @@ module coco3_boot_system #(
 
     ultraembedded_manager_sd_mount manager_i (
         .clock(pixel_clk), .reset(reset), .uart_tx(manager_uart_tx), .uart_busy(manager_uart_busy),
+        .uart_claim(manager_uart_claim),
         .uart_rx(uart_rx),
         .sd_cs_n(sd_cs_n), .sd_sck(sd_sck), .sd_mosi(sd_mosi), .sd_miso(sd_miso),
         .fdc_drive(manager_fdc_drive), .fdc_track(manager_fdc_track),
@@ -231,6 +252,10 @@ module coco3_boot_system #(
         .menu_key_state(manager_menu_key_state),
         .osd_char_address(manager_osd_char_address),
         .osd_char_data(manager_osd_char_data),
+        .osd_preview_read_address(manager_osd_preview_read_address),
+        .osd_preview_read_data(manager_osd_preview_read_data),
+        .osd_preview_active(manager_osd_preview_active),
+        .osd_preview_palette(manager_osd_preview_palette),
         .osd_active(manager_osd_active),
         .osd_selected_row(manager_osd_selected_row),
         .osd_narrow_selection(manager_osd_narrow_selection),
@@ -249,6 +274,12 @@ module coco3_boot_system #(
         .debug_gime_init1(debug_gime_init1),
         .debug_video_mode(gime_video_mode),
         .debug_video_resolution(gime_video_resolution),
+        .video_capture_request_toggle(video_capture_request_toggle),
+        .video_capture_stripe(video_capture_stripe),
+        .video_capture_read_address(video_capture_read_address),
+        .video_capture_read_data(video_capture_read_data),
+        .video_capture_done_toggle(video_capture_done_toggle),
+        .video_capture_busy(video_capture_busy),
         .fdc_done_toggle(manager_done_toggle), .fdc_success(manager_success),
         .fdc_write_done_toggle(manager_write_done_toggle), .fdc_write_success(manager_write_success),
         .fdc_present(manager_drive_present), .manager_ready(manager_ready)
@@ -325,11 +356,13 @@ module coco3_boot_system #(
     // diagnostics. Keep the pin with that trace for the entire cartridge
     // session: switching sources mid-character corrupts both UART lines.
     // Before a cartridge is active, retain firmware/menu status output.
-    assign uart_debug_tx = manager_uart_busy ? manager_uart_tx : coco_uart_debug_tx;
+    assign uart_debug_tx = (manager_uart_claim || manager_uart_busy)
+        ? manager_uart_tx : coco_uart_debug_tx;
 `else
     // Control build: remove the CPU/MMU tracer entirely. The manager UART
     // remains available, but it cannot share the pin with a CoCo trace.
-    assign uart_debug_tx = manager_uart_busy ? manager_uart_tx : 1'b1;
+    assign uart_debug_tx = (manager_uart_claim || manager_uart_busy)
+        ? manager_uart_tx : 1'b1;
 `endif
 
     COCOKEY keyboard_i (
@@ -429,7 +462,16 @@ module coco3_boot_system #(
     end
 
     coco3_boot_machine machine_i (
-        .clock(pixel_clk), .reset(machine_reset), .debug_address(cpu_address),
+        .clock(pixel_clk), .reset(machine_reset),
+        .memory_clock(memory_clk), .memory_reset(reset),
+        .memory_ready(machine_memory_ready),
+        .memory_debug_status(machine_memory_debug_status),
+        .sdram_clk(sdram_clk), .sdram_cke(sdram_cke),
+        .sdram_cs_n(sdram_cs_n), .sdram_ras_n(sdram_ras_n),
+        .sdram_cas_n(sdram_cas_n), .sdram_we_n(sdram_we_n),
+        .sdram_dqm(sdram_dqm), .sdram_address(sdram_address),
+        .sdram_bank(sdram_bank), .sdram_data(sdram_data),
+        .debug_address(cpu_address),
         .debug_pc(cpu_pc),
         .cpu_fast_mode(cpu_fast_mode),
         .cartridge_enabled(effective_cartridge_enabled),
@@ -444,7 +486,9 @@ module coco3_boot_system #(
         .bin_transfer_error(manager_bin_transfer_error),
         .bin_fifo_pop(machine_bin_fifo_pop),
         .bin_loader_done(machine_bin_loader_done),
-        .cpu_halt(menu_active),
+        // UART ownership is asserted for the complete multi-stripe screen
+        // transfer. Halt the 6809 so all eight stripes describe one instant.
+        .cpu_halt(menu_active | manager_uart_claim),
         .debug_vma(cpu_vma), .debug_read(cpu_read),
         .debug_opfetch(), .debug_read_data(cpu_read_data),
         .debug_ram_write(),
@@ -476,7 +520,12 @@ module coco3_boot_system #(
         // hardware gated PIA0 CA1 with SYNC_FLAG so legacy software receives
         // the CoCo's ~15.7 kHz horizontal interrupt rather than every
         // ~31 kHz output line.  GIME/video events continue to use raw_hsync.
-        .video_hsync(raw_hsync), .pia_hsync(raw_hsync | ~sync_flag),
+        // The SDRAM remains live across CoCo cold resets. Treat the interval
+        // while the video core is held in reset as blanking so accumulated
+        // refreshes are serviced instead of waiting for emergency debt.
+        .video_hsync(raw_hsync),
+        .video_hblank(hblank | machine_reset),
+        .pia_hsync(raw_hsync | ~sync_flag),
         .video_vsync(raw_vsync),
         .video_address(video_address), .video_read_data(video_data),
         .audio_dac(audio_dac), .video_vdg_control(vid_cont),
@@ -503,7 +552,7 @@ module coco3_boot_system #(
 
 `ifdef COCO3_CPU_UART_DEBUG
     coco3_uart_debug uart_debug_i (
-        .clock(pixel_clk), .reset(system_reset), .cpu_address(cpu_address),
+        .clock(pixel_clk), .reset(machine_reset), .cpu_address(cpu_address),
         .cpu_pc(cpu_pc),
         .cpu_vma(cpu_vma), .cpu_read(cpu_read),
         .cpu_read_data(cpu_read_data), .cpu_write_data(cpu_data),
@@ -514,6 +563,7 @@ module coco3_boot_system #(
                       gime_video_offset,gime_horizontal_offset,machine_palette,video_data}),
         .gime_init0(debug_gime_init0), .gime_init1(debug_gime_init1),
         .memory_flags(debug_memory_flags), .mmu_state(debug_mmu),
+        .sdram_debug_status(machine_memory_debug_status),
         .uart_tx_o(coco_uart_debug_tx)
     );
 `endif
@@ -847,6 +897,10 @@ module coco3_boot_system #(
         .font_style(manager_osd_font_style),
         .char_address(manager_osd_char_address),
         .char_data(manager_osd_char_data),
+        .preview_read_address(manager_osd_preview_read_address),
+        .preview_read_data(manager_osd_preview_read_data),
+        .preview_active(manager_osd_preview_active),
+        .preview_palette(manager_osd_preview_palette),
         .red(osd_red), .green(osd_green), .blue(osd_blue)
     );
     assign menu_active = manager_osd_active;

@@ -9,7 +9,12 @@ module manager_sd_mmio_tb;
     wire awready, wready, bvalid, arready, rvalid;
     wire [1:0] bresp, rresp;
     wire [31:0] rdata;
-    wire uart_tx, sd_cs_n, sd_sck, sd_mosi;
+    wire uart_tx, uart_claim, sd_cs_n, sd_sck, sd_mosi;
+    wire video_capture_request_toggle;
+    wire [2:0] video_capture_stripe;
+    wire [15:0] video_capture_read_address;
+    reg [7:0] video_capture_read_data = 8'ha5;
+    reg video_capture_done_toggle = 0, video_capture_busy = 0;
     wire [14:0] cartridge_address;
     wire [7:0] cartridge_data;
     wire cartridge_write, cartridge_enabled, cartridge_launch;
@@ -25,6 +30,10 @@ module manager_sd_mmio_tb;
     reg [8:0] menu_key_state = 0;
     reg [10:0] osd_char_address = 0;
     wire [7:0] osd_char_data;
+    reg [11:0] osd_preview_read_address = 0;
+    wire [31:0] osd_preview_read_data;
+    wire osd_preview_active;
+    wire [127:0] osd_preview_palette;
     wire osd_active;
     wire [4:0] osd_selected_row;
     wire osd_narrow_selection;
@@ -65,7 +74,7 @@ module manager_sd_mmio_tb;
         .axi_wstrb(wstrb), .axi_bvalid(bvalid), .axi_bready(bready), .axi_bresp(bresp),
         .axi_arvalid(arvalid), .axi_arready(arready), .axi_araddr(araddr), .axi_rvalid(rvalid),
         .axi_rready(rready), .axi_rdata(rdata), .axi_rresp(rresp), .uart_tx(uart_tx),
-        .uart_rx(1'b1),
+        .uart_rx(1'b1), .uart_claim(uart_claim),
         .sd_cs_n(sd_cs_n), .sd_sck(sd_sck), .sd_mosi(sd_mosi), .sd_miso(1'b1),
         .fdc_drive(2'd0), .fdc_track(8'd0), .fdc_sector(8'd1),
         .fdc_last_type1(8'h17), .fdc_debug_word(32'd0),
@@ -76,6 +85,10 @@ module manager_sd_mmio_tb;
         .fdc_write_data(fdc_write_data),
         .menu_key_state(menu_key_state), .osd_char_address(osd_char_address),
         .osd_char_data(osd_char_data), .osd_active(osd_active),
+        .osd_preview_read_address(osd_preview_read_address),
+        .osd_preview_read_data(osd_preview_read_data),
+        .osd_preview_active(osd_preview_active),
+        .osd_preview_palette(osd_preview_palette),
         .osd_selected_row(osd_selected_row),
         .osd_narrow_selection(osd_narrow_selection),
         .osd_option_selection(osd_option_selection),
@@ -91,6 +104,12 @@ module manager_sd_mmio_tb;
         .debug_cpu_pc(16'ha7d5), .debug_gime_init0(8'h40),
         .debug_gime_init1(8'h00), .debug_video_mode(8'h80),
         .debug_video_resolution(8'h12),
+        .video_capture_request_toggle(video_capture_request_toggle),
+        .video_capture_stripe(video_capture_stripe),
+        .video_capture_read_address(video_capture_read_address),
+        .video_capture_read_data(video_capture_read_data),
+        .video_capture_done_toggle(video_capture_done_toggle),
+        .video_capture_busy(video_capture_busy),
         .fdc_done_toggle(fdc_done_toggle), .fdc_success(fdc_success),
         .fdc_write_done_toggle(), .fdc_write_success(), .fdc_present(),
         .manager_ready(), .cartridge_address(cartridge_address),
@@ -163,6 +182,26 @@ module manager_sd_mmio_tb;
         read32(32'h8000029c, value);
         if (value !== 32'h40008012)
             $fatal(1, "video status readback mismatch: %h", value);
+        $display("checking video capture and UART ownership MMIO");
+        write32(32'h800002a0, 1);
+        if (!uart_claim) $fatal(1, "manager UART claim was not retained");
+        read32(32'h800002a0, value);
+        if (value[0] !== 1'b1) $fatal(1, "manager UART claim readback failed");
+        write32(32'h800002a4, 32'h00000501);
+        if (video_capture_request_toggle !== 1'b1 ||
+            video_capture_stripe !== 3'd5)
+            $fatal(1, "video capture request/stripe mismatch");
+        video_capture_done_toggle = 1;
+        video_capture_busy = 1;
+        read32(32'h800002a8, value);
+        if (value[1:0] !== 2'b11)
+            $fatal(1, "video capture status mismatch: %h", value[1:0]);
+        write32(32'h800002ac, 16'd38399);
+        read32(32'h800002b0, value);
+        if (value[7:0] !== 8'ha5 || video_capture_read_address !== 16'd38400)
+            $fatal(1, "video capture data/address mismatch: %h @ %0d",
+                   value[7:0], video_capture_read_address);
+        write32(32'h800002a0, 0);
         write32(32'h8000028c, 32'h00000100);
         write32(32'h80000290, 32'h00000000);
         if (serial_keyboard_keys !== 56'b0 || serial_keyboard_shift ||
@@ -183,7 +222,24 @@ module manager_sd_mmio_tb;
         osd_char_address = 11'd2015; #1;
         if (osd_char_data !== 8'h90)
             $fatal(1, "expanded OSD character RAM mismatch: %h", osd_char_data);
+        write32(32'h800002b4, 12'd3172);
+        write32(32'h800002b8, 32'hdeadbeef);
+        write32(32'h800002b8, 32'h01234567);
+        write32(32'h800002bc, 32'h00000ae3);
+        write32(32'h800002c0, 1);
         write32(32'h80000254, (32'd7 << 8) | 7);
+        osd_preview_read_address = 12'd3172;
+        repeat (2) @(posedge clock); #1;
+        if (osd_preview_read_data !== 32'hdeadbeef)
+            $fatal(1, "preview RAM first word mismatch: %h", osd_preview_read_data);
+        osd_preview_read_address = 12'd3173;
+        repeat (2) @(posedge clock); #1;
+        if (osd_preview_read_data !== 32'h01234567)
+            $fatal(1, "preview RAM final word mismatch: %h", osd_preview_read_data);
+        if (!osd_preview_active || osd_preview_palette[87:80] !== 8'he3)
+            $fatal(1, "preview palette/control was not published");
+        read32(32'h800002c0, value);
+        if (!value[0]) $fatal(1, "preview control readback failed");
         if (!osd_active || !osd_narrow_selection || !osd_option_selection ||
             osd_selected_row != 5'd7)
             $fatal(1, "OSD control was not published");

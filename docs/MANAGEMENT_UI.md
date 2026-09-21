@@ -97,6 +97,85 @@ For the selected item, show information that is already known without delaying n
 
 CRC calculation should be performed while loading or on explicit request, not every time the highlight moves.
 
+### Preview images and metadata
+
+Optional artwork and descriptive metadata for a supported file are stored in a
+single `.meta` directory beside that file. Directories whose names begin with a
+period are management data and are not displayed in the browser.
+
+Sidecar names use the selected file's basename and replace its original
+extension. They do not append another extension. For example:
+
+```text
+/CARTS/
+    pacman.ccc
+    .meta/
+        pacman.bmp
+        pacman.meta
+```
+
+The basename match is case-insensitive, consistent with FAT filenames. A
+directory must not contain supported files with the same basename but different
+extensions when both need sidecars, because `pacman.ccc` and `pacman.bin` would
+both resolve to `.meta/pacman.bmp` and `.meta/pacman.meta`.
+
+Preview artwork uses a deliberately restricted standard BMP profile so firmware
+does not need a compressed-image decoder:
+
+- 184 by 138 pixels (exactly 4:3);
+- Windows BMP with an uncompressed `BI_RGB` bitmap;
+- 4-bit indexed pixels and a 16-entry palette;
+- either normal bottom-up or negative-height top-down row order.
+
+The `.meta` file is UTF-8-compatible ASCII using one `key=value` field per
+line. Unknown keys are ignored so the format can grow without breaking older
+firmware. The initial fields are:
+
+```ini
+title=Pac-Man
+description=Navigate the maze and avoid the ghosts.
+players=1
+joystick=true
+keyboard=false
+player1_left_joystick=true
+developer=Example developer
+publisher=Example publisher
+year=1982
+verified=true
+test_result=pass
+source=https://example.com/catalog-entry
+```
+
+`verified=true` means that the title has been exercised on the FPGA hardware.
+It does not mean that the title passed: `test_result` records `pass`, `fail`, or
+`intermittent` separately. `developer` identifies a known author, programmer,
+or development company; `publisher` remains available when an individual
+credit is unknown. `source` is optional provenance for maintaining the catalog;
+the browser does not need to display it.
+
+Metadata and artwork are optional. Missing or invalid sidecars fall back to the
+filename, file size, type, and normal file icon. Firmware loads sidecars only
+after the selection has remained stable briefly, then caches the result until
+the selection or directory changes. The implementation must not delay cursor
+movement while repeatedly opening files from the SD card.
+
+This sidecar path is now implemented by the RV32 manager. The pixel preview is
+held in a dedicated 12.4 KiB FPGA RAM rather than in the RV32 program/data RAM:
+184 by 138 pixels at four bits per pixel, packed eight pixels per 32-bit word.
+Firmware reads the BMP and metadata through the existing FAT32/LFN file reader,
+validates the restricted BMP header, converts its palette to RGB332, and writes
+the packed image and 16 palette entries through OSD MMIO. The preview occupies
+the full width of the details pane. The supplied metadata generator crops the
+outer ten percent of a 640-by-480 serial capture, removing the normal HDMI/CoCo
+border before scaling the central 4:3 game image. Below the image the browser
+shows the wrapped short description first, followed by a compact status such
+as `1980 P:2 J:L K:N`: year, players, player-one joystick (`L`, `R`, or `N`),
+and keyboard support (`Y` or `N`). Developer and publisher remain valid
+sidecar fields but are not currently displayed. Selecting another entry
+disables the old preview immediately and starts a new deferred sidecar lookup
+only after navigation becomes idle. The preview BRAM is clock-enabled only
+while the image is visible, so it does not switch during ordinary CoCo video.
+
 ### Browser controls
 
 - **Up/Down:** move through entries.

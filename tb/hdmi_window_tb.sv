@@ -1,7 +1,8 @@
 `timescale 1ns/1ps
 // Clock/buffer substitutes only; actual board RTL, filters and HDMI library.
-module wukong_clocking(input clk_50mhz,output pixel_clk,serial_clk,locked,video_reset);
+module wukong_clocking(input clk_50mhz,output pixel_clk,serial_clk,memory_clk,locked,video_reset);
  assign pixel_clk=clk_50mhz; assign serial_clk=clk_50mhz;
+ assign memory_clk=clk_50mhz;
  assign locked=1'b1; assign video_reset=hdmi_window_tb.reset;
 endmodule
 module OBUFDS #(parameter IOSTANDARD="DEFAULT", SLEW="SLOW")(input I,output O,OB);

@@ -4,6 +4,7 @@ module wukong_clocking (
     input  wire clk_50mhz,
     output wire pixel_clk,
     output wire serial_clk,
+    output wire memory_clk,
     output wire locked,
     output wire video_reset
 );
@@ -56,6 +57,9 @@ module wukong_clocking (
     BUFG feedback_bufg_i (.I(clk_feedback), .O(clk_feedback_buffered));
     BUFG pixel_bufg_i    (.I(pixel_clk_unbuffered), .O(pixel_clk));
     BUFG serial_bufg_i   (.I(serial_clk_unbuffered), .O(serial_clk));
+    // SDRAM shares the exact 5x pixel clock. Keeping this relationship
+    // synchronous preserves the fixed GIME fetch schedule.
+    assign memory_clk = serial_clk;
 
     // Synchronize lock into the pixel domain and hold reset for 256 pixels.
     always @(posedge pixel_clk or negedge mmcm_locked) begin

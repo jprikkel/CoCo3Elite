@@ -10,6 +10,8 @@ module coco3_boot_machine #(
 ) (
     input  wire        clock,
     input  wire        reset,
+    input  wire        memory_clock,
+    input  wire        memory_reset,
     input  wire        cpu_fast_mode,
     input  wire        cpu_halt,
     input  wire        cartridge_enabled,
@@ -55,10 +57,23 @@ module coco3_boot_machine #(
     input  wire [7:0]  sd_status,
     input  wire [7:0]  sd_detail,
     input  wire        video_hsync,
+    input  wire        video_hblank,
     input  wire        pia_hsync,
     input  wire        video_vsync,
     input  wire [19:0] video_address,
     output wire [15:0] video_read_data,
+    output wire        memory_ready,
+    output wire [31:0] memory_debug_status,
+    output wire        sdram_clk,
+    output wire        sdram_cke,
+    output wire        sdram_cs_n,
+    output wire        sdram_ras_n,
+    output wire        sdram_cas_n,
+    output wire        sdram_we_n,
+    output wire [1:0]  sdram_dqm,
+    output wire [12:0] sdram_address,
+    output wire [1:0]  sdram_bank,
+    inout  wire [15:0] sdram_data,
     output wire [6:0]  audio_dac,
     output wire [3:0]  video_vdg_control,
     output wire        video_css,
@@ -243,6 +258,13 @@ module coco3_boot_machine #(
     // The actual CART line is a PIA1-CB1 event (or, with the GIME enabled,
     // the GIME cartridge event).  Keep that latch/acknowledge path accurate.
     wire ram_write = active && !read_cycle && !io_select && !rom_select;
+    // SDRAM starts a read as soon as the 6809 presents a RAM address, rather
+    // than waiting for the later one-clock bus service strobe.  That gives
+    // the memory controller the remainder of the E/Q phase to return data
+    // before the core samples it.  The BRAM implementation ignores this
+    // look-ahead signal.
+    wire ram_read = read_cycle && !io_select &&
+                    !cartridge_rom_select && !disk_rom_select && !rom_select;
     wire io_write = active && !read_cycle && io_select;
     assign bin_fifo_pop = io_write && address == 16'hFF64 && write_data[1];
     assign bin_loader_done = io_write && address == 16'hFF64 && write_data[0];
@@ -652,6 +674,25 @@ module coco3_boot_machine #(
     );
     assign cpu_firq = gime_cpu_firq;
 
+`ifdef WUKONG_SDRAM
+    coco3_sdram_ram ram_i (
+        .memory_clock(memory_clock),
+        .reset(memory_reset),
+        .cpu_address(ram_cpu_address),
+        .cpu_write_data(ram_cpu_write_data),
+        .cpu_read_enable(ram_read),
+        .cpu_write_enable(cold_start_clear || ram_write),
+        .cpu_read_data(ram_data), .video_address(video_address),
+        .video_blank(video_hblank),
+        .video_read_data(video_read_data), .ready(memory_ready),
+        .debug_status(memory_debug_status),
+        .sdram_clk(sdram_clk), .sdram_cke(sdram_cke),
+        .sdram_cs_n(sdram_cs_n), .sdram_ras_n(sdram_ras_n),
+        .sdram_cas_n(sdram_cas_n), .sdram_we_n(sdram_we_n),
+        .sdram_dqm(sdram_dqm), .sdram_address(sdram_address),
+        .sdram_bank(sdram_bank), .sdram_data(sdram_data)
+    );
+`else
     coco3_128k_ram #(.INIT_VALUE(8'h00)) ram_i (
         .clock(clock), .cpu_address(ram_cpu_address),
         .cpu_write_data(ram_cpu_write_data),
@@ -659,6 +700,20 @@ module coco3_boot_machine #(
         .cpu_read_data(ram_data), .video_address(video_address),
         .video_read_data(video_read_data)
     );
+    assign memory_ready = 1'b1;
+    assign memory_debug_status = 32'b0;
+    assign sdram_clk = 1'b0;
+    assign sdram_cke = 1'b0;
+    assign sdram_cs_n = 1'b1;
+    assign sdram_ras_n = 1'b1;
+    assign sdram_cas_n = 1'b1;
+    assign sdram_we_n = 1'b1;
+    assign sdram_dqm = 2'b11;
+    assign sdram_address = 13'b0;
+    assign sdram_bank = 2'b0;
+    assign sdram_data = 16'hzzzz;
+    wire _unused_memory_inputs = memory_clock ^ memory_reset;
+`endif
 
     coco3_keyboard_matrix keyboard_matrix_i (
         .keys(keyboard_keys),
