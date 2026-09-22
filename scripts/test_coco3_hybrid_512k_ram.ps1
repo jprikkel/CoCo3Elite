@@ -4,10 +4,15 @@ $runDir = Join-Path $repoRoot 'build\sim\coco3_hybrid_512k_ram'
 $vivadoBin = 'C:\AMD\2025.2\Vivado\bin'
 
 New-Item -ItemType Directory -Force -Path $runDir | Out-Null
+New-Item -ItemType Directory -Force -Path (Join-Path $runDir 'rtl\core') | Out-Null
+Copy-Item -LiteralPath (Join-Path $repoRoot 'rtl\core\coco3gen.mem') `
+    -Destination (Join-Path $runDir 'rtl\core\coco3gen.mem') -Force
 Push-Location $runDir
 try {
-    & (Join-Path $vivadoBin 'xvlog.bat') `
+    & (Join-Path $vivadoBin 'xvlog.bat') -d NEW_SRAM `
         (Join-Path $repoRoot 'rtl\core\coco3_128k_ram.v') `
+        (Join-Path $repoRoot 'rtl\core\coco3_char_rom.v') `
+        (Join-Path $repoRoot 'rtl\third-party\coco3fpga\coco3vid.v') `
         (Join-Path $repoRoot 'rtl\wukong\coco3_hybrid_512k_ram.v') `
         (Join-Path $repoRoot 'tb\coco3_hybrid_512k_ram_tb.v')
     if ($LASTEXITCODE) { throw "xvlog failed with exit code $LASTEXITCODE" }

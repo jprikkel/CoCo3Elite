@@ -652,7 +652,7 @@ module coco3_boot_system #(
         // while the video core is held in reset as blanking so accumulated
         // refreshes are serviced instead of waiting for emergency debt.
         .video_hsync(raw_hsync),
-        .video_hblank(hblank | machine_reset),
+        .video_hblank(hblank | vblank | machine_reset),
         .pia_hsync(raw_hsync | ~sync_flag),
         .video_vsync(raw_vsync),
         .video_address(video_address), .video_read_data(video_data),

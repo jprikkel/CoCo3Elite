@@ -27,6 +27,8 @@ module coco3_hybrid_512k_ram #(
 
     input  wire [19:0] video_address,
     input  wire        video_blank,
+    input  wire        video_frame_sync,
+    input  wire [19:0] video_frame_start_address,
     output wire [15:0] video_read_data,
     output wire        video_cache_miss,
     output reg         ready,
@@ -270,6 +272,12 @@ module coco3_hybrid_512k_ram #(
     wire [17:8] next_video_tag = video_address[17:8] + 1'b1;
     wire next_video_cached = (video_valid0 && video_tag0 == next_video_tag) ||
                              (video_valid1 && video_tag1 == next_video_tag);
+    wire [17:8] frame_start_tag = video_frame_start_address[17:8];
+    wire [17:8] frame_next_tag = frame_start_tag + 1'b1;
+    wire frame_start_hit0 = video_valid0 && video_tag0 == frame_start_tag;
+    wire frame_start_hit1 = video_valid1 && video_tag1 == frame_start_tag;
+    wire frame_next_cached = (video_valid0 && video_tag0 == frame_next_tag) ||
+                             (video_valid1 && video_tag1 == frame_next_tag);
 
     assign video_read_data = video_bram_select_q
         ? bram_video_data : upper_video_data;
@@ -308,19 +316,43 @@ module coco3_hybrid_512k_ram #(
                 end
             end
 
-            if (ready && !video_bram_select && !video_fill_pending) begin
-                if (!video_hit) begin
-                    video_fill_buffer <= video_valid0 &&
-                        (!video_valid1 || video_tag0 == video_address[17:8]);
-                    video_fill_tag <= video_address[17:8];
-                    video_request_toggle <= ~video_request_toggle;
-                    video_fill_pending <= 1'b1;
-                end else if (!video_blank && video_address[7:0] >= 8'd192 &&
-                             !next_video_cached) begin
-                    video_fill_buffer <= video_hit0;
-                    video_fill_tag <= next_video_tag;
-                    video_request_toggle <= ~video_request_toggle;
-                    video_fill_pending <= 1'b1;
+            if (ready && !video_fill_pending) begin
+                // Vertical sync provides ample time to preload the first
+                // two blocks of the next frame.  Without this, a new frame
+                // starts cold even though horizontal-blank thrashing is
+                // suppressed.  Never prefetch across the upper-RAM/BRAM
+                // boundary, and ignore speculative GIME addresses here.
+                if (video_frame_sync &&
+                    video_frame_start_address[17:16] != 2'b11) begin
+                    if (!frame_start_hit0 && !frame_start_hit1) begin
+                        video_fill_buffer <= video_valid0 &&
+                            (!video_valid1 || video_tag0 == frame_start_tag);
+                        video_fill_tag <= frame_start_tag;
+                        video_request_toggle <= ~video_request_toggle;
+                        video_fill_pending <= 1'b1;
+                    end else if (frame_next_tag[9:8] != 2'b11 &&
+                                 !frame_next_cached) begin
+                        video_fill_buffer <= frame_start_hit0;
+                        video_fill_tag <= frame_next_tag;
+                        video_request_toggle <= ~video_request_toggle;
+                        video_fill_pending <= 1'b1;
+                    end
+                end else if (!video_bram_select) begin
+                    // GIME addresses are speculative during blanking.  A
+                    // miss then can evict the next visible line's block.
+                    if (!video_blank && !video_hit) begin
+                        video_fill_buffer <= video_valid0 &&
+                            (!video_valid1 || video_tag0 == video_address[17:8]);
+                        video_fill_tag <= video_address[17:8];
+                        video_request_toggle <= ~video_request_toggle;
+                        video_fill_pending <= 1'b1;
+                    end else if (!video_blank && video_address[7:0] >= 8'd192 &&
+                                 !next_video_cached) begin
+                        video_fill_buffer <= video_hit0;
+                        video_fill_tag <= next_video_tag;
+                        video_request_toggle <= ~video_request_toggle;
+                        video_fill_pending <= 1'b1;
+                    end
                 end
             end
         end

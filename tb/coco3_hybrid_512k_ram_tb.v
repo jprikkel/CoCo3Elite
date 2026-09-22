@@ -13,6 +13,12 @@ module coco3_hybrid_512k_ram_tb;
     wire cpu_wait;
     reg [19:0] video_address = 20'h30000;
     reg video_blank = 1;
+    reg gime_drive = 0;
+    reg gime_reset_n = 0;
+    wire [19:0] gime_address;
+    wire gime_hblank, gime_vblank, gime_vsync;
+    wire [19:0] active_video_address = gime_drive ? gime_address : video_address;
+    wire active_video_blank = gime_drive ? (gime_hblank || gime_vblank) : video_blank;
     wire [15:0] video_read_data;
     wire video_cache_miss;
     wire ready;
@@ -43,8 +49,10 @@ module coco3_hybrid_512k_ram_tb;
         .cpu_address(cpu_address), .cpu_write_data(cpu_write_data),
         .cpu_read_enable(cpu_read_enable),
         .cpu_write_enable(cpu_write_enable), .cpu_read_data(cpu_read_data),
-        .cpu_wait(cpu_wait), .video_address(video_address),
-        .video_blank(video_blank), .video_read_data(video_read_data),
+        .cpu_wait(cpu_wait), .video_address(active_video_address),
+        .video_blank(active_video_blank), .video_read_data(video_read_data),
+        .video_frame_sync(gime_drive && !gime_vsync),
+        .video_frame_start_address(20'h28000),
         .video_cache_miss(video_cache_miss),
         .ready(ready), .debug_status(debug_status),
         .disk_cache_write(disk_cache_write),
@@ -62,6 +70,20 @@ module coco3_hybrid_512k_ram_tb;
         .sdram_cas_n(sdram_cas_n), .sdram_we_n(sdram_we_n),
         .sdram_dqm(sdram_dqm), .sdram_address(sdram_address),
         .sdram_bank(sdram_bank), .sdram_data(sdram_data)
+    );
+
+    COCO3VIDEO gime (
+        .PIX_CLK(video_clock), .RESET_N(gime_reset_n), .COLOR(),
+        .HSYNC(), .SYNC_FLAG(), .VSYNC(gime_vsync), .HBLANKING(gime_hblank),
+        .VBLANKING(gime_vblank), .RAM_ADDRESS(gime_address),
+        .RAM_DATA(video_read_data), .VIDEO_ACTIVE(),
+        .COCO(1'b0), .V(3'b000), .BP(1'b1), .VERT(7'h00),
+        .VID_CONT(4'h0), .CSS(1'b0), .LPF(2'b11),
+        .VERT_FIN_SCRL(4'h0), .HLPR(1'b0), .LPR(3'b000),
+        .HRES(4'h7), .CRES(2'b10), .HVEN(1'b0),
+        .HOR_OFFSET(7'h00), .SCRN_START_HSB(2'b00),
+        .SCRN_START_MSB(8'ha0), .SCRN_START_LSB(8'h00),
+        .BLINK(1'b0), .SWITCH5(1'b0)
     );
 
     reg [15:0] memory [0:1048575];
@@ -159,6 +181,31 @@ module coco3_hybrid_512k_ram_tb;
 
     integer reads_before;
     integer sector_byte;
+    integer raster_line;
+    integer raster_pixel;
+    integer raster_line_misses;
+    integer raster_total_misses;
+    reg [19:0] raster_previous_address;
+    integer gime_misses;
+    integer gime_last_pixel;
+    integer gime_last_line;
+    integer gime_sample;
+    integer gime_frame_misses;
+    reg [9:0] previous_gime_line;
+    reg [19:0] gime_previous_address;
+    reg previous_video_request_toggle = 0;
+    integer video_request_log_count = 0;
+    always @(posedge video_clock) begin
+        if (gime_drive && dut.video_request_toggle != previous_video_request_toggle) begin
+            video_request_log_count = video_request_log_count + 1;
+            if (video_request_log_count <= 10)
+                $display("GIME FILL %0d line=%0d pixel=%0d blank=%b addr=%05h tag=%03h target=%b",
+                         video_request_log_count, gime.LINE, gime.PIXEL_COUNT,
+                         active_video_blank, gime_address, dut.video_fill_tag,
+                         dut.video_fill_buffer);
+        end
+        previous_video_request_toggle = dut.video_request_toggle;
+    end
     initial begin
         for (model_index = 0; model_index < 1048576;
              model_index = model_index + 1)
@@ -263,6 +310,76 @@ module coco3_hybrid_512k_ram_tb;
         end
         cpu_read(19'h01235, 8'ha5);
 
+        // Continuous 160-byte rows (the live Pac-Man HRES setting) reveal
+        // whether regular row transitions alone can explain hardware misses.
+        raster_total_misses = 0;
+        raster_previous_address = 20'hfffff;
+        video_blank = 1;
+        video_address = 20'h28000;
+        repeat (320) @(negedge video_clock);
+        for (raster_line = 0; raster_line < 12; raster_line = raster_line + 1) begin
+            raster_line_misses = 0;
+            video_blank = 0;
+            for (raster_pixel = 0; raster_pixel < 640; raster_pixel = raster_pixel + 1) begin
+                @(negedge video_clock);
+                video_address = 20'h28000 + raster_line * 80 + raster_pixel / 8;
+                #1;
+                if (video_address != raster_previous_address && video_cache_miss) begin
+                    raster_line_misses = raster_line_misses + 1;
+                    raster_total_misses = raster_total_misses + 1;
+                end
+                raster_previous_address = video_address;
+            end
+            video_blank = 1;
+            repeat (160) @(negedge video_clock);
+            $display("RASTER line=%0d misses=%0d", raster_line, raster_line_misses);
+        end
+        $display("RASTER total_misses=%0d", raster_total_misses);
+
+        // Compare the real GIME fetch cadence/row transitions against the
+        // hardware Q telemetry for the same FF98/FF99/FF9F settings.
+        gime_drive = 1;
+        gime_misses = 0;
+        gime_frame_misses = 0;
+        gime_last_pixel = 0;
+        gime_last_line = 0;
+        gime_previous_address = 20'hfffff;
+        previous_gime_line = 0;
+        repeat (5) @(negedge video_clock);
+        gime_reset_n = 1;
+        for (gime_sample = 0; gime_sample < 500000; gime_sample = gime_sample + 1) begin
+            @(posedge video_clock);
+            if (gime.LINE == 0 && previous_gime_line != 0) begin
+                $display("GIME completed_frame_misses=%0d", gime_frame_misses);
+                gime_frame_misses = 0;
+            end
+            if (!gime_hblank && !gime_vblank &&
+                gime_address != gime_previous_address && video_cache_miss) begin
+                gime_misses = gime_misses + 1;
+                gime_frame_misses = gime_frame_misses + 1;
+                gime_last_pixel = gime.PIXEL_COUNT;
+                gime_last_line = gime.LINE;
+                if (gime_misses <= 8)
+                    $display("GIME MISS %0d line=%0d pixel=%0d prev=%05h addr=%05h tag0=%03h/%b tag1=%03h/%b pending=%b fill=%03h",
+                             gime_misses, gime.LINE, gime.PIXEL_COUNT,
+                             gime_previous_address, gime_address,
+                             dut.video_tag0, dut.video_valid0,
+                             dut.video_tag1, dut.video_valid1,
+                             dut.video_fill_pending, dut.video_fill_tag);
+            end
+            gime_previous_address = gime_address;
+            previous_gime_line = gime.LINE;
+        end
+        $display("GIME misses=%0d last_pixel=%0d last_line=%0d",
+                 gime_misses, gime_last_pixel, gime_last_line);
+        if (gime_misses >= 100)
+            $fatal(1, "GIME blanking fetches displaced visible video: %0d misses",
+                   gime_misses);
+        if (gime_frame_misses != 0)
+            $fatal(1, "Warm GIME frame still has %0d visible cache misses",
+                   gime_frame_misses);
+        $display("PASS: GIME blanking fetches do not thrash visible cache");
+
         $display("PASS: reset-map 128 KiB remains in BRAM");
         $display("PASS: upper 384 KiB CPU accesses wait for SDRAM");
         $display("PASS: upper video uses a 256-word burst-prefetch buffer");
@@ -273,7 +390,7 @@ module coco3_hybrid_512k_ram_tb;
     end
 
     initial begin
-        #1000000;
+        #25000000;
         $fatal(1, "Hybrid RAM timeout state=%0d cpu_pending=%0d video_pending=%0d",
                dut.state, dut.memory_cpu_pending, dut.memory_video_pending);
     end
