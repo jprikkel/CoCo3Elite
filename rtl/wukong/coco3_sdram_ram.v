@@ -18,7 +18,7 @@
 module coco3_sdram_ram #(
     parameter integer POWERUP_CLOCKS = 25200,
     parameter integer CLEAR_WORDS = 65536,
-    parameter integer REFRESH_CLOCKS = 952,
+    parameter integer REFRESH_CLOCKS = 560,
     parameter integer WRITE_FIFO_LOG2 = 4
 ) (
     input  wire        memory_clock,

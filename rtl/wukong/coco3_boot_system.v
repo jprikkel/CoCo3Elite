@@ -166,6 +166,7 @@ module coco3_boot_system #(
     wire manager_write_done_toggle, manager_write_success;
     wire [2:0] manager_drive_present;
     wire [1:0] manager_fdc_drive;
+    wire manager_fdc_side;
     wire [7:0] manager_fdc_track, manager_fdc_sector, manager_fdc_last_type1, manager_fdc_data,
                manager_fdc_data_address;
     wire [31:0] manager_fdc_debug_word;
@@ -248,6 +249,10 @@ module coco3_boot_system #(
     wire [12:0] manager_sdram_address;
     wire [1:0] manager_sdram_bank;
     wire [15:0] manager_sdram_data;
+    wire shared_disk_write, shared_disk_write_ready, shared_disk_write_idle;
+    wire [19:0] shared_disk_write_address, shared_disk_sector_base_address;
+    wire [7:0] shared_disk_write_data, shared_disk_sector_read_data;
+    wire shared_disk_sector_request_toggle, shared_disk_sector_done_toggle;
 
     ultraembedded_manager_sd_mount manager_i (
         .clock(pixel_clk), .memory_clock(memory_clk), .reset(reset),
@@ -255,7 +260,8 @@ module coco3_boot_system #(
         .uart_claim(manager_uart_claim),
         .uart_rx(uart_rx),
         .sd_cs_n(sd_cs_n), .sd_sck(sd_sck), .sd_mosi(sd_mosi), .sd_miso(sd_miso),
-        .fdc_drive(manager_fdc_drive), .fdc_track(manager_fdc_track),
+        .fdc_drive(manager_fdc_drive), .fdc_side(manager_fdc_side),
+        .fdc_track(manager_fdc_track),
         .fdc_sector(manager_fdc_sector), .fdc_request_toggle(manager_fdc_request_toggle),
         .fdc_last_type1(manager_fdc_last_type1),
         .fdc_debug_word(manager_fdc_debug_word), .fdc_read_complete_toggle(manager_fdc_read_complete_toggle),
@@ -306,6 +312,16 @@ module coco3_boot_system #(
         .bin_transfer_active(manager_bin_transfer_active),
         .bin_transfer_complete(manager_bin_transfer_complete),
         .bin_transfer_error(manager_bin_transfer_error),
+        .shared_disk_write(shared_disk_write),
+        .shared_disk_write_address(shared_disk_write_address),
+        .shared_disk_write_data(shared_disk_write_data),
+        .shared_disk_write_ready(shared_disk_write_ready),
+        .shared_disk_write_idle(shared_disk_write_idle),
+        .shared_disk_sector_request_toggle(shared_disk_sector_request_toggle),
+        .shared_disk_sector_base_address(shared_disk_sector_base_address),
+        .shared_disk_sector_read_data(shared_disk_sector_read_data),
+        .shared_disk_sector_done_toggle(shared_disk_sector_done_toggle),
+        .shared_disk_ready(machine_memory_ready),
         .sdram_clk(manager_sdram_clk), .sdram_cke(manager_sdram_cke),
         .sdram_cs_n(manager_sdram_cs_n),
         .sdram_ras_n(manager_sdram_ras_n),
@@ -318,9 +334,8 @@ module coco3_boot_system #(
     );
 
 `ifdef WUKONG_HYBRID_512K
-    // The hybrid CoCo RAM controller owns external SDRAM. The manager keeps
-    // its disk cache in BRAM in this build, so its inactive SDRAM pins remain
-    // isolated rather than creating a second driver on the board bus.
+    // One controller arbitrates upper CoCo RAM, video prefetch and disk cache.
+    // The manager never drives the board SDRAM pins directly in this build.
     assign sdram_clk = machine_sdram_clk;
     assign sdram_cke = machine_sdram_cke;
     assign sdram_cs_n = machine_sdram_cs_n;
@@ -518,6 +533,16 @@ module coco3_boot_system #(
         .memory_clock(memory_clk), .memory_reset(reset),
         .memory_ready(machine_memory_ready),
         .memory_debug_status(machine_memory_debug_status),
+        .disk_cache_write(shared_disk_write),
+        .disk_cache_write_address(shared_disk_write_address),
+        .disk_cache_write_data(shared_disk_write_data),
+        .disk_cache_write_ready(shared_disk_write_ready),
+        .disk_cache_write_idle(shared_disk_write_idle),
+        .disk_sector_request_toggle(shared_disk_sector_request_toggle),
+        .disk_sector_base_address(shared_disk_sector_base_address),
+        .disk_sector_read_address(manager_fdc_data_address),
+        .disk_sector_read_data(shared_disk_sector_read_data),
+        .disk_sector_done_toggle(shared_disk_sector_done_toggle),
         .sdram_clk(machine_sdram_clk), .sdram_cke(machine_sdram_cke),
         .sdram_cs_n(machine_sdram_cs_n),
         .sdram_ras_n(machine_sdram_ras_n),
@@ -571,7 +596,8 @@ module coco3_boot_system #(
         .sd_fdc_done_toggle(manager_done_toggle), .sd_fdc_success(manager_success),
         .sd_fdc_write_done_toggle(manager_write_done_toggle), .sd_fdc_write_success(manager_write_success),
         .sd_fdc_data(manager_fdc_data), .sd_fdc_buffer_address(manager_fdc_data_address),
-        .sd_fdc_drive(manager_fdc_drive), .sd_fdc_track(manager_fdc_track),
+        .sd_fdc_drive(manager_fdc_drive), .sd_fdc_side(manager_fdc_side),
+        .sd_fdc_track(manager_fdc_track),
         .sd_fdc_sector(manager_fdc_sector), .sd_fdc_last_type1(manager_fdc_last_type1),
         .sd_fdc_debug_word(manager_fdc_debug_word), .sd_fdc_read_complete_toggle(manager_fdc_read_complete_toggle), .sd_fdc_request_toggle(manager_fdc_request_toggle),
         .sd_fdc_completed_debug_word(manager_fdc_completed_debug_word),

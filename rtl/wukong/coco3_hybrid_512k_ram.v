@@ -12,7 +12,7 @@
 // regions with consecutive BL1 commands and serve video at pixel-clock speed.
 module coco3_hybrid_512k_ram #(
     parameter integer POWERUP_CLOCKS = 25200,
-    parameter integer REFRESH_CLOCKS = 952
+    parameter integer REFRESH_CLOCKS = 560
 ) (
     input  wire        memory_clock,
     input  wire        video_clock,
@@ -30,6 +30,20 @@ module coco3_hybrid_512k_ram #(
     output wire [15:0] video_read_data,
     output reg         ready,
     output wire [31:0] debug_status,
+
+    // One SDRAM controller owns both the CoCo upper RAM and a disk image at
+    // byte addresses 0..737279. Disk writes are queued in the pixel domain;
+    // the manager must wait for write_ready before retiring a loader store.
+    input  wire        disk_cache_write,
+    input  wire [19:0] disk_cache_write_address,
+    input  wire [7:0]  disk_cache_write_data,
+    output wire        disk_cache_write_ready,
+    output wire        disk_cache_write_idle,
+    input  wire        disk_sector_request_toggle,
+    input  wire [19:0] disk_sector_base_address,
+    input  wire [7:0]  disk_sector_read_address,
+    output wire [7:0]  disk_sector_read_data,
+    output reg         disk_sector_done_toggle,
 
     output wire        sdram_clk,
     output reg         sdram_cke,
@@ -77,7 +91,7 @@ module coco3_hybrid_512k_ram #(
         .video_read_data(bram_video_data)
     );
 
-    // CPU request handshake (25.2 MHz -> 126 MHz).  Payload remains stable
+    // CPU request handshake (25 MHz -> 75 MHz). Payload remains stable
     // until the completion toggle returns.
     reg [18:0] cpu_request_address;
     reg [7:0] cpu_request_write_data;
@@ -94,6 +108,76 @@ module coco3_hybrid_512k_ram #(
     reg memory_cpu_done_toggle;
     reg [7:0] memory_cpu_read_data;
     reg memory_video_done_toggle;
+
+    localparam integer DISK_FIFO_LOG2 = 7;
+    localparam integer DISK_FIFO_DEPTH = 1 << DISK_FIFO_LOG2;
+    (* ram_style = "distributed" *) reg [19:0] disk_fifo_address [0:DISK_FIFO_DEPTH-1];
+    (* ram_style = "distributed" *) reg [7:0] disk_fifo_data [0:DISK_FIFO_DEPTH-1];
+    reg [DISK_FIFO_LOG2-1:0] disk_fifo_write_pointer, disk_fifo_read_pointer;
+    reg [DISK_FIFO_LOG2:0] disk_fifo_count;
+    reg disk_source_pending, disk_source_toggle;
+    reg [19:0] disk_source_address;
+    reg [7:0] disk_source_data;
+    (* ASYNC_REG = "TRUE" *) reg disk_write_done_meta, disk_write_done_sync;
+    reg disk_write_done_seen;
+    reg memory_disk_write_done_toggle;
+    (* ram_style = "distributed" *) reg [7:0] disk_sector_buffer [0:255];
+    reg [7:0] disk_sector_read_data_reg;
+    always @(posedge video_clock)
+        disk_sector_read_data_reg <= disk_sector_buffer[disk_sector_read_address];
+    assign disk_sector_read_data = disk_sector_read_data_reg;
+    assign disk_cache_write_ready = ready && disk_fifo_count < DISK_FIFO_DEPTH;
+    assign disk_cache_write_idle = disk_fifo_count == 0 && !disk_source_pending;
+    wire disk_fifo_push = disk_cache_write && disk_cache_write_ready;
+    wire disk_fifo_pop = disk_source_pending &&
+                         disk_write_done_sync != disk_write_done_seen;
+
+    reg disk_sector_source_toggle;
+    reg [19:0] disk_sector_source_base;
+    always @(posedge video_clock) begin
+        if (reset) begin
+            disk_fifo_write_pointer <= 0;
+            disk_fifo_read_pointer <= 0;
+            disk_fifo_count <= 0;
+            disk_source_pending <= 0;
+            disk_source_toggle <= 0;
+            disk_source_address <= 0;
+            disk_source_data <= 0;
+            disk_write_done_meta <= 0;
+            disk_write_done_sync <= 0;
+            disk_write_done_seen <= 0;
+            disk_sector_source_toggle <= 0;
+            disk_sector_source_base <= 0;
+        end else begin
+            disk_write_done_meta <= memory_disk_write_done_toggle;
+            disk_write_done_sync <= disk_write_done_meta;
+            if (disk_fifo_push) begin
+                disk_fifo_address[disk_fifo_write_pointer] <= disk_cache_write_address;
+                disk_fifo_data[disk_fifo_write_pointer] <= disk_cache_write_data;
+                disk_fifo_write_pointer <= disk_fifo_write_pointer + 1'b1;
+            end
+            if (disk_fifo_pop) begin
+                disk_write_done_seen <= disk_write_done_sync;
+                disk_fifo_read_pointer <= disk_fifo_read_pointer + 1'b1;
+                disk_source_pending <= 1'b0;
+            end
+            case ({disk_fifo_push, disk_fifo_pop})
+                2'b10: disk_fifo_count <= disk_fifo_count + 1'b1;
+                2'b01: disk_fifo_count <= disk_fifo_count - 1'b1;
+                default: begin end
+            endcase
+            if (!disk_source_pending && disk_fifo_count != 0) begin
+                disk_source_address <= disk_fifo_address[disk_fifo_read_pointer];
+                disk_source_data <= disk_fifo_data[disk_fifo_read_pointer];
+                disk_source_toggle <= ~disk_source_toggle;
+                disk_source_pending <= 1'b1;
+            end
+            if (disk_sector_request_toggle != disk_sector_source_toggle) begin
+                disk_sector_source_toggle <= disk_sector_request_toggle;
+                disk_sector_source_base <= disk_sector_base_address;
+            end
+        end
+    end
 
     wire upper_cpu_read = cpu_read_enable && !cpu_bram_select;
     wire upper_cpu_read_hit = upper_cpu_data_valid &&
@@ -250,6 +334,13 @@ module coco3_hybrid_512k_ram #(
     reg video_toggle_seen;
     (* ASYNC_REG = "TRUE" *) reg [9:0] video_tag_meta, video_tag_sync;
     (* ASYNC_REG = "TRUE" *) reg video_buffer_meta, video_buffer_sync;
+    (* ASYNC_REG = "TRUE" *) reg disk_toggle_meta, disk_toggle_sync;
+    reg disk_toggle_seen;
+    (* ASYNC_REG = "TRUE" *) reg [19:0] disk_address_meta, disk_address_sync;
+    (* ASYNC_REG = "TRUE" *) reg [7:0] disk_data_meta, disk_data_sync;
+    (* ASYNC_REG = "TRUE" *) reg disk_sector_meta, disk_sector_sync;
+    reg disk_sector_seen;
+    (* ASYNC_REG = "TRUE" *) reg [19:0] disk_sector_base_meta, disk_sector_base_sync;
 
     reg memory_cpu_pending;
     reg [18:0] memory_cpu_address;
@@ -260,6 +351,12 @@ module coco3_hybrid_512k_ram #(
     reg memory_video_buffer;
     reg [17:8] memory_video_tag0, memory_video_tag1;
     reg memory_video_valid0, memory_video_valid1;
+    reg memory_disk_pending;
+    reg [19:0] memory_disk_address;
+    reg [7:0] memory_disk_data;
+    reg memory_disk_sector_pending;
+    reg [19:0] memory_disk_sector_base;
+    reg memory_disk_sector_completion;
 
     localparam [4:0]
         STATE_POWERUP       = 5'd0,
@@ -277,7 +374,8 @@ module coco3_hybrid_512k_ram #(
         STATE_COMPLETE      = 5'd12,
         STATE_REFRESH_PRE   = 5'd13,
         STATE_REFRESH       = 5'd14;
-    localparam [1:0] OWNER_CPU = 2'd0, OWNER_VIDEO = 2'd1;
+    localparam [1:0] OWNER_CPU = 2'd0, OWNER_VIDEO = 2'd1,
+                     OWNER_DISK_WRITE = 2'd2, OWNER_DISK_SECTOR = 2'd3;
 
     reg [4:0] state, wait_return_state;
     reg [7:0] wait_count;
@@ -369,6 +467,26 @@ module coco3_hybrid_512k_ram #(
             memory_video_valid0 <= 1'b0;
             memory_video_valid1 <= 1'b0;
             memory_video_done_toggle <= 1'b0;
+            disk_toggle_meta <= 0;
+            disk_toggle_sync <= 0;
+            disk_toggle_seen <= 0;
+            disk_address_meta <= 0;
+            disk_address_sync <= 0;
+            disk_data_meta <= 0;
+            disk_data_sync <= 0;
+            disk_sector_meta <= 0;
+            disk_sector_sync <= 0;
+            disk_sector_seen <= 0;
+            disk_sector_base_meta <= 0;
+            disk_sector_base_sync <= 0;
+            memory_disk_pending <= 0;
+            memory_disk_address <= 0;
+            memory_disk_data <= 0;
+            memory_disk_write_done_toggle <= 0;
+            memory_disk_sector_pending <= 0;
+            memory_disk_sector_base <= 0;
+            memory_disk_sector_completion <= 0;
+            disk_sector_done_toggle <= 0;
             cpu_wait_count_max <= 0;
             cpu_wait_count <= 0;
             video_fill_count <= 0;
@@ -407,6 +525,16 @@ module coco3_hybrid_512k_ram #(
             video_tag_sync <= video_tag_meta;
             video_buffer_meta <= video_fill_buffer;
             video_buffer_sync <= video_buffer_meta;
+            disk_toggle_meta <= disk_source_toggle;
+            disk_toggle_sync <= disk_toggle_meta;
+            disk_address_meta <= disk_source_address;
+            disk_address_sync <= disk_address_meta;
+            disk_data_meta <= disk_source_data;
+            disk_data_sync <= disk_data_meta;
+            disk_sector_meta <= disk_sector_source_toggle;
+            disk_sector_sync <= disk_sector_meta;
+            disk_sector_base_meta <= disk_sector_source_base;
+            disk_sector_base_sync <= disk_sector_base_meta;
 
             if (cpu_toggle_sync != cpu_toggle_seen && !memory_cpu_pending) begin
                 cpu_toggle_seen <= cpu_toggle_sync;
@@ -424,6 +552,20 @@ module coco3_hybrid_512k_ram #(
                 memory_video_tag <= video_tag_sync;
                 memory_video_buffer <= video_buffer_sync;
                 memory_video_pending <= 1'b1;
+            end
+            if (disk_toggle_sync != disk_toggle_seen &&
+                !memory_disk_pending) begin
+                disk_toggle_seen <= disk_toggle_sync;
+                memory_disk_address <= disk_address_sync;
+                memory_disk_data <= disk_data_sync;
+                memory_disk_pending <= 1'b1;
+            end
+            if (disk_sector_sync != disk_sector_seen &&
+                !memory_disk_sector_pending) begin
+                disk_sector_seen <= disk_sector_sync;
+                memory_disk_sector_base <= disk_sector_base_sync;
+                memory_disk_sector_completion <= disk_sector_sync;
+                memory_disk_sector_pending <= 1'b1;
             end
 
             if (ready) begin
@@ -513,6 +655,24 @@ module coco3_hybrid_512k_ram #(
                         request_cpu_lane <= memory_cpu_address[0];
                         memory_cpu_pending <= 1'b0;
                         state <= STATE_PREPARE;
+                    end else if (memory_disk_pending) begin
+                        request_word <= {5'b0, memory_disk_address[19:1]};
+                        request_write_data <= {memory_disk_data,
+                                               memory_disk_data};
+                        request_dqm <= memory_disk_address[0]
+                            ? 2'b01 : 2'b10;
+                        request_write <= 1'b1;
+                        request_owner <= OWNER_DISK_WRITE;
+                        memory_disk_pending <= 1'b0;
+                        state <= STATE_PREPARE;
+                    end else if (memory_disk_sector_pending) begin
+                        request_word <= {5'b0, memory_disk_sector_base[19:1]};
+                        request_write_data <= 0;
+                        request_dqm <= 2'b00;
+                        request_write <= 1'b0;
+                        request_owner <= OWNER_DISK_SECTOR;
+                        memory_disk_sector_pending <= 1'b0;
+                        state <= STATE_PREPARE;
                     end
                 end
                 STATE_PREPARE: begin
@@ -557,7 +717,8 @@ module coco3_hybrid_512k_ram #(
                         wait_count <= 0;
                         wait_return_state <= STATE_COMPLETE;
                         state <= STATE_WAIT;
-                    end else if (request_owner == OWNER_VIDEO) begin
+                    end else if (request_owner == OWNER_VIDEO ||
+                                 request_owner == OWNER_DISK_SECTOR) begin
                         stream_issue_count <= 9'd1;
                         stream_capture_count <= 0;
                         stream_valid_pipeline <= 3'b001;
@@ -576,7 +737,8 @@ module coco3_hybrid_512k_ram #(
                         {stream_valid_pipeline[1:0], 1'b0};
                     stream_index_pipeline[2] <= stream_index_pipeline[1];
                     stream_index_pipeline[1] <= stream_index_pipeline[0];
-                    if (stream_issue_count < 9'd256) begin
+                    if (stream_issue_count <
+                        (request_owner == OWNER_VIDEO ? 9'd256 : 9'd128)) begin
                         sdram_bank <= request_bank;
                         sdram_address[8:0] <= request_column +
                             stream_issue_count;
@@ -587,12 +749,18 @@ module coco3_hybrid_512k_ram #(
                         stream_issue_count <= stream_issue_count + 1'b1;
                     end
                     if (stream_valid_pipeline[2]) begin
-                        if (request_video_buffer)
+                        if (request_owner == OWNER_DISK_SECTOR) begin
+                            disk_sector_buffer[{stream_index_pipeline[2][6:0],
+                                                1'b0}] <= data_in[7:0];
+                            disk_sector_buffer[{stream_index_pipeline[2][6:0],
+                                                1'b1}] <= data_in[15:8];
+                        end else if (request_video_buffer)
                             video_buffer1[stream_index_pipeline[2]] <= data_in;
                         else
                             video_buffer0[stream_index_pipeline[2]] <= data_in;
                         stream_capture_count <= stream_capture_count + 1'b1;
-                        if (stream_capture_count == 9'd255)
+                        if (stream_capture_count ==
+                            (request_owner == OWNER_VIDEO ? 9'd255 : 9'd127))
                             state <= STATE_COMPLETE;
                     end
                 end
@@ -618,6 +786,11 @@ module coco3_hybrid_512k_ram #(
                         memory_video_done_toggle <= ~memory_video_done_toggle;
                         if (video_fill_count != 8'hff)
                             video_fill_count <= video_fill_count + 1'b1;
+                    end else if (request_owner == OWNER_DISK_WRITE) begin
+                        memory_disk_write_done_toggle <=
+                            ~memory_disk_write_done_toggle;
+                    end else if (request_owner == OWNER_DISK_SECTOR) begin
+                        disk_sector_done_toggle <= memory_disk_sector_completion;
                     end else begin
                         // Keep a displayed upper-memory line coherent without
                         // refetching all 512 bytes after every CPU pixel write.

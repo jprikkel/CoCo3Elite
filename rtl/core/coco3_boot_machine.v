@@ -64,6 +64,16 @@ module coco3_boot_machine #(
     output wire [15:0] video_read_data,
     output wire        memory_ready,
     output wire [31:0] memory_debug_status,
+    input  wire        disk_cache_write,
+    input  wire [19:0] disk_cache_write_address,
+    input  wire [7:0]  disk_cache_write_data,
+    output wire        disk_cache_write_ready,
+    output wire        disk_cache_write_idle,
+    input  wire        disk_sector_request_toggle,
+    input  wire [19:0] disk_sector_base_address,
+    input  wire [7:0]  disk_sector_read_address,
+    output wire [7:0] disk_sector_read_data,
+    output wire        disk_sector_done_toggle,
     output wire        sdram_clk,
     output wire        sdram_cke,
     output wire        sdram_cs_n,
@@ -94,6 +104,7 @@ module coco3_boot_machine #(
     input  wire [7:0]  sd_fdc_data,
     output wire [7:0]  sd_fdc_buffer_address,
     output wire [1:0]  sd_fdc_drive,
+    output wire        sd_fdc_side,
     output wire [7:0]  sd_fdc_track,
     output wire [7:0]  sd_fdc_sector,
     output wire [7:0]  sd_fdc_last_type1,
@@ -658,7 +669,8 @@ module coco3_boot_machine #(
         .backend_write_done_toggle(sd_fdc_write_done_toggle),
         .backend_write_success(sd_fdc_write_success), .backend_data(sd_fdc_data),
         .backend_buffer_address(sd_fdc_buffer_address),
-        .backend_drive(sd_fdc_drive), .backend_track(sd_fdc_track),
+        .backend_drive(sd_fdc_drive), .backend_side(sd_fdc_side),
+        .backend_track(sd_fdc_track),
         .backend_sector(sd_fdc_sector), .backend_last_type1(sd_fdc_last_type1),
         .backend_debug_word(sd_fdc_debug_word),
         .backend_completed_debug_word(sd_fdc_completed_debug_word),
@@ -702,6 +714,16 @@ module coco3_boot_machine #(
         .video_address(video_address), .video_blank(video_hblank),
         .video_read_data(video_read_data), .ready(memory_ready),
         .debug_status(memory_debug_status),
+        .disk_cache_write(disk_cache_write),
+        .disk_cache_write_address(disk_cache_write_address),
+        .disk_cache_write_data(disk_cache_write_data),
+        .disk_cache_write_ready(disk_cache_write_ready),
+        .disk_cache_write_idle(disk_cache_write_idle),
+        .disk_sector_request_toggle(disk_sector_request_toggle),
+        .disk_sector_base_address(disk_sector_base_address),
+        .disk_sector_read_address(disk_sector_read_address),
+        .disk_sector_read_data(disk_sector_read_data),
+        .disk_sector_done_toggle(disk_sector_done_toggle),
         .sdram_clk(sdram_clk), .sdram_cke(sdram_cke),
         .sdram_cs_n(sdram_cs_n), .sdram_ras_n(sdram_ras_n),
         .sdram_cas_n(sdram_cas_n), .sdram_we_n(sdram_we_n),
@@ -728,6 +750,10 @@ module coco3_boot_machine #(
         .sdram_bank(sdram_bank), .sdram_data(sdram_data)
     );
     assign ram_cpu_wait = 1'b0;
+    assign disk_cache_write_ready = 1'b0;
+    assign disk_cache_write_idle = 1'b1;
+    assign disk_sector_read_data = 8'b0;
+    assign disk_sector_done_toggle = disk_sector_request_toggle;
 `else
     coco3_128k_ram #(.INIT_VALUE(8'h00)) ram_i (
         .clock(clock), .cpu_address(ram_cpu_address),
@@ -749,6 +775,10 @@ module coco3_boot_machine #(
     assign sdram_bank = 2'b0;
     assign sdram_data = 16'hzzzz;
     assign ram_cpu_wait = 1'b0;
+    assign disk_cache_write_ready = 1'b0;
+    assign disk_cache_write_idle = 1'b1;
+    assign disk_sector_read_data = 8'b0;
+    assign disk_sector_done_toggle = disk_sector_request_toggle;
     wire _unused_memory_inputs = memory_clock ^ memory_reset;
 `endif
 

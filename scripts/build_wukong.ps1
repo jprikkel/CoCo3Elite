@@ -6,9 +6,10 @@ param(
     [switch]$KeepIntermediates,
     [switch]$EmbeddedTestDisks,
     [switch]$NoCpuUartDebug,
-    # The proven configuration keeps the CoCo's 128 KB in FPGA block RAM.
-    # External SDRAM remains an explicit experimental build option.
-    [switch]$UseSdram,
+    # Normal builds keep lower 128 KiB in BRAM and share SDRAM between the
+    # upper 384 KiB and the SD-mounted floppy cache. Use -UseSdram:$false
+    # only when deliberately testing the legacy all-BRAM configuration.
+    [switch]$UseSdram = $true,
     [string]$Drive0Disk = 'disks\fpgatest.dsk',
     [string]$Drive1Disk = 'disks\games.dsk'
 )

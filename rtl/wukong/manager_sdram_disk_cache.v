@@ -11,7 +11,7 @@
 // byte-write path while firmware separately persists the sector to FAT32.
 module manager_sdram_disk_cache #(
     parameter integer POWERUP_CLOCKS = 25200,
-    parameter integer REFRESH_CLOCKS = 952,
+    parameter integer REFRESH_CLOCKS = 560,
     parameter integer WRITE_FIFO_LOG2 = 4
 ) (
     input  wire        memory_clock,

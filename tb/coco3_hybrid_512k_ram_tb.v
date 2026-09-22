@@ -16,6 +16,15 @@ module coco3_hybrid_512k_ram_tb;
     wire [15:0] video_read_data;
     wire ready;
     wire [31:0] debug_status;
+    reg disk_cache_write = 0;
+    reg [19:0] disk_cache_write_address = 0;
+    reg [7:0] disk_cache_write_data = 0;
+    wire disk_cache_write_ready, disk_cache_write_idle;
+    reg disk_sector_request_toggle = 0;
+    reg [19:0] disk_sector_base_address = 0;
+    reg [7:0] disk_sector_read_address = 0;
+    wire [7:0] disk_sector_read_data;
+    wire disk_sector_done_toggle;
     wire sdram_clk, sdram_cke, sdram_cs_n, sdram_ras_n;
     wire sdram_cas_n, sdram_we_n;
     wire [1:0] sdram_dqm;
@@ -23,7 +32,7 @@ module coco3_hybrid_512k_ram_tb;
     wire [1:0] sdram_bank;
     wire [15:0] sdram_data;
 
-    always #4 memory_clock = ~memory_clock;
+    always #6.667 memory_clock = ~memory_clock;
     always #20 video_clock = ~video_clock;
 
     coco3_hybrid_512k_ram #(
@@ -36,6 +45,16 @@ module coco3_hybrid_512k_ram_tb;
         .cpu_wait(cpu_wait), .video_address(video_address),
         .video_blank(video_blank), .video_read_data(video_read_data),
         .ready(ready), .debug_status(debug_status),
+        .disk_cache_write(disk_cache_write),
+        .disk_cache_write_address(disk_cache_write_address),
+        .disk_cache_write_data(disk_cache_write_data),
+        .disk_cache_write_ready(disk_cache_write_ready),
+        .disk_cache_write_idle(disk_cache_write_idle),
+        .disk_sector_request_toggle(disk_sector_request_toggle),
+        .disk_sector_base_address(disk_sector_base_address),
+        .disk_sector_read_address(disk_sector_read_address),
+        .disk_sector_read_data(disk_sector_read_data),
+        .disk_sector_done_toggle(disk_sector_done_toggle),
         .sdram_clk(sdram_clk), .sdram_cke(sdram_cke),
         .sdram_cs_n(sdram_cs_n), .sdram_ras_n(sdram_ras_n),
         .sdram_cas_n(sdram_cas_n), .sdram_we_n(sdram_we_n),
@@ -100,6 +119,21 @@ module coco3_hybrid_512k_ram_tb;
         end
     endtask
 
+    task disk_write_byte;
+        input [19:0] address_value;
+        input [7:0] data_value;
+        begin
+            @(negedge video_clock);
+            while (!disk_cache_write_ready)
+                @(negedge video_clock);
+            disk_cache_write_address = address_value;
+            disk_cache_write_data = data_value;
+            disk_cache_write = 1;
+            @(negedge video_clock);
+            disk_cache_write = 0;
+        end
+    endtask
+
     task cpu_read;
         input [18:0] address_value;
         input [7:0] expected;
@@ -122,6 +156,7 @@ module coco3_hybrid_512k_ram_tb;
     endtask
 
     integer reads_before;
+    integer sector_byte;
     initial begin
         for (model_index = 0; model_index < 1048576;
              model_index = model_index + 1)
@@ -174,10 +209,57 @@ module coco3_hybrid_512k_ram_tb;
         if (debug_status[31:24] == 0)
             $fatal(1, "CPU SDRAM wait-state counter did not advance");
 
+        // Disk bytes occupy a disjoint SDRAM address region and survive
+        // concurrent upper-RAM traffic. The final 720 KiB sector probes the
+        // 20-bit disk address path that a 161 KiB cache would miss.
+        for (model_index = 0; model_index < 256; model_index = model_index + 1)
+            disk_write_byte(20'd737024 + model_index,
+                            model_index[7:0] ^ 8'h5a);
+        wait (disk_cache_write_idle);
+        disk_sector_base_address = 20'd737024;
+        disk_sector_request_toggle = ~disk_sector_request_toggle;
+        wait (disk_sector_done_toggle == disk_sector_request_toggle);
+        disk_sector_read_address = 8'd0;
+        @(posedge video_clock);
+        #1;
+        if (disk_sector_read_data !== 8'h5a)
+            $fatal(1, "Disk sector byte zero incorrect");
+        disk_sector_read_address = 8'd255;
+        @(posedge video_clock);
+        #1;
+        if (disk_sector_read_data !== 8'ha5)
+            $fatal(1, "Disk byte255=%02h word=%04h writes=%0d fifo=%0d pending=%0d",
+                   disk_sector_read_data, memory[24'd368639], command_writes,
+                   dut.disk_fifo_count, dut.disk_source_pending);
+
+        // Exercise the complete CoCo directory sector, including the eighth
+        // character of a seven-letter filename.  The old boundary-only probe
+        // could pass while a middle byte appeared as an extra DIR glyph.
+        for (model_index = 0; model_index < 256; model_index = model_index + 1)
+            disk_write_byte(20'd78848 + model_index,
+                            model_index[7:0] ^ 8'h93);
+        wait (disk_cache_write_idle);
+        disk_sector_base_address = 20'd78848;
+        disk_sector_request_toggle = ~disk_sector_request_toggle;
+        wait (disk_sector_done_toggle == disk_sector_request_toggle);
+        for (sector_byte = 0; sector_byte < 256; sector_byte = sector_byte + 1) begin
+            @(negedge video_clock);
+            disk_sector_read_address = sector_byte[7:0];
+            @(posedge video_clock);
+            #1;
+            if (disk_sector_read_data !== (sector_byte[7:0] ^ 8'h93))
+                $fatal(1, "Directory sector byte %0d=%02h expected %02h",
+                       sector_byte, disk_sector_read_data,
+                       sector_byte[7:0] ^ 8'h93);
+        end
+        cpu_read(19'h01235, 8'ha5);
+
         $display("PASS: reset-map 128 KiB remains in BRAM");
         $display("PASS: upper 384 KiB CPU accesses wait for SDRAM");
         $display("PASS: upper video uses a 256-word burst-prefetch buffer");
         $display("PASS: upper framebuffer writes update the active line cache");
+        $display("PASS: shared SDRAM disk cache reaches the 720 KiB boundary");
+        $display("PASS: every directory sector byte survives SDRAM prefetch");
         $finish;
     end
 

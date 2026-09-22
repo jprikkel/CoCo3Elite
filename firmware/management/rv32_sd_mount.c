@@ -315,7 +315,10 @@ static void lfn_text(char *out){uint16_t at=0,n=0;while(n<260&&lfn_utf16[n]&&lfn
 static int is_dsk_name(const char *name){uint16_t n=0;while(name[n])n++;return n>=4u&&name[n-4]=='.'&&((name[n-3]=='D'||name[n-3]=='d')&&(name[n-2]=='S'||name[n-2]=='s')&&(name[n-1]=='K'||name[n-1]=='k'));}
 static int is_ccc_name(const char *name){uint16_t n=0;while(name[n])n++;return n>=4u&&name[n-4]=='.'&&((name[n-3]=='C'||name[n-3]=='c')&&(name[n-2]=='C'||name[n-2]=='c')&&(name[n-1]=='C'||name[n-1]=='c'));}
 static int is_bin_name(const char *name){uint16_t n=0;while(name[n])n++;return n>=4u&&name[n-4]=='.'&&((name[n-3]=='B'||name[n-3]=='b')&&(name[n-2]=='I'||name[n-2]=='i')&&(name[n-1]=='N'||name[n-1]=='n'));}
-static void add_entry(const uint8_t *e,const char *name,uint8_t directory){uint8_t cartridge=!directory&&is_ccc_name(name),binary=!directory&&is_bin_name(name);uint32_t size=le32(&e[28]);if(browser_count>=MAX_DSK_FILES)return;if(!directory&&((!is_dsk_name(name)&&!cartridge&&!binary)||(is_dsk_name(name)&&size!=161280u)||(cartridge&&size!=2048u&&size!=4096u&&size!=8192u)||(binary&&(size<5u||size>262144u))))return;struct browser_entry *b=&browser_entries[browser_count++];uint16_t n=0;while(name[n]&&n<MAX_NAME-1u){b->name[n]=name[n];n++;}b->name[n]=0;b->cluster=((uint32_t)le16(&e[20])<<16)|le16(&e[26]);b->size=size;b->directory=directory;b->parent=0;b->cartridge=cartridge;b->binary=binary;}
+static int supported_dsk_size(uint32_t size){
+    return size==161280u || size==368640u || size==737280u;
+}
+static void add_entry(const uint8_t *e,const char *name,uint8_t directory){uint8_t cartridge=!directory&&is_ccc_name(name),binary=!directory&&is_bin_name(name);uint32_t size=le32(&e[28]);if(browser_count>=MAX_DSK_FILES)return;if(!directory&&((!is_dsk_name(name)&&!cartridge&&!binary)||(is_dsk_name(name)&&!supported_dsk_size(size))||(cartridge&&size!=2048u&&size!=4096u&&size!=8192u)||(binary&&(size<5u||size>262144u))))return;struct browser_entry *b=&browser_entries[browser_count++];uint16_t n=0;while(name[n]&&n<MAX_NAME-1u){b->name[n]=name[n];n++;}b->name[n]=0;b->cluster=((uint32_t)le16(&e[20])<<16)|le16(&e[26]);b->size=size;b->directory=directory;b->parent=0;b->cartridge=cartridge;b->binary=binary;}
 static int scan_directory(uint32_t directory){uint32_t cluster=directory;browser_count=0;lfn_reset();if(directory!=root_cluster){struct browser_entry *b=&browser_entries[browser_count++];b->name[0]='.';b->name[1]='.';b->name[2]=0;b->cluster=parent_directory;b->size=0;b->directory=1;b->parent=1;}for(;;){for(uint8_t s=0;s<sectors_per_cluster;++s){if(read_sector(first_data_lba+(cluster-2u)*sectors_per_cluster+s))return 1;for(uint16_t o=0;o<512;o+=32){const uint8_t *e=&sector[o];if(!e[0])return 0;if(e[0]==0xe5){lfn_reset();continue;}if(e[11]==0x0f){lfn_part(e);continue;}if(e[11]&0x08){lfn_reset();continue;}char name[MAX_NAME];if(lfn_valid&&lfn_expected==0&&short_checksum(e)==lfn_checksum)lfn_text(name);else short_text(e,name);lfn_reset();/* Dot-prefixed directories are management data, not browser entries. */if((e[11]&0x10u)&&name[0]=='.')continue;add_entry(e,name,(e[11]&0x10u)!=0);}}if(next_cluster(cluster,&cluster))break;}return 0;}
 static char lower_ascii(char c){return c>='A'&&c<='Z'?(char)(c+('a'-'A')):c;}
 static int equal_name(const char *a,const char *b){while(*a&&*b&&lower_ascii(*a)==lower_ascii(*b)){a++;b++;}return !*a&&!*b;}
@@ -456,13 +459,13 @@ static int mount_filesystem(void) {
     browser_count=0;mounted_disk.name[0]=0;mounted_disk.cluster=0;mounted_disk.size=0;DISK_CACHE_RESET=0;
     return 0;
 }
-// Load drive 0 into the proven full-image BRAM path.  FAT32 and SD traffic
+// Load drive 0 into the shared full-image SDRAM cache. FAT32 and SD traffic
 // happen only during mount and writeback, never in the timing-sensitive CoCo
 // read-sector byte stream.
 static int load_disk_cache(const struct disk *d){
     uint32_t cluster=d->cluster, remaining=d->size;
     uint32_t crc=0xffffffffu;
-    if(!cluster||remaining!=161280u)return 1;
+    if(!cluster||!supported_dsk_size(remaining))return 1;
     DISK_CACHE_RESET=0;
     while(remaining){
         for(uint8_t s=0;s<sectors_per_cluster&&remaining;++s){
@@ -477,7 +480,7 @@ static int load_disk_cache(const struct disk *d){
         }
         if(remaining&&next_cluster(cluster,&cluster))return 3;
     }
-    DISK_CACHE_COMMIT=1;
+    DISK_CACHE_COMMIT=d->size;
     disk_cache_crc32=~crc;
     return (DISK_CACHE_STATUS&1u)?0:4;
 }
@@ -495,8 +498,12 @@ static int disk_lba(const struct disk *d,uint32_t offset,uint32_t *lba){
 // block, merge the FDC staging buffer into the appropriate half, then CMD24
 // the exact original file block.  No FAT metadata changes are needed because
 // ZENIX.DSK already has a fixed size and allocation.
-static int flush_decb_sector(const struct disk *d,uint8_t track,uint8_t disk_sector){
-    uint32_t offset=((uint32_t)track*18u+(uint32_t)(disk_sector-1u))*256u, lba;
+static int flush_decb_sector(const struct disk *d,uint8_t track,uint8_t side,uint8_t disk_sector){
+    uint32_t tracks=d->size==737280u?80u:d->size==368640u?40u:35u;
+    uint32_t sides=d->size==161280u?1u:2u;
+    if(track>=tracks||side>=sides||disk_sector<1u||disk_sector>18u)return 1;
+    uint32_t offset=(((uint32_t)track*sides+side)*18u+
+                     (uint32_t)(disk_sector-1u))*256u, lba;
     uint16_t half=(uint16_t)(offset&256u);
     if(disk_sector<1||disk_sector>18||disk_lba(d,offset&~511u,&lba))return 1;
     if(read_sector(lba))return 2;
@@ -897,7 +904,8 @@ int main(void){
             seen_complete=(state>>11)&1u;}
         if(((state>>12)&1u)!=seen_write){
             uint32_t info=FDC_INFO;uint8_t drive=info&3u,disk_sector=(info>>8)&0xffu,track=(info>>16)&0xffu;
-            int ok=card_online&&error==0&&drive==0&&(present&1u)&&!flush_decb_sector(&mounted_disk,track,disk_sector);
+            uint8_t side=(info>>2)&1u;
+            int ok=card_online&&error==0&&drive==0&&(present&1u)&&!flush_decb_sector(&mounted_disk,track,side,disk_sector);
             puts(ok ? "FDC WRITE OK " : "FDC WRITE ERR ");hex(drive);putc(' ');hex(track);putc(' ');hex(disk_sector);puts("\r\n");
             FDC_WRITE_ACK=ok?1:0;seen_write=(state>>12)&1u;
         }
