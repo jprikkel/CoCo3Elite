@@ -17,7 +17,7 @@ try {
     $output = & (Join-Path $vivadoBin 'xsim.bat') manager_disk_geometry_sim -runall 2>&1
     $output | Write-Host
     if ($LASTEXITCODE -or ($output -join "`n") -notmatch
-        'PASS: 35-track, 40-track double-sided, and 80-track double-sided') {
+        'PASS: 35-track single-sided and 40-track double-sided image geometry') {
         throw 'Disk geometry simulation failed or did not finish'
     }
 } finally {

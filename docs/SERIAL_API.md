@@ -21,7 +21,8 @@ This document describes the protocol implemented by
   upper-case hexadecimal.
 
 The receive path belongs to the RV32 management firmware. The transmit pin is
-shared by management responses and the passive CoCo diagnostic trace. A host
+shared by management responses and the CoCo diagnostic trace. Repeating trace
+output is **off by default** and must be explicitly enabled. A host
 must therefore ignore unrelated lines while waiting for the expected response.
 Match complete prefixes such as `PONG`, `OK KEY`, or `STATUS PC=` instead of
 assuming that the next received line is the reply.
@@ -35,6 +36,10 @@ binary transfer so diagnostic text cannot be inserted into the frame payload.
 | --- | --- | --- |
 | `PING` | `PONG` | Check that the management processor is responsive. |
 | `STATUS` | `STATUS PC=.... I0=.. I1=.. VM=.. VR=..` | Read a compact CPU and GIME status snapshot. |
+| `TRACE SNAP` | `OK TRACE SNAP`, then one `PC=... Q=...` line | Request one complete diagnostic snapshot. |
+| `TRACE ON` | `OK TRACE ON` | Start one complete diagnostic snapshot per second. |
+| `TRACE OFF` | `OK TRACE OFF` | Stop repeating snapshots (the power-on default). |
+| `TRACE STATUS` | `TRACE ON` or `TRACE OFF` | Query whether repeating snapshots are enabled. |
 | `ROOT` | `OK ROOT` | Reset the SD browser's current directory to `/`. |
 | `RELEASE` | `OK RELEASE` | Release all serially injected keys and function keys. |
 | `RESET` | `OK RESET` | Release injected input and request a cold CoCo reset. |
@@ -85,6 +90,20 @@ The fields are:
 
 This is a snapshot, not an instruction trace. Software can advance between the
 individual hardware samples used to form the response.
+
+### Detailed trace and video-cache metadata
+
+`TRACE SNAP` returns a single detailed `PC=...` line; `TRACE ON` repeats that
+line once per second until `TRACE OFF`. Neither `STATUS` nor the default boot
+state enables repeating output. `RESET` disables it. The final `Q=` field is
+eight hexadecimal digits encoding `{miss_count[11:0], last_x[9:0],
+last_y[9:0]}` for the most recently completed HDMI frame. Positions refer to
+the GIME video-memory fetch, before the downstream RGB/narrow-mode delay.
+The count saturates at `FFF`; a zero count means no upper-SDRAM cache misses
+were observed in that frame. This is passive telemetry: it does not wait or
+change the fetched pixel. `scripts/capture_serial_debug.ps1` enables the
+repeating trace only for its capture interval and disables it on exit; use
+`-Passive` to observe without changing trace state.
 
 ### Reset the browser to `/`
 

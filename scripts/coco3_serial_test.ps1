@@ -1,6 +1,7 @@
 param(
     [string]$Port = 'COM5',
     [ValidateSet('Ping', 'Status', 'Reset', 'Release', 'TypeText',
+                 'TraceOn', 'TraceOff', 'TraceSnap', 'TraceStatus',
                  'BrowserRoot', 'KeyDown', 'KeyUp', 'FunctionKey')]
     [string]$Command = 'Ping',
     [string]$Text = '',
@@ -22,7 +23,7 @@ function Send-ManagerCommand {
     while ([DateTime]::UtcNow -lt $deadline) {
         try {
             $reply = $serial.ReadLine().Trim()
-            if ($reply -match '^(OK|ERR|PONG|STATUS)') {
+            if ($reply -match '^(OK|ERR|PONG|STATUS|TRACE)') {
                 Write-Host $reply
                 if ($reply -match '^ERR') { throw "Manager rejected '$Line': $reply" }
                 return $reply
@@ -58,6 +59,25 @@ try {
     switch ($Command) {
         'Ping'    { Send-ManagerCommand 'PING' | Out-Null }
         'Status'  { Send-ManagerCommand 'STATUS' | Out-Null }
+        'TraceOn' { Send-ManagerCommand 'TRACE ON' | Out-Null }
+        'TraceOff' { Send-ManagerCommand 'TRACE OFF' | Out-Null }
+        'TraceSnap' {
+            Send-ManagerCommand 'TRACE SNAP' | Out-Null
+            $deadline = [DateTime]::UtcNow.AddSeconds(5)
+            $found = $false
+            while ([DateTime]::UtcNow -lt $deadline) {
+                try {
+                    $line = $serial.ReadLine().Trim()
+                    if ($line -match '^PC=') {
+                        Write-Host $line
+                        $found = $true
+                        break
+                    }
+                } catch [System.TimeoutException] { }
+            }
+            if (-not $found) { throw 'No one-shot trace line received' }
+        }
+        'TraceStatus' { Send-ManagerCommand 'TRACE STATUS' | Out-Null }
         'Reset'   { Send-ManagerCommand 'RESET' | Out-Null }
         'Release' { Send-ManagerCommand 'RELEASE' | Out-Null }
         'BrowserRoot' { Send-ManagerCommand 'ROOT' | Out-Null }

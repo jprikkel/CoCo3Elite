@@ -6,8 +6,8 @@ param(
     [switch]$KeepIntermediates,
     [switch]$EmbeddedTestDisks,
     [switch]$NoCpuUartDebug,
-    # Normal builds keep lower 128 KiB in BRAM and share SDRAM between the
-    # upper 384 KiB and the SD-mounted floppy cache. Use -UseSdram:$false
+    # Normal builds keep lower 128 KiB and the 160 KiB disk in BRAM while
+    # upper 384 KiB uses SDRAM. Use -UseSdram:$false
     # only when deliberately testing the legacy all-BRAM configuration.
     [switch]$UseSdram = $true,
     [string]$Drive0Disk = 'disks\fpgatest.dsk',
@@ -46,7 +46,7 @@ if ($Mode -eq 'COCO3_ELITE') {
     $firmwareElf = Join-Path $firmwareDir 'rv32_sd_mount.elf'
     $firmwareBin = Join-Path $firmwareDir 'rv32_sd_mount.bin'
     & (Join-Path $PSScriptRoot 'build_decb_bin_loader.ps1') -OutputDirectory $firmwareDir
-    & $gcc '-march=rv32im_zicsr' '-mabi=ilp32' '-Os' '-ffreestanding' '-fno-builtin' '-nostdlib' `
+    & $gcc '-DWUKONG_BRAM_DISK' '-march=rv32im_zicsr' '-mabi=ilp32' '-Os' '-ffreestanding' '-fno-builtin' '-nostdlib' `
         '-Wl,--build-id=none' '-Wl,--gc-sections' '-T' (Join-Path $repoRoot 'firmware\management\rv32_tcm.ld') `
         '-I' $firmwareDir `
         (Join-Path $repoRoot 'firmware\management\rv32_start.S') `

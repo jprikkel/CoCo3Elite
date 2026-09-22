@@ -17,7 +17,7 @@ try {
     $output = & (Join-Path $vivadoBin 'xsim.bat') coco3_hybrid_512k_ram_sim -runall 2>&1
     $output | Write-Host
     if ($LASTEXITCODE -or ($output -join "`n") -notmatch
-        'PASS: shared SDRAM disk cache reaches the 720 KiB boundary') {
+        'PASS: shared SDRAM disk cache reaches the 360 KiB boundary') {
         throw 'Hybrid RAM simulation failed or did not reach its final PASS marker'
     }
 } finally {

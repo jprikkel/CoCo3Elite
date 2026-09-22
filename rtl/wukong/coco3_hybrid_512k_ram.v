@@ -28,6 +28,7 @@ module coco3_hybrid_512k_ram #(
     input  wire [19:0] video_address,
     input  wire        video_blank,
     output wire [15:0] video_read_data,
+    output wire        video_cache_miss,
     output reg         ready,
     output wire [31:0] debug_status,
 
@@ -261,6 +262,7 @@ module coco3_hybrid_512k_ram #(
     wire video_hit0 = video_valid0 && video_tag0 == video_address[17:8];
     wire video_hit1 = video_valid1 && video_tag1 == video_address[17:8];
     wire video_hit = video_hit0 || video_hit1;
+    assign video_cache_miss = ready && !video_bram_select && !video_hit;
     wire video_selected_buffer = video_hit1;
     wire [15:0] selected_video_word = video_selected_buffer
         ? video_buffer1[video_address[7:0]]

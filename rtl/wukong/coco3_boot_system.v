@@ -116,6 +116,8 @@ module coco3_boot_system #(
     wire manager_serial_keyboard_shift, manager_serial_keyboard_shift_override;
     wire [7:0] manager_serial_function_keys;
     wire manager_serial_cold_reset;
+    wire manager_serial_trace_enable;
+    wire manager_serial_trace_snapshot_toggle;
     wire [55:0] effective_keyboard_keys = keyboard_keys |
                                                 manager_serial_keyboard_keys;
     wire soft_reset_keys_held = effective_keyboard_keys[51] ||
@@ -200,6 +202,11 @@ module coco3_boot_system #(
                                         cartridge_boot_state == CART_BOOT_LAUNCH);
     wire machine_memory_ready;
     wire [31:0] machine_memory_debug_status;
+    wire video_cache_miss;
+    reg [19:0] previous_video_address;
+    reg [11:0] frame_video_miss_count;
+    reg [9:0] frame_last_miss_x, frame_last_miss_y;
+    reg [31:0] completed_video_miss_status;
     wire machine_reset = system_reset | cartridge_cold_reset |
                          !machine_memory_ready;
     // Keep the GIME stopped until the first HDMI alignment pulse after each
@@ -214,6 +221,36 @@ module coco3_boot_system #(
             video_raster_wait <= 1'b0;
     end
     wire video_core_reset = machine_reset | video_raster_wait;
+    // Passive per-frame diagnostic: count distinct upper-RAM video addresses
+    // requested before either line buffer contains their SDRAM block. The
+    // position is the HDMI raster at the GIME fetch, ahead of RGB pipeline
+    // delay. Keep a completed frame stable for the once-per-second UART trace.
+    always @(posedge pixel_clk) begin
+        if (reset) begin
+            previous_video_address <= 0;
+            frame_video_miss_count <= 0;
+            frame_last_miss_x <= 0;
+            frame_last_miss_y <= 0;
+            completed_video_miss_status <= 0;
+        end else begin
+            previous_video_address <= video_address;
+            if (screen_x == 0 && screen_y == 0) begin
+                completed_video_miss_status <= {frame_video_miss_count,
+                    frame_last_miss_x, frame_last_miss_y};
+                frame_video_miss_count <= 0;
+                frame_last_miss_x <= 0;
+                frame_last_miss_y <= 0;
+            end else if (!video_core_reset && !menu_active && !hblank &&
+                         !vblank && screen_x < 10'd640 &&
+                         screen_y < 10'd480 && video_cache_miss &&
+                         video_address != previous_video_address) begin
+                if (frame_video_miss_count != 12'hfff)
+                    frame_video_miss_count <= frame_video_miss_count + 1'b1;
+                frame_last_miss_x <= screen_x;
+                frame_last_miss_y <= screen_y;
+            end
+        end
+    end
     wire [10:0] manager_osd_char_address;
     wire [7:0] manager_osd_char_data;
     wire [11:0] manager_osd_preview_read_address;
@@ -290,6 +327,9 @@ module coco3_boot_system #(
         .serial_keyboard_shift_override(manager_serial_keyboard_shift_override),
         .serial_function_keys(manager_serial_function_keys),
         .serial_cold_reset(manager_serial_cold_reset),
+        .serial_trace_enable(manager_serial_trace_enable),
+        .serial_trace_snapshot_toggle(
+            manager_serial_trace_snapshot_toggle),
         .debug_cpu_pc(cpu_pc), .debug_gime_init0(debug_gime_init0),
         .debug_gime_init1(debug_gime_init1),
         .debug_video_mode(gime_video_mode),
@@ -533,6 +573,7 @@ module coco3_boot_system #(
         .memory_clock(memory_clk), .memory_reset(reset),
         .memory_ready(machine_memory_ready),
         .memory_debug_status(machine_memory_debug_status),
+        .video_cache_miss(video_cache_miss),
         .disk_cache_write(shared_disk_write),
         .disk_cache_write_address(shared_disk_write_address),
         .disk_cache_write_data(shared_disk_write_data),
@@ -640,6 +681,8 @@ module coco3_boot_system #(
 `ifdef COCO3_CPU_UART_DEBUG
     coco3_uart_debug uart_debug_i (
         .clock(pixel_clk), .reset(machine_reset), .cpu_address(cpu_address),
+        .trace_periodic_enable(manager_serial_trace_enable),
+        .trace_snapshot_toggle(manager_serial_trace_snapshot_toggle),
         .cpu_pc(cpu_pc),
         .cpu_vma(cpu_vma), .cpu_read(cpu_read),
         .cpu_read_data(cpu_read_data), .cpu_write_data(cpu_data),
@@ -651,6 +694,7 @@ module coco3_boot_system #(
         .gime_init0(debug_gime_init0), .gime_init1(debug_gime_init1),
         .memory_flags(debug_memory_flags), .mmu_state(debug_mmu),
         .sdram_debug_status(machine_memory_debug_status),
+        .video_cache_miss_status(completed_video_miss_status),
         .uart_tx_o(coco_uart_debug_tx)
     );
 `endif

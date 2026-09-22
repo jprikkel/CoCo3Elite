@@ -87,13 +87,12 @@ directory. The manager supports long filenames, subdirectories, and up to 32
 visible entries per directory. Supported raw image sizes are:
 
 - 161,280 bytes: 35 tracks, one side, 18 sectors per track;
-- 368,640 bytes: 40 tracks, two sides, 18 sectors per track;
-- 737,280 bytes: 80 tracks, two sides, 18 sectors per track.
+- 368,640 bytes: 40 tracks, two sides, 18 sectors per track.
 
 Each sector is 256 bytes. F12 mounts a selected image as drive 0; sector
 writes are flushed back into the existing FAT32 file. Drives 1-3 are not yet
 assignable from the browser. Use Up/Down to select, Enter to open a directory
-or mount an image, and Esc or F12 to close the menu. A 360/720 KB image may
+or mount an image, and Esc or F12 to close the menu. A 360 KB image may
 use a non-DECB filesystem or boot layout: mounting it does not imply that
 Disk Extended BASIC's `DIR 0` can list its contents.
 
@@ -213,10 +212,11 @@ worst timed path has non-negative slack. On success, it cleans large staging
 files unless `-KeepIntermediates` was supplied, while retaining the stable
 bitstream and reports under `build\wukong`.
 
-The normal build keeps the lower 128 KiB of CoCo RAM in BRAM and uses one
-shared SDRAM controller for the upper 384 KiB and the mounted floppy image.
-To compare against the legacy all-BRAM configuration, explicitly pass
-`-UseSdram:$false`; this does not support the larger SD-mounted images.
+The current regression-safe build keeps the lower 128 KiB of CoCo RAM and a
+160 KiB mounted disk image in BRAM. The upper 384 KiB of CoCo RAM uses SDRAM.
+The shared-SDRAM disk path is disabled pending hardware validation, so the
+browser temporarily offers only 160 KiB disk images. To compare against the
+legacy all-BRAM CoCo RAM configuration, explicitly pass `-UseSdram:$false`.
 
 Verify the expected output and record its digest:
 

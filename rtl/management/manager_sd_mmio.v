@@ -1,7 +1,10 @@
 `timescale 1ns/1ps
 `default_nettype none
 `ifdef WUKONG_HYBRID_512K
+`ifndef WUKONG_BRAM_DISK
 `define WUKONG_DISK_PREFETCH
+`define WUKONG_SHARED_DISK_CACHE
+`endif
 `endif
 `ifdef WUKONG_SDRAM
 `define WUKONG_DISK_PREFETCH
@@ -59,6 +62,8 @@ module manager_sd_mmio #(
     output reg serial_keyboard_shift, output reg serial_keyboard_shift_override,
     output reg [7:0] serial_function_keys,
     output reg serial_cold_reset,
+    output reg serial_trace_enable,
+    output reg serial_trace_snapshot_toggle,
     input wire [15:0] debug_cpu_pc,
     input wire [7:0] debug_gime_init0, input wire [7:0] debug_gime_init1,
     input wire [7:0] debug_video_mode, input wire [7:0] debug_video_resolution,
@@ -196,10 +201,8 @@ module manager_sd_mmio #(
     reg [1:0] disk_sector_done_sync;
     wire disk_sdram_ready;
     wire [31:0] disk_sdram_debug_status;
-    wire disk_double_sided = disk_cache_image_bytes == 20'd368640 ||
-                             disk_cache_image_bytes == 20'd737280;
-    wire [7:0] disk_track_count = disk_cache_image_bytes == 20'd737280
-                                   ? 8'd80 : disk_double_sided ? 8'd40 : 8'd35;
+    wire disk_double_sided = disk_cache_image_bytes == 20'd368640;
+    wire [7:0] disk_track_count = disk_double_sided ? 8'd40 : 8'd35;
     wire [11:0] disk_track_sector_base = disk_double_sided
         ? ({4'b0, fdc_track} << 5) + ({4'b0, fdc_track} << 2)
         : ({4'b0, fdc_track} << 4) + ({4'b0, fdc_track} << 1);
@@ -233,7 +236,7 @@ module manager_sd_mmio #(
     assign axi_arready = !axi_rvalid;
     assign axi_rresp = 2'b00;
 
-`ifdef WUKONG_HYBRID_512K
+`ifdef WUKONG_SHARED_DISK_CACHE
     wire disk_cache_accept_write = shared_disk_write_ready;
     wire disk_cache_commit_idle = shared_disk_write_idle;
 `else
@@ -258,13 +261,23 @@ module manager_sd_mmio #(
                                           ? disk_cache_fdc_address
                                           : disk_cache_debug_address;
 
+`ifdef WUKONG_SHARED_DISK_CACHE
     assign shared_disk_write = disk_cache_port_write;
     assign shared_disk_write_address = disk_cache_port_write_address;
     assign shared_disk_write_data = disk_cache_port_write_data;
     assign shared_disk_sector_request_toggle = disk_sector_request_toggle;
     assign shared_disk_sector_base_address = disk_sector_base_address;
+`else
+    // BRAM owns disk 0. Do not send duplicate writes or sector requests to
+    // the upper-RAM SDRAM controller; video/CPU retain its full bandwidth.
+    assign shared_disk_write = 1'b0;
+    assign shared_disk_write_address = 20'b0;
+    assign shared_disk_write_data = 8'b0;
+    assign shared_disk_sector_request_toggle = 1'b0;
+    assign shared_disk_sector_base_address = 20'b0;
+`endif
 
-`ifdef WUKONG_HYBRID_512K
+`ifdef WUKONG_SHARED_DISK_CACHE
     // Upper CoCo RAM and disk share the machine's single SDRAM controller.
     // The manager never drives a second set of external SDRAM pins.
     assign disk_cache_fdc_data = shared_disk_sector_read_data;
@@ -484,6 +497,8 @@ module manager_sd_mmio #(
             serial_keyboard_shift_override <= 1'b0;
             serial_function_keys <= 8'b0;
             serial_cold_reset <= 1'b0;
+            serial_trace_enable <= 1'b0;
+            serial_trace_snapshot_toggle <= 1'b0;
             uart_claim <= 1'b0;
             video_capture_request_toggle <= 1'b0;
             video_capture_stripe <= 3'b0;
@@ -613,8 +628,7 @@ module manager_sd_mmio #(
                         (write_data[19:0] == 20'd1 ||
                          write_data[19:0] == DISK_CACHE_BYTES ||
                          write_data[19:0] == 20'd161280 ||
-                         write_data[19:0] == 20'd368640 ||
-                         write_data[19:0] == 20'd737280) &&
+                         write_data[19:0] == 20'd368640) &&
                         disk_cache_write_address ==
                             (write_data[19:0] == 20'd1
                              ? DISK_CACHE_BYTES : write_data[19:0]) &&
@@ -686,6 +700,10 @@ module manager_sd_mmio #(
                     axi_bvalid <= 1'b1;
                 end else if (write_address == SERIAL_MACHINE_CONTROL) begin
                     serial_cold_reset <= write_data[0];
+                    serial_trace_enable <= write_data[2];
+                    if (write_data[3])
+                        serial_trace_snapshot_toggle <=
+                            ~serial_trace_snapshot_toggle;
                     if (write_data[1]) begin
                         serial_keyboard_keys <= 56'b0;
                         serial_keyboard_shift <= 1'b0;
@@ -903,5 +921,8 @@ endmodule
 
 `ifdef WUKONG_DISK_PREFETCH
 `undef WUKONG_DISK_PREFETCH
+`endif
+`ifdef WUKONG_SHARED_DISK_CACHE
+`undef WUKONG_SHARED_DISK_CACHE
 `endif
 `default_nettype wire

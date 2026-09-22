@@ -62,6 +62,7 @@ module coco3_boot_machine #(
     input  wire        video_vsync,
     input  wire [19:0] video_address,
     output wire [15:0] video_read_data,
+    output wire        video_cache_miss,
     output wire        memory_ready,
     output wire [31:0] memory_debug_status,
     input  wire        disk_cache_write,
@@ -712,7 +713,8 @@ module coco3_boot_machine #(
         .cpu_write_enable(cold_start_clear || ram_write),
         .cpu_read_data(ram_data), .cpu_wait(ram_cpu_wait),
         .video_address(video_address), .video_blank(video_hblank),
-        .video_read_data(video_read_data), .ready(memory_ready),
+        .video_read_data(video_read_data),
+        .video_cache_miss(video_cache_miss), .ready(memory_ready),
         .debug_status(memory_debug_status),
         .disk_cache_write(disk_cache_write),
         .disk_cache_write_address(disk_cache_write_address),
@@ -750,6 +752,7 @@ module coco3_boot_machine #(
         .sdram_bank(sdram_bank), .sdram_data(sdram_data)
     );
     assign ram_cpu_wait = 1'b0;
+    assign video_cache_miss = 1'b0;
     assign disk_cache_write_ready = 1'b0;
     assign disk_cache_write_idle = 1'b1;
     assign disk_sector_read_data = 8'b0;
@@ -764,6 +767,7 @@ module coco3_boot_machine #(
     );
     assign memory_ready = 1'b1;
     assign memory_debug_status = 32'b0;
+    assign video_cache_miss = 1'b0;
     assign sdram_clk = 1'b0;
     assign sdram_cke = 1'b0;
     assign sdram_cs_n = 1'b1;

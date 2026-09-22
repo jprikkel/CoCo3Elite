@@ -86,6 +86,10 @@ if {$mode eq "COCO3_ELITE"} {
     set coco3_defines {NEW_SRAM HDMI_TEST_PATTERN HDMI_LIBRARY_COCO HDMI_LIBRARY_AUDIO HDMI_RASTER_800X525}
     if {$use_sdram} {
         lappend coco3_defines WUKONG_HYBRID_512K
+        # Keep the proven 160 KiB disk image in BRAM while the CoCo's upper
+        # 384 KiB remains in SDRAM. Shared disk arbitration is not yet a
+        # reliable hardware path for sustained game loads.
+        lappend coco3_defines WUKONG_BRAM_DISK
     }
     set_property include_dirs [list [file join $repo_dir rtl third-party ultraembedded-riscv core riscv] $output_dir] [current_fileset]
     if {$embedded_test_disks} {

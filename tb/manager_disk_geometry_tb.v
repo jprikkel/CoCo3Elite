@@ -9,7 +9,7 @@ module manager_disk_geometry_tb;
     wire [7:0] fdc_data;
     always #20 clock = ~clock;
 
-    manager_sd_mmio #(.DISK_CACHE_BYTES(737280)) dut (
+    manager_sd_mmio #(.DISK_CACHE_BYTES(368640)) dut (
         .clock(clock), .memory_clock(clock), .reset(reset),
         .uart_rx(1'b1), .sd_miso(1'b1),
         .fdc_drive(2'd0), .fdc_side(side),
@@ -74,8 +74,7 @@ module manager_disk_geometry_tb;
         if (dut.disk_cache_fdc_valid)
             $fatal(1, "Accepted side 1 of a single-sided 161280-byte image");
         check_last_sector(20'd368640, 8'd39, 1'b1);
-        check_last_sector(20'd737280, 8'd79, 1'b1);
-        $display("PASS: 35-track, 40-track double-sided, and 80-track double-sided image geometry");
+        $display("PASS: 35-track single-sided and 40-track double-sided image geometry");
         $finish;
     end
 endmodule

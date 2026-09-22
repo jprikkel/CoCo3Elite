@@ -124,6 +124,7 @@ static uint32_t serial_key_lo,serial_key_hi;
 static uint8_t serial_shift,serial_shift_override,serial_function_keys;
 static char serial_command[64];
 static uint8_t serial_command_length;
+static uint8_t trace_enabled;
 
 struct browser_metadata {
     char title[48],description[128];
@@ -153,10 +154,24 @@ static void serial_execute_command(void){
     serial_command[serial_command_length]=0;
     if(equal(serial_command,"PING")){puts("PONG\r\n");}
     else if(equal(serial_command,"STATUS")){serial_reply_status();}
+    else if(equal(serial_command,"TRACE ON")){
+        trace_enabled=1u;SERIAL_MACHINE_CONTROL=4u;puts("OK TRACE ON\r\n");
+    }
+    else if(equal(serial_command,"TRACE OFF")){
+        trace_enabled=0u;SERIAL_MACHINE_CONTROL=0u;puts("OK TRACE OFF\r\n");
+    }
+    else if(equal(serial_command,"TRACE SNAP")){
+        puts("OK TRACE SNAP\r\n");
+        while(UART_STATUS&1u){}
+        SERIAL_MACHINE_CONTROL=(trace_enabled?4u:0u)|8u;
+    }
+    else if(equal(serial_command,"TRACE STATUS")){
+        puts(trace_enabled?"TRACE ON\r\n":"TRACE OFF\r\n");
+    }
     else if(equal(serial_command,"CAPTURE")){serial_capture_frame();}
     else if(equal(serial_command,"ROOT")){if(card_online)serial_browser_root();else puts("ERR NO SD\r\n");}
     else if(equal(serial_command,"RELEASE")){serial_release_all();puts("OK RELEASE\r\n");}
-    else if(equal(serial_command,"RESET")){serial_release_all();SERIAL_MACHINE_CONTROL=3u;puts("OK RESET\r\n");}
+    else if(equal(serial_command,"RESET")){serial_release_all();trace_enabled=0u;SERIAL_MACHINE_CONTROL=3u;puts("OK RESET\r\n");}
     else if(serial_command[0]=='K'&&(serial_command[1]=='D'||serial_command[1]=='U')&&serial_command[2]==' '&&parse_hex_byte(&serial_command[3],&value)&&value<56u){
         if(value<32u){if(serial_command[1]=='D')serial_key_lo|=1u<<value;else serial_key_lo&=~(1u<<value);}
         else {value=(uint8_t)(value-32u);if(serial_command[1]=='D')serial_key_hi|=1u<<value;else serial_key_hi&=~(1u<<value);}
@@ -316,7 +331,13 @@ static int is_dsk_name(const char *name){uint16_t n=0;while(name[n])n++;return n
 static int is_ccc_name(const char *name){uint16_t n=0;while(name[n])n++;return n>=4u&&name[n-4]=='.'&&((name[n-3]=='C'||name[n-3]=='c')&&(name[n-2]=='C'||name[n-2]=='c')&&(name[n-1]=='C'||name[n-1]=='c'));}
 static int is_bin_name(const char *name){uint16_t n=0;while(name[n])n++;return n>=4u&&name[n-4]=='.'&&((name[n-3]=='B'||name[n-3]=='b')&&(name[n-2]=='I'||name[n-2]=='i')&&(name[n-1]=='N'||name[n-1]=='n'));}
 static int supported_dsk_size(uint32_t size){
-    return size==161280u || size==368640u || size==737280u;
+#ifdef WUKONG_BRAM_DISK
+    // Match the proven 160 KiB dual-port BRAM image while the shared SDRAM
+    // disk path is under investigation; do not offer images we cannot mount.
+    return size==161280u;
+#else
+    return size==161280u || size==368640u;
+#endif
 }
 static void add_entry(const uint8_t *e,const char *name,uint8_t directory){uint8_t cartridge=!directory&&is_ccc_name(name),binary=!directory&&is_bin_name(name);uint32_t size=le32(&e[28]);if(browser_count>=MAX_DSK_FILES)return;if(!directory&&((!is_dsk_name(name)&&!cartridge&&!binary)||(is_dsk_name(name)&&!supported_dsk_size(size))||(cartridge&&size!=2048u&&size!=4096u&&size!=8192u)||(binary&&(size<5u||size>262144u))))return;struct browser_entry *b=&browser_entries[browser_count++];uint16_t n=0;while(name[n]&&n<MAX_NAME-1u){b->name[n]=name[n];n++;}b->name[n]=0;b->cluster=((uint32_t)le16(&e[20])<<16)|le16(&e[26]);b->size=size;b->directory=directory;b->parent=0;b->cartridge=cartridge;b->binary=binary;}
 static int scan_directory(uint32_t directory){uint32_t cluster=directory;browser_count=0;lfn_reset();if(directory!=root_cluster){struct browser_entry *b=&browser_entries[browser_count++];b->name[0]='.';b->name[1]='.';b->name[2]=0;b->cluster=parent_directory;b->size=0;b->directory=1;b->parent=1;}for(;;){for(uint8_t s=0;s<sectors_per_cluster;++s){if(read_sector(first_data_lba+(cluster-2u)*sectors_per_cluster+s))return 1;for(uint16_t o=0;o<512;o+=32){const uint8_t *e=&sector[o];if(!e[0])return 0;if(e[0]==0xe5){lfn_reset();continue;}if(e[11]==0x0f){lfn_part(e);continue;}if(e[11]&0x08){lfn_reset();continue;}char name[MAX_NAME];if(lfn_valid&&lfn_expected==0&&short_checksum(e)==lfn_checksum)lfn_text(name);else short_text(e,name);lfn_reset();/* Dot-prefixed directories are management data, not browser entries. */if((e[11]&0x10u)&&name[0]=='.')continue;add_entry(e,name,(e[11]&0x10u)!=0);}}if(next_cluster(cluster,&cluster))break;}return 0;}
@@ -499,7 +520,7 @@ static int disk_lba(const struct disk *d,uint32_t offset,uint32_t *lba){
 // the exact original file block.  No FAT metadata changes are needed because
 // ZENIX.DSK already has a fixed size and allocation.
 static int flush_decb_sector(const struct disk *d,uint8_t track,uint8_t side,uint8_t disk_sector){
-    uint32_t tracks=d->size==737280u?80u:d->size==368640u?40u:35u;
+    uint32_t tracks=d->size==368640u?40u:35u;
     uint32_t sides=d->size==161280u?1u:2u;
     if(track>=tracks||side>=sides||disk_sector<1u||disk_sector>18u)return 1;
     uint32_t offset=(((uint32_t)track*sides+side)*18u+

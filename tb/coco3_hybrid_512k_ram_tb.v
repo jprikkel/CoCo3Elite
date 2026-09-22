@@ -14,6 +14,7 @@ module coco3_hybrid_512k_ram_tb;
     reg [19:0] video_address = 20'h30000;
     reg video_blank = 1;
     wire [15:0] video_read_data;
+    wire video_cache_miss;
     wire ready;
     wire [31:0] debug_status;
     reg disk_cache_write = 0;
@@ -44,6 +45,7 @@ module coco3_hybrid_512k_ram_tb;
         .cpu_write_enable(cpu_write_enable), .cpu_read_data(cpu_read_data),
         .cpu_wait(cpu_wait), .video_address(video_address),
         .video_blank(video_blank), .video_read_data(video_read_data),
+        .video_cache_miss(video_cache_miss),
         .ready(ready), .debug_status(debug_status),
         .disk_cache_write(disk_cache_write),
         .disk_cache_write_address(disk_cache_write_address),
@@ -188,6 +190,13 @@ module coco3_hybrid_512k_ram_tb;
         repeat (2) @(posedge video_clock);
         if (video_read_data !== 16'hc33c)
             $fatal(1, "First line-buffer word is %04h", video_read_data);
+        // The restored arbitration schedule starts the adjacent block at
+        // offset 192, leaving the earlier half-block request disabled.
+        @(negedge video_clock);
+        video_address = 20'h001c0;
+        wait (dut.video_valid1 && dut.video_tag1 == 10'h002);
+        if (video_cache_miss)
+            $fatal(1, "Midpoint prefetch missed the current video word");
         @(negedge video_clock);
         video_address = 20'h001ff;
         repeat (2) @(posedge video_clock);
@@ -210,13 +219,13 @@ module coco3_hybrid_512k_ram_tb;
             $fatal(1, "CPU SDRAM wait-state counter did not advance");
 
         // Disk bytes occupy a disjoint SDRAM address region and survive
-        // concurrent upper-RAM traffic. The final 720 KiB sector probes the
-        // 20-bit disk address path that a 161 KiB cache would miss.
+        // concurrent upper-RAM traffic. The final 360 KiB sector probes the
+        // wider disk address path that a 161 KiB cache would miss.
         for (model_index = 0; model_index < 256; model_index = model_index + 1)
-            disk_write_byte(20'd737024 + model_index,
+            disk_write_byte(20'd368384 + model_index,
                             model_index[7:0] ^ 8'h5a);
         wait (disk_cache_write_idle);
-        disk_sector_base_address = 20'd737024;
+        disk_sector_base_address = 20'd368384;
         disk_sector_request_toggle = ~disk_sector_request_toggle;
         wait (disk_sector_done_toggle == disk_sector_request_toggle);
         disk_sector_read_address = 8'd0;
@@ -229,7 +238,7 @@ module coco3_hybrid_512k_ram_tb;
         #1;
         if (disk_sector_read_data !== 8'ha5)
             $fatal(1, "Disk byte255=%02h word=%04h writes=%0d fifo=%0d pending=%0d",
-                   disk_sector_read_data, memory[24'd368639], command_writes,
+                   disk_sector_read_data, memory[24'd184319], command_writes,
                    dut.disk_fifo_count, dut.disk_source_pending);
 
         // Exercise the complete CoCo directory sector, including the eighth
@@ -248,9 +257,9 @@ module coco3_hybrid_512k_ram_tb;
             @(posedge video_clock);
             #1;
             if (disk_sector_read_data !== (sector_byte[7:0] ^ 8'h93))
-                $fatal(1, "Directory sector byte %0d=%02h expected %02h",
-                       sector_byte, disk_sector_read_data,
-                       sector_byte[7:0] ^ 8'h93);
+                $fatal(1, "Directory sector byte %0d=%02h expected %02h after read clock",
+                        sector_byte, disk_sector_read_data,
+                        sector_byte[7:0] ^ 8'h93);
         end
         cpu_read(19'h01235, 8'ha5);
 
@@ -258,7 +267,7 @@ module coco3_hybrid_512k_ram_tb;
         $display("PASS: upper 384 KiB CPU accesses wait for SDRAM");
         $display("PASS: upper video uses a 256-word burst-prefetch buffer");
         $display("PASS: upper framebuffer writes update the active line cache");
-        $display("PASS: shared SDRAM disk cache reaches the 720 KiB boundary");
+        $display("PASS: shared SDRAM disk cache reaches the 360 KiB boundary");
         $display("PASS: every directory sector byte survives SDRAM prefetch");
         $finish;
     end
