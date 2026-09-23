@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="500" viewBox="0 0 980 500">
+  <style>
+    .title { font: 700 28px sans-serif; fill: #f0c060; }
+    .subtitle { font: 18px sans-serif; fill: #e8e8e8; }
+    .shell { fill: #20242a; stroke: #f0c060; stroke-width: 6; }
+    .pin { fill: #f0c060; stroke: #fff0b0; stroke-width: 3; }
+    .number { font: 700 17px sans-serif; fill: #111; text-anchor: middle; dominant-baseline: middle; }
+    .label { font: 700 18px sans-serif; fill: #f0c060; text-anchor: middle; }
+    .note { font: 17px sans-serif; fill: #e8e8e8; text-anchor: middle; }
+    .unused { fill: #68707b; stroke: #aab0b8; }
+  </style>
+  <rect width="980" height="500" fill="#101214"/>
+  <text x="490" y="45" class="title" text-anchor="middle">CoCo3 Elite digital joystick port</text>
+  <text x="490" y="75" class="subtitle" text-anchor="middle">Male DE-9 on the rear panel — viewed from outside, facing the pins</text>
+
+  <path class="shell" d="M205 110 H775 L730 355 H250 Z"/>
+
+  <g>
+    <circle class="pin" cx="315" cy="190" r="25"/><text class="number" x="315" y="190">1</text>
+    <circle class="pin" cx="402" cy="190" r="25"/><text class="number" x="402" y="190">2</text>
+    <circle class="pin" cx="490" cy="190" r="25"/><text class="number" x="490" y="190">3</text>
+    <circle class="pin" cx="578" cy="190" r="25"/><text class="number" x="578" y="190">4</text>
+    <circle class="pin unused" cx="665" cy="190" r="25"/><text class="number" x="665" y="190">5</text>
+    <text class="label" x="315" y="145">Up</text>
+    <text class="label" x="402" y="145">Down</text>
+    <text class="label" x="490" y="145">Left</text>
+    <text class="label" x="578" y="145">Right</text>
+    <text class="label" x="665" y="145">N/C</text>
+  </g>
+
+  <g>
+    <circle class="pin" cx="350" cy="285" r="25"/><text class="number" x="350" y="285">6</text>
+    <circle class="pin unused" cx="443" cy="285" r="25"/><text class="number" x="443" y="285">7</text>
+    <circle class="pin" cx="537" cy="285" r="25"/><text class="number" x="537" y="285">8</text>
+    <circle class="pin" cx="630" cy="285" r="25"/><text class="number" x="630" y="285">9</text>
+    <text class="label" x="350" y="335">Button 1</text>
+    <text class="label" x="443" y="335">N/C</text>
+    <text class="label" x="537" y="335">Ground</text>
+    <text class="label" x="630" y="335">Button 2</text>
+  </g>
+
+  <text x="490" y="415" class="note">Button 2 is a passive switch from pin 9 to pin 8.</text>
+  <text x="490" y="445" class="note">Pins 5 and 7 are not connected; no +5 V is supplied.</text>
+  <text x="490" y="475" class="note">Do not mirror this view when wiring the solder side of the connector.</text>
+</svg>

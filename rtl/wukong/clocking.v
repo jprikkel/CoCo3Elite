@@ -13,6 +13,7 @@ module wukong_clocking (
     wire clk_feedback_buffered;
     wire pixel_clk_unbuffered;
     wire serial_clk_unbuffered;
+    wire memory_clk_unbuffered;
     wire mmcm_locked;
 
     reg [7:0] startup_count = 8'h00;
@@ -42,6 +43,10 @@ module wukong_clocking (
         .CLKFBOUT_MULT_F(MMCM_MULT),
         .CLKOUT0_DIVIDE_F(PIXEL_DIV),
         .CLKOUT1_DIVIDE(SERIAL_DIV),
+        // The SDRAM's CAS2 data is sampled by FPGA fabric, not the HDMI
+        // serializer.  A 75 MHz memory clock gives the external DQ bus a
+        // substantially larger half-cycle setup window than 125 MHz.
+        .CLKOUT2_DIVIDE(10),
         .STARTUP_WAIT("FALSE")
     ) mmcm_i (
         .CLKIN1   (clk_in),
@@ -51,15 +56,14 @@ module wukong_clocking (
         .CLKFBOUT (clk_feedback),
         .CLKOUT0  (pixel_clk_unbuffered),
         .CLKOUT1  (serial_clk_unbuffered),
+        .CLKOUT2  (memory_clk_unbuffered),
         .LOCKED   (mmcm_locked)
     );
 
     BUFG feedback_bufg_i (.I(clk_feedback), .O(clk_feedback_buffered));
     BUFG pixel_bufg_i    (.I(pixel_clk_unbuffered), .O(pixel_clk));
     BUFG serial_bufg_i   (.I(serial_clk_unbuffered), .O(serial_clk));
-    // SDRAM shares the exact 5x pixel clock. Keeping this relationship
-    // synchronous preserves the fixed GIME fetch schedule.
-    assign memory_clk = serial_clk;
+    BUFG memory_bufg_i   (.I(memory_clk_unbuffered), .O(memory_clk));
 
     // Synchronize lock into the pixel domain and hold reset for 256 pixels.
     always @(posedge pixel_clk or negedge mmcm_locked) begin

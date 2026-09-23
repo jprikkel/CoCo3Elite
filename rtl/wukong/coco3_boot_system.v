@@ -9,6 +9,10 @@ module coco3_boot_system #(
     input wire raster_resync,
     input wire [9:0] screen_x, input wire [9:0] screen_y,
     input wire ps2_clk, input wire ps2_data,
+    input wire physical_joystick_up, input wire physical_joystick_down,
+    input wire physical_joystick_left, input wire physical_joystick_right,
+    input wire physical_joystick_button1,
+    input wire physical_joystick_button2,
     output wire sd_cs_n, output wire sd_sck, output wire sd_mosi,
     input wire sd_miso,
     output wire hsync, output wire vsync, output wire video_enable,
@@ -88,6 +92,7 @@ module coco3_boot_system #(
     wire keyboard_f10;
     wire keyboard_f12;
     reg [1:0] keyboard_f6_sync;
+    reg [1:0] keyboard_f7_sync;
     reg [1:0] keyboard_f10_sync;
     reg [1:0] keyboard_f8_sync;
     reg [1:0] keyboard_f9_sync;
@@ -96,12 +101,15 @@ module coco3_boot_system #(
     reg [1:0] keyboard_reset_sync;
     reg keyboard_reset_previous;
     reg keyboard_f6_previous;
+    reg keyboard_f7_previous;
     reg cpu_fast_mode;
     // F8 cycles keyboard joystick emulation: 0=off, 1=left, 2=right.
-    // A real CoCo exposes one fire input per joystick connector.  Space drives
-    // the selected connector's fire input; Ctrl drives the other connector's
-    // fire input so software that treats both lines as two buttons can use it.
+    // Space and Ctrl drive the selected CoCo 3 port's genuine Button 1 and
+    // Button 2 inputs, respectively.
     reg [1:0] keyboard_joystick_mode;
+    // F7 selects which CoCo joystick port receives the physical J10 stick.
+    // Reset defaults to the right port for compatibility with most games.
+    reg physical_joystick_right_port;
     reg artifact_enabled;
     reg keyboard_f10_previous;
     reg keyboard_f8_previous;
@@ -116,6 +124,8 @@ module coco3_boot_system #(
     wire manager_serial_keyboard_shift, manager_serial_keyboard_shift_override;
     wire [7:0] manager_serial_function_keys;
     wire manager_serial_cold_reset;
+    wire manager_serial_trace_enable;
+    wire manager_serial_trace_snapshot_toggle;
     wire [55:0] effective_keyboard_keys = keyboard_keys |
                                                 manager_serial_keyboard_keys;
     wire soft_reset_keys_held = effective_keyboard_keys[51] ||
@@ -141,24 +151,72 @@ module coco3_boot_system #(
     wire joystick_right_only = effective_keyboard_keys[30] && !effective_keyboard_keys[29];
     wire joystick_up_only = effective_keyboard_keys[27] && !effective_keyboard_keys[28];
     wire joystick_down_only = effective_keyboard_keys[28] && !effective_keyboard_keys[27];
-    wire [5:0] joystick_left_x = !keyboard_joystick_left ? 6'd32 :
-                                 joystick_left_only ? 6'd0 :
-                                 joystick_right_only ? 6'd63 : 6'd32;
-    wire [5:0] joystick_left_y = !keyboard_joystick_left ? 6'd32 :
-                                 joystick_up_only ? 6'd0 :
-                                 joystick_down_only ? 6'd63 : 6'd32;
-    wire [5:0] joystick_right_x = !keyboard_joystick_right ? 6'd32 :
-                                  joystick_left_only ? 6'd0 :
-                                  joystick_right_only ? 6'd63 : 6'd32;
-    wire [5:0] joystick_right_y = !keyboard_joystick_right ? 6'd32 :
-                                  joystick_up_only ? 6'd0 :
-                                  joystick_down_only ? 6'd63 : 6'd32;
+    // Gate J10 while the manager owns the display, then merge it with the
+    // optional F8 keyboard mapping. F7 independently assigns J10 to the left
+    // or right CoCo port. Opposing directions resolve to the centered value.
+    wire physical_joystick_enabled = !soft_reset_active && !menu_active;
+    wire physical_joystick_to_left =
+        physical_joystick_enabled && !physical_joystick_right_port;
+    wire physical_joystick_to_right =
+        physical_joystick_enabled && physical_joystick_right_port;
+    wire joystick_left_left =
+        (keyboard_joystick_left && joystick_left_only) ||
+        (physical_joystick_to_left && physical_joystick_left);
+    wire joystick_left_right =
+        (keyboard_joystick_left && joystick_right_only) ||
+        (physical_joystick_to_left && physical_joystick_right);
+    wire joystick_left_up =
+        (keyboard_joystick_left && joystick_up_only) ||
+        (physical_joystick_to_left && physical_joystick_up);
+    wire joystick_left_down =
+        (keyboard_joystick_left && joystick_down_only) ||
+        (physical_joystick_to_left && physical_joystick_down);
+    wire joystick_right_left =
+        (keyboard_joystick_right && joystick_left_only) ||
+        (physical_joystick_to_right && physical_joystick_left);
+    wire joystick_right_right =
+        (keyboard_joystick_right && joystick_right_only) ||
+        (physical_joystick_to_right && physical_joystick_right);
+    wire joystick_right_up =
+        (keyboard_joystick_right && joystick_up_only) ||
+        (physical_joystick_to_right && physical_joystick_up);
+    wire joystick_right_down =
+        (keyboard_joystick_right && joystick_down_only) ||
+        (physical_joystick_to_right && physical_joystick_down);
+    wire [5:0] joystick_left_x =
+        joystick_left_left && !joystick_left_right ? 6'd0 :
+        joystick_left_right && !joystick_left_left ? 6'd63 : 6'd32;
+    wire [5:0] joystick_left_y =
+        joystick_left_up && !joystick_left_down ? 6'd0 :
+        joystick_left_down && !joystick_left_up ? 6'd63 : 6'd32;
+    wire [5:0] joystick_right_x =
+        joystick_right_left && !joystick_right_right ? 6'd0 :
+        joystick_right_right && !joystick_right_left ? 6'd63 : 6'd32;
+    wire [5:0] joystick_right_y =
+        joystick_right_up && !joystick_right_down ? 6'd0 :
+        joystick_right_down && !joystick_right_up ? 6'd63 : 6'd32;
+    // The CoCo 3 adds a distinct second button to each six-pin joystick port.
+    // F7 therefore moves both J10 buttons together without borrowing either
+    // button input from the unselected port.
     wire joystick_left_fire =
         (keyboard_joystick_left && effective_keyboard_keys[31]) ||
-        (keyboard_joystick_right && effective_keyboard_keys[52]);
+        (physical_joystick_to_left && physical_joystick_button1);
+    wire joystick_left_fire2 =
+        (keyboard_joystick_left && effective_keyboard_keys[52]) ||
+        (physical_joystick_to_left && physical_joystick_button2);
     wire joystick_right_fire =
         (keyboard_joystick_right && effective_keyboard_keys[31]) ||
-        (keyboard_joystick_left && effective_keyboard_keys[52]);
+        (physical_joystick_to_right && physical_joystick_button1);
+    wire joystick_right_fire2 =
+        (keyboard_joystick_right && effective_keyboard_keys[52]) ||
+        (physical_joystick_to_right && physical_joystick_button2);
+    // J=PBBDLRU in the UART trace: P is 1 for right/0 for left, followed by
+    // button 2, button 1, and the four active-high contact states.
+    wire [6:0] physical_joystick_debug =
+        {physical_joystick_right_port, physical_joystick_button2,
+         physical_joystick_button1, physical_joystick_right,
+         physical_joystick_left, physical_joystick_down,
+         physical_joystick_up};
     // The manager owns the SD pins and filesystem.  The CoCo sees only a
     // WD1773-like sector service, preserving Disk BASIC's normal protocol.
     wire manager_uart_tx, manager_uart_busy, manager_uart_claim;
@@ -166,6 +224,7 @@ module coco3_boot_system #(
     wire manager_write_done_toggle, manager_write_success;
     wire [2:0] manager_drive_present;
     wire [1:0] manager_fdc_drive;
+    wire manager_fdc_side;
     wire [7:0] manager_fdc_track, manager_fdc_sector, manager_fdc_last_type1, manager_fdc_data,
                manager_fdc_data_address;
     wire [31:0] manager_fdc_debug_word;
@@ -199,6 +258,11 @@ module coco3_boot_system #(
                                         cartridge_boot_state == CART_BOOT_LAUNCH);
     wire machine_memory_ready;
     wire [31:0] machine_memory_debug_status;
+    wire video_cache_miss;
+    reg [19:0] previous_video_address;
+    reg [11:0] frame_video_miss_count;
+    reg [9:0] frame_last_miss_x, frame_last_miss_y;
+    reg [31:0] completed_video_miss_status;
     wire machine_reset = system_reset | cartridge_cold_reset |
                          !machine_memory_ready;
     // Keep the GIME stopped until the first HDMI alignment pulse after each
@@ -213,6 +277,36 @@ module coco3_boot_system #(
             video_raster_wait <= 1'b0;
     end
     wire video_core_reset = machine_reset | video_raster_wait;
+    // Passive per-frame diagnostic: count distinct upper-RAM video addresses
+    // requested before either line buffer contains their SDRAM block. The
+    // position is the HDMI raster at the GIME fetch, ahead of RGB pipeline
+    // delay. Keep a completed frame stable for the once-per-second UART trace.
+    always @(posedge pixel_clk) begin
+        if (reset) begin
+            previous_video_address <= 0;
+            frame_video_miss_count <= 0;
+            frame_last_miss_x <= 0;
+            frame_last_miss_y <= 0;
+            completed_video_miss_status <= 0;
+        end else begin
+            previous_video_address <= video_address;
+            if (screen_x == 0 && screen_y == 0) begin
+                completed_video_miss_status <= {frame_video_miss_count,
+                    frame_last_miss_x, frame_last_miss_y};
+                frame_video_miss_count <= 0;
+                frame_last_miss_x <= 0;
+                frame_last_miss_y <= 0;
+            end else if (!video_core_reset && !menu_active && !hblank &&
+                         !vblank && screen_x < 10'd640 &&
+                         screen_y < 10'd480 && video_cache_miss &&
+                         video_address != previous_video_address) begin
+                if (frame_video_miss_count != 12'hfff)
+                    frame_video_miss_count <= frame_video_miss_count + 1'b1;
+                frame_last_miss_x <= screen_x;
+                frame_last_miss_y <= screen_y;
+            end
+        end
+    end
     wire [10:0] manager_osd_char_address;
     wire [7:0] manager_osd_char_data;
     wire [11:0] manager_osd_preview_read_address;
@@ -236,13 +330,31 @@ module coco3_boot_system #(
     wire [7:0] sd_status = {4'b1010, manager_ready, manager_drive_present};
     wire [7:0] sd_detail = {5'b0, manager_drive_present};
     wire coco_uart_debug_tx;
+    wire machine_sdram_clk, machine_sdram_cke, machine_sdram_cs_n;
+    wire machine_sdram_ras_n, machine_sdram_cas_n, machine_sdram_we_n;
+    wire [1:0] machine_sdram_dqm;
+    wire [12:0] machine_sdram_address;
+    wire [1:0] machine_sdram_bank;
+    wire [15:0] machine_sdram_data;
+    wire manager_sdram_clk, manager_sdram_cke, manager_sdram_cs_n;
+    wire manager_sdram_ras_n, manager_sdram_cas_n, manager_sdram_we_n;
+    wire [1:0] manager_sdram_dqm;
+    wire [12:0] manager_sdram_address;
+    wire [1:0] manager_sdram_bank;
+    wire [15:0] manager_sdram_data;
+    wire shared_disk_write, shared_disk_write_ready, shared_disk_write_idle;
+    wire [19:0] shared_disk_write_address, shared_disk_sector_base_address;
+    wire [7:0] shared_disk_write_data, shared_disk_sector_read_data;
+    wire shared_disk_sector_request_toggle, shared_disk_sector_done_toggle;
 
     ultraembedded_manager_sd_mount manager_i (
-        .clock(pixel_clk), .reset(reset), .uart_tx(manager_uart_tx), .uart_busy(manager_uart_busy),
+        .clock(pixel_clk), .memory_clock(memory_clk), .reset(reset),
+        .uart_tx(manager_uart_tx), .uart_busy(manager_uart_busy),
         .uart_claim(manager_uart_claim),
         .uart_rx(uart_rx),
         .sd_cs_n(sd_cs_n), .sd_sck(sd_sck), .sd_mosi(sd_mosi), .sd_miso(sd_miso),
-        .fdc_drive(manager_fdc_drive), .fdc_track(manager_fdc_track),
+        .fdc_drive(manager_fdc_drive), .fdc_side(manager_fdc_side),
+        .fdc_track(manager_fdc_track),
         .fdc_sector(manager_fdc_sector), .fdc_request_toggle(manager_fdc_request_toggle),
         .fdc_last_type1(manager_fdc_last_type1),
         .fdc_debug_word(manager_fdc_debug_word), .fdc_read_complete_toggle(manager_fdc_read_complete_toggle),
@@ -271,6 +383,9 @@ module coco3_boot_system #(
         .serial_keyboard_shift_override(manager_serial_keyboard_shift_override),
         .serial_function_keys(manager_serial_function_keys),
         .serial_cold_reset(manager_serial_cold_reset),
+        .serial_trace_enable(manager_serial_trace_enable),
+        .serial_trace_snapshot_toggle(
+            manager_serial_trace_snapshot_toggle),
         .debug_cpu_pc(cpu_pc), .debug_gime_init0(debug_gime_init0),
         .debug_gime_init1(debug_gime_init1),
         .debug_video_mode(gime_video_mode),
@@ -292,8 +407,59 @@ module coco3_boot_system #(
         .bin_fifo_available(manager_bin_fifo_available),
         .bin_transfer_active(manager_bin_transfer_active),
         .bin_transfer_complete(manager_bin_transfer_complete),
-        .bin_transfer_error(manager_bin_transfer_error)
+        .bin_transfer_error(manager_bin_transfer_error),
+        .shared_disk_write(shared_disk_write),
+        .shared_disk_write_address(shared_disk_write_address),
+        .shared_disk_write_data(shared_disk_write_data),
+        .shared_disk_write_ready(shared_disk_write_ready),
+        .shared_disk_write_idle(shared_disk_write_idle),
+        .shared_disk_sector_request_toggle(shared_disk_sector_request_toggle),
+        .shared_disk_sector_base_address(shared_disk_sector_base_address),
+        .shared_disk_sector_read_data(shared_disk_sector_read_data),
+        .shared_disk_sector_done_toggle(shared_disk_sector_done_toggle),
+        .shared_disk_ready(machine_memory_ready),
+        .sdram_clk(manager_sdram_clk), .sdram_cke(manager_sdram_cke),
+        .sdram_cs_n(manager_sdram_cs_n),
+        .sdram_ras_n(manager_sdram_ras_n),
+        .sdram_cas_n(manager_sdram_cas_n),
+        .sdram_we_n(manager_sdram_we_n),
+        .sdram_dqm(manager_sdram_dqm),
+        .sdram_address(manager_sdram_address),
+        .sdram_bank(manager_sdram_bank),
+        .sdram_data(manager_sdram_data)
     );
+
+`ifdef WUKONG_HYBRID_512K
+    // One controller arbitrates upper CoCo RAM, video prefetch and disk cache.
+    // The manager never drives the board SDRAM pins directly in this build.
+    assign sdram_clk = machine_sdram_clk;
+    assign sdram_cke = machine_sdram_cke;
+    assign sdram_cs_n = machine_sdram_cs_n;
+    assign sdram_ras_n = machine_sdram_ras_n;
+    assign sdram_cas_n = machine_sdram_cas_n;
+    assign sdram_we_n = machine_sdram_we_n;
+    assign sdram_dqm = machine_sdram_dqm;
+    assign sdram_address = machine_sdram_address;
+    assign sdram_bank = machine_sdram_bank;
+`else
+    assign sdram_clk = manager_sdram_clk;
+    assign sdram_cke = manager_sdram_cke;
+    assign sdram_cs_n = manager_sdram_cs_n;
+    assign sdram_ras_n = manager_sdram_ras_n;
+    assign sdram_cas_n = manager_sdram_cas_n;
+    assign sdram_we_n = manager_sdram_we_n;
+    assign sdram_dqm = manager_sdram_dqm;
+    assign sdram_address = manager_sdram_address;
+    assign sdram_bank = manager_sdram_bank;
+`ifdef COCO3_BOOT_SIM
+    // The boot regression does not exercise external SDRAM. Avoid Vivado
+    // Simulator's unsupported bidirectional tran primitive in this one model.
+    assign manager_sdram_data = 16'hzzzz;
+    assign sdram_data = 16'hzzzz;
+`else
+    tran manager_sdram_bus[15:0](sdram_data, manager_sdram_data);
+`endif
+`endif
 
     // The SD manager intentionally survives both Ctrl-Alt-Delete and a
     // cartridge power cycle, preserving mounted disks and dirty-cache
@@ -391,6 +557,7 @@ module coco3_boot_system #(
     always @(posedge pixel_clk) begin
         if (reset) begin
             keyboard_f6_sync <= 2'b00;
+            keyboard_f7_sync <= 2'b00;
             keyboard_f11_sync <= 2'b00;
             keyboard_f12_sync <= 2'b00;
             keyboard_f10_sync <= 2'b00;
@@ -399,8 +566,10 @@ module coco3_boot_system #(
             keyboard_reset_sync <= 2'b00;
             keyboard_reset_previous <= 1'b0;
             keyboard_f6_previous <= 1'b0;
+            keyboard_f7_previous <= 1'b0;
             cpu_fast_mode <= 1'b0;
             keyboard_joystick_mode <= 2'd0;
+            physical_joystick_right_port <= 1'b1;
             artifact_enabled <= 1'b1;
             keyboard_f10_previous <= 1'b0;
             keyboard_f8_previous <= 1'b0;
@@ -408,6 +577,7 @@ module coco3_boot_system #(
             scanlines_enabled <= 1'b0;
         end else begin
             keyboard_f6_sync <= {keyboard_f6_sync[0], keyboard_f6 | manager_serial_function_keys[1]};
+            keyboard_f7_sync <= {keyboard_f7_sync[0], keyboard_f7 | manager_serial_function_keys[2]};
             keyboard_f11_sync <= {keyboard_f11_sync[0], keyboard_f11 | manager_serial_function_keys[6]};
             keyboard_f12_sync <= {keyboard_f12_sync[0], keyboard_f12 | manager_serial_function_keys[7]};
             keyboard_f10_sync <= {keyboard_f10_sync[0], keyboard_f10 | manager_serial_function_keys[5]};
@@ -416,6 +586,7 @@ module coco3_boot_system #(
             keyboard_reset_sync <= {keyboard_reset_sync[0], keyboard_reset};
             keyboard_reset_previous <= keyboard_reset_sync[1];
             keyboard_f6_previous <= keyboard_f6_sync[1];
+            keyboard_f7_previous <= keyboard_f7_sync[1];
             keyboard_f10_previous <= keyboard_f10_sync[1];
             keyboard_f8_previous <= keyboard_f8_sync[1];
             keyboard_f9_previous <= keyboard_f9_sync[1];
@@ -425,6 +596,8 @@ module coco3_boot_system #(
                 artifact_enabled <= ~artifact_enabled;
             if (keyboard_f6_sync[1] && !keyboard_f6_previous)
                 cpu_fast_mode <= ~cpu_fast_mode;
+            if (keyboard_f7_sync[1] && !keyboard_f7_previous)
+                physical_joystick_right_port <= ~physical_joystick_right_port;
             if (keyboard_f8_sync[1] && !keyboard_f8_previous)
                 keyboard_joystick_mode <= keyboard_joystick_mode == 2'd2
                     ? 2'd0 : keyboard_joystick_mode + 1'b1;
@@ -470,11 +643,30 @@ module coco3_boot_system #(
         .memory_clock(memory_clk), .memory_reset(reset),
         .memory_ready(machine_memory_ready),
         .memory_debug_status(machine_memory_debug_status),
-        .sdram_clk(sdram_clk), .sdram_cke(sdram_cke),
-        .sdram_cs_n(sdram_cs_n), .sdram_ras_n(sdram_ras_n),
-        .sdram_cas_n(sdram_cas_n), .sdram_we_n(sdram_we_n),
-        .sdram_dqm(sdram_dqm), .sdram_address(sdram_address),
-        .sdram_bank(sdram_bank), .sdram_data(sdram_data),
+        .video_cache_miss(video_cache_miss),
+        .disk_cache_write(shared_disk_write),
+        .disk_cache_write_address(shared_disk_write_address),
+        .disk_cache_write_data(shared_disk_write_data),
+        .disk_cache_write_ready(shared_disk_write_ready),
+        .disk_cache_write_idle(shared_disk_write_idle),
+        .disk_sector_request_toggle(shared_disk_sector_request_toggle),
+        .disk_sector_base_address(shared_disk_sector_base_address),
+        .disk_sector_read_address(manager_fdc_data_address),
+        .disk_sector_read_data(shared_disk_sector_read_data),
+        .disk_sector_done_toggle(shared_disk_sector_done_toggle),
+        .sdram_clk(machine_sdram_clk), .sdram_cke(machine_sdram_cke),
+        .sdram_cs_n(machine_sdram_cs_n),
+        .sdram_ras_n(machine_sdram_ras_n),
+        .sdram_cas_n(machine_sdram_cas_n),
+        .sdram_we_n(machine_sdram_we_n),
+        .sdram_dqm(machine_sdram_dqm),
+        .sdram_address(machine_sdram_address),
+        .sdram_bank(machine_sdram_bank),
+`ifdef WUKONG_HYBRID_512K
+        .sdram_data(sdram_data),
+`else
+        .sdram_data(machine_sdram_data),
+`endif
         .debug_address(cpu_address),
         .debug_pc(cpu_pc),
         .cpu_fast_mode(cpu_fast_mode),
@@ -507,15 +699,18 @@ module coco3_boot_system #(
         .joystick_left_x(joystick_left_x),
         .joystick_left_y(joystick_left_y),
         .joystick_left_fire(joystick_left_fire),
+        .joystick_left_fire2(joystick_left_fire2),
         .joystick_right_x(joystick_right_x),
         .joystick_right_y(joystick_right_y),
         .joystick_right_fire(joystick_right_fire),
+        .joystick_right_fire2(joystick_right_fire2),
         .sd_status(sd_status), .sd_detail(sd_detail),
         .sd_drive_present(manager_drive_present),
         .sd_fdc_done_toggle(manager_done_toggle), .sd_fdc_success(manager_success),
         .sd_fdc_write_done_toggle(manager_write_done_toggle), .sd_fdc_write_success(manager_write_success),
         .sd_fdc_data(manager_fdc_data), .sd_fdc_buffer_address(manager_fdc_data_address),
-        .sd_fdc_drive(manager_fdc_drive), .sd_fdc_track(manager_fdc_track),
+        .sd_fdc_drive(manager_fdc_drive), .sd_fdc_side(manager_fdc_side),
+        .sd_fdc_track(manager_fdc_track),
         .sd_fdc_sector(manager_fdc_sector), .sd_fdc_last_type1(manager_fdc_last_type1),
         .sd_fdc_debug_word(manager_fdc_debug_word), .sd_fdc_read_complete_toggle(manager_fdc_read_complete_toggle), .sd_fdc_request_toggle(manager_fdc_request_toggle),
         .sd_fdc_completed_debug_word(manager_fdc_completed_debug_word),
@@ -529,7 +724,7 @@ module coco3_boot_system #(
         // while the video core is held in reset as blanking so accumulated
         // refreshes are serviced instead of waiting for emergency debt.
         .video_hsync(raw_hsync),
-        .video_hblank(hblank | machine_reset),
+        .video_hblank(hblank | vblank | machine_reset),
         .pia_hsync(raw_hsync | ~sync_flag),
         .video_vsync(raw_vsync),
         .video_address(video_address), .video_read_data(video_data),
@@ -558,6 +753,8 @@ module coco3_boot_system #(
 `ifdef COCO3_CPU_UART_DEBUG
     coco3_uart_debug uart_debug_i (
         .clock(pixel_clk), .reset(machine_reset), .cpu_address(cpu_address),
+        .trace_periodic_enable(manager_serial_trace_enable),
+        .trace_snapshot_toggle(manager_serial_trace_snapshot_toggle),
         .cpu_pc(cpu_pc),
         .cpu_vma(cpu_vma), .cpu_read(cpu_read),
         .cpu_read_data(cpu_read_data), .cpu_write_data(cpu_data),
@@ -569,6 +766,8 @@ module coco3_boot_system #(
         .gime_init0(debug_gime_init0), .gime_init1(debug_gime_init1),
         .memory_flags(debug_memory_flags), .mmu_state(debug_mmu),
         .sdram_debug_status(machine_memory_debug_status),
+        .video_cache_miss_status(completed_video_miss_status),
+        .physical_joystick_state(physical_joystick_debug),
         .uart_tx_o(coco_uart_debug_tx)
     );
 `endif

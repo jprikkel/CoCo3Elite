@@ -68,10 +68,24 @@ J13 is assigned to the external Digilent Pmod MicroSD: pin 1 chip select,
 pin 2 MOSI, pin 3 MISO, and pin 4 SPI clock. The current MicroSD path supports
 initialization and sector-zero reads only; FAT32 DSK mounting is not implemented.
 
-Reserve connector assignments for audio, joysticks, and I2C only when those
-interfaces are implemented. Record each allocation here to prevent pin
-conflicts between hardware milestones.
+J10 is assigned to one direct Atari/C64-style digital joystick:
 
-J10 is proposed for a MAX3421E USB host adapter (SPI, INT, RES, VBUS enable,
-and overcurrent). This allocation is not enabled in the current top level;
-see [USB host wiring and FPGA prototype](pmod-usb-host-interface.md) before using it.
+| J10 pin | FPGA pin | Function |
+| ---: | --- | --- |
+| 1 | D5 | Up, active low |
+| 2 | G5 | Down, active low |
+| 3 | G7 | Left, active low |
+| 4 | G8 | Right, active low |
+| 7 | E5 | Button 1, active low |
+| 8 | E6 | Button 2, active low |
+| 9 | D6 | Reserved |
+| 10 | G6 | Reserved |
+
+J10 defaults to the right CoCo joystick port. F7 moves the complete physical
+joystick, including both genuine CoCo 3 button inputs, between the right and
+left CoCo ports. Button 2 does not consume the other port's Button 1 input.
+
+See the [digital joystick interface](pmod-atari-joystick-digital-interface.md)
+for the DE-9 pinout and electrical restrictions. The earlier MAX3421E USB
+proposal must move to another connector or use a future shared adapter; it is
+not compatible with the active J10 assignment.

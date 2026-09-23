@@ -37,6 +37,7 @@ $verilogSources=@($managerCpuSources)+(@('rtl/third-party/PS2_Key/ps2_keyboard.v
  'rtl/core/coco3_fdc.v','rtl/core/coco3_gime_timer.v','rtl/core/coco3_gime_interrupt.v','rtl/core/coco3_boot_machine.v',
  'rtl/wukong/uart_tx.v','rtl/wukong/uart_rx.v','rtl/wukong/coco3_uart_debug.v','rtl/wukong/ntsc_artifact_filter.v',
  'rtl/wukong/crt_filter.v','rtl/wukong/video_frame_capture.v',
+ 'rtl/wukong/pmod_atari_joystick.v',
  'rtl/wukong/coco3_boot_system.v') | ForEach-Object {Join-Path $repoRoot $_})
 $systemVerilogSources=@((Join-Path $repoRoot 'rtl/wukong/wukong_top.v'),
  (Join-Path $repoRoot 'tb/hdmi_window_tb.sv'))

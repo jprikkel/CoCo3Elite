@@ -82,19 +82,19 @@ read-only fallback.
 ### FAT32 SD-card disks
 
 Format an SD card as FAT32, either as a FAT32 superfloppy or with FAT32 in the
-first MBR partition. Copy headerless CoCo DSK files into its root directory.
-The current manager supports:
+first MBR partition. Copy headerless CoCo DSK files into any browsable
+directory. The manager supports long filenames, subdirectories, and up to 32
+visible entries per directory. Supported raw image sizes are:
 
-- DOS 8.3 names ending in `.DSK`;
-- exactly 161,280 bytes per image;
-- 35 tracks, 18 sectors per track, and 256 bytes per sector;
-- up to 16 root-directory DSK entries;
-- drive 0 mounting through the F12 browser;
-- sector writes flushed back into the existing mounted FAT32 file.
+- 161,280 bytes: 35 tracks, one side, 18 sectors per track;
+- 368,640 bytes: 40 tracks, two sides, 18 sectors per track.
 
-Long filenames, subdirectories, other geometries, and assigning drives 1-3
-are not yet supported. Use F12 after boot, Up/Down to select a file, Enter to
-mount it as drive 0, and Esc or F12 to close the menu.
+Each sector is 256 bytes. F12 mounts a selected image as drive 0; sector
+writes are flushed back into the existing FAT32 file. Drives 1-3 are not yet
+assignable from the browser. Use Up/Down to select, Enter to open a directory
+or mount an image, and Esc or F12 to close the menu. A 360 KB image may
+use a non-DECB filesystem or boot layout: mounting it does not imply that
+Disk Extended BASIC's `DIR 0` can list its contents.
 
 An existing valid DSK can simply be copied to the card. To create a blank
 35-track image and add files with ToolShed:
@@ -212,6 +212,12 @@ worst timed path has non-negative slack. On success, it cleans large staging
 files unless `-KeepIntermediates` was supplied, while retaining the stable
 bitstream and reports under `build\wukong`.
 
+The current regression-safe build keeps the lower 128 KiB of CoCo RAM and a
+160 KiB mounted disk image in BRAM. The upper 384 KiB of CoCo RAM uses SDRAM.
+The shared-SDRAM disk path is disabled pending hardware validation, so the
+browser temporarily offers only 160 KiB disk images. To compare against the
+legacy all-BRAM CoCo RAM configuration, explicitly pass `-UseSdram:$false`.
+
 Verify the expected output and record its digest:
 
 ```powershell
@@ -237,6 +243,8 @@ to a full image:
 & .\scripts\test_fdc_manager_integration.ps1
 & .\scripts\test_fdc_sd_write.ps1
 & .\scripts\test_manager_sd_mmio.ps1
+& .\scripts\test_coco3_hybrid_512k_ram.ps1
+& .\scripts\test_manager_disk_geometry.ps1
 & .\scripts\test_boot_video.ps1
 & .\scripts\test_hdmi_window.ps1
 ```

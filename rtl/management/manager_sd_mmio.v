@@ -1,5 +1,14 @@
 `timescale 1ns/1ps
 `default_nettype none
+`ifdef WUKONG_HYBRID_512K
+`ifndef WUKONG_BRAM_DISK
+`define WUKONG_DISK_PREFETCH
+`define WUKONG_SHARED_DISK_CACHE
+`endif
+`endif
+`ifdef WUKONG_SDRAM
+`define WUKONG_DISK_PREFETCH
+`endif
 
 // Project-owned AXI-Lite peripheral for the manager firmware smoke test.
 // 0x80000000 UART byte write; 0x80000004 UART TX busy (bit 0).
@@ -16,7 +25,7 @@ module manager_sd_mmio #(
     parameter integer UART_CLKS_PER_BIT = 434,
     parameter integer DISK_CACHE_BYTES = 161280
 ) (
-    input wire clock, input wire reset,
+    input wire clock, input wire memory_clock, input wire reset,
     input wire axi_awvalid, output wire axi_awready, input wire [31:0] axi_awaddr,
     input wire axi_wvalid, output wire axi_wready, input wire [31:0] axi_wdata,
     input wire [3:0] axi_wstrb, output reg axi_bvalid, input wire axi_bready,
@@ -28,7 +37,8 @@ module manager_sd_mmio #(
     output reg uart_claim,
     output reg sd_cs_n, output reg sd_sck, output reg sd_mosi,
     input wire sd_miso,
-    input wire [1:0] fdc_drive, input wire [7:0] fdc_track,
+    input wire [1:0] fdc_drive, input wire fdc_side,
+    input wire [7:0] fdc_track,
     input wire [7:0] fdc_sector, input wire [7:0] fdc_last_type1, input wire [31:0] fdc_debug_word, input wire [31:0] fdc_completed_debug_word, input wire fdc_read_complete_toggle, input wire fdc_write_complete_toggle, input wire fdc_request_toggle,
     input wire [7:0] fdc_buffer_address, output wire [7:0] fdc_buffer_data,
     input wire fdc_write_strobe, input wire [7:0] fdc_write_data,
@@ -52,6 +62,8 @@ module manager_sd_mmio #(
     output reg serial_keyboard_shift, output reg serial_keyboard_shift_override,
     output reg [7:0] serial_function_keys,
     output reg serial_cold_reset,
+    output reg serial_trace_enable,
+    output reg serial_trace_snapshot_toggle,
     input wire [15:0] debug_cpu_pc,
     input wire [7:0] debug_gime_init0, input wire [7:0] debug_gime_init1,
     input wire [7:0] debug_video_mode, input wire [7:0] debug_video_resolution,
@@ -68,7 +80,24 @@ module manager_sd_mmio #(
     input wire bin_fifo_pop, input wire bin_loader_done, input wire bin_cancel,
     output wire [7:0] bin_fifo_data, output wire bin_fifo_available,
     output reg bin_transfer_active, output reg bin_transfer_complete,
-    output reg bin_transfer_error
+    output reg bin_transfer_error,
+    output wire shared_disk_write,
+    output wire [19:0] shared_disk_write_address,
+    output wire [7:0] shared_disk_write_data,
+    input wire shared_disk_write_ready,
+    input wire shared_disk_write_idle,
+    output wire shared_disk_sector_request_toggle,
+    output wire [19:0] shared_disk_sector_base_address,
+    input wire [7:0] shared_disk_sector_read_data,
+    input wire shared_disk_sector_done_toggle,
+    input wire shared_disk_ready,
+    output wire sdram_clk, output wire sdram_cke,
+    output wire sdram_cs_n, output wire sdram_ras_n,
+    output wire sdram_cas_n, output wire sdram_we_n,
+    output wire [1:0] sdram_dqm,
+    output wire [12:0] sdram_address,
+    output wire [1:0] sdram_bank,
+    inout wire [15:0] sdram_data
 );
     localparam UART_DATA = 32'h80000000, UART_STATUS = 32'h80000004,
                UART_RX_DATA = 32'h80000008, UART_RX_STATUS = 32'h8000000c,
@@ -156,25 +185,41 @@ module manager_sd_mmio #(
     reg [1:0] fdc_ack_delay;
     reg fdc_ack_pending, fdc_ack_success_pending, fdc_ack_toggle_pending;
     reg fdc_buffer_read_bank, fdc_buffer_write_bank;
-    // Drive 0 is the known-good reference path: firmware loads the complete
-    // 35-track image once, then the FDC reads it directly from block RAM.
+    // Drive 0 is loaded as a complete image. The active build keeps it in a
+    // separate SDRAM region from upper CoCo RAM under one shared controller.
     // The two small sector banks above are reserved for later drive 1/2
     // demand paging and are never selected for a mounted drive 0.
-    reg [17:0] disk_cache_write_address;
-    reg [17:0] disk_cache_debug_address;
+    reg [19:0] disk_cache_write_address;
+    reg [19:0] disk_cache_debug_address;
+    reg [19:0] disk_cache_image_bytes;
     reg disk_cache_ready;
     wire [7:0] disk_cache_fdc_data;
-    wire [10:0] disk_cache_linear_sector = ({3'b000, fdc_track} << 4) +
-                                            ({3'b000, fdc_track} << 1) +
-                                            {3'b000, fdc_sector} - 11'd1;
-    wire [18:0] disk_cache_fdc_address = {disk_cache_linear_sector, fdc_buffer_address};
+    reg disk_sector_request_toggle;
+    reg [19:0] disk_sector_base_address;
+    reg disk_sector_ack_wait;
+    wire disk_sector_done_toggle;
+    reg [1:0] disk_sector_done_sync;
+    wire disk_sdram_ready;
+    wire [31:0] disk_sdram_debug_status;
+    wire disk_double_sided = disk_cache_image_bytes == 20'd368640;
+    wire [7:0] disk_track_count = disk_double_sided ? 8'd40 : 8'd35;
+    wire [11:0] disk_track_sector_base = disk_double_sided
+        ? ({4'b0, fdc_track} << 5) + ({4'b0, fdc_track} << 2)
+        : ({4'b0, fdc_track} << 4) + ({4'b0, fdc_track} << 1);
+    wire [11:0] disk_cache_linear_sector = disk_track_sector_base +
+        (disk_double_sided && fdc_side ? 12'd18 : 12'd0) +
+        {4'b0, fdc_sector} - 12'd1;
+    wire [19:0] disk_cache_fdc_address =
+        {disk_cache_linear_sector, fdc_buffer_address};
     wire disk_cache_fdc_valid = disk_cache_ready && fdc_drive == 2'd0 &&
-                                fdc_track < 8'd35 && fdc_sector >= 8'd1 && fdc_sector <= 8'd18;
+                                fdc_track < disk_track_count &&
+                                (!fdc_side || disk_double_sided) &&
+                                fdc_sector >= 8'd1 && fdc_sector <= 8'd18;
     wire uart_busy;
     assign uart_busy_o = uart_busy;
-    // The firmware owns FAT32 and fills this sector buffer completely before
-    // acknowledging an FDC read.  The FDC then consumes a stable, asynchronous
-    // 256-byte buffer, preserving normal CoCo Disk BASIC timing.
+    // Firmware owns FAT32. The SDRAM controller fetches a whole sector before
+    // acknowledging the FDC; its buffer uses the same one-clock read latency
+    // as the original block-RAM disk cache.
     wire [7:0] sector_cache_data = fdc_buffer_read_bank
                                  ? fdc_buffer1[fdc_buffer_address]
                                  : fdc_buffer0[fdc_buffer_address];
@@ -191,23 +236,85 @@ module manager_sd_mmio #(
     assign axi_arready = !axi_rvalid;
     assign axi_rresp = 2'b00;
 
+`ifdef WUKONG_SHARED_DISK_CACHE
+    wire disk_cache_accept_write = shared_disk_write_ready;
+    wire disk_cache_commit_idle = shared_disk_write_idle;
+`else
+    wire disk_cache_accept_write = 1'b1;
+    wire disk_cache_commit_idle = 1'b1;
+`endif
     wire disk_cache_load_write = !reset && !transaction_active &&
                                  have_address && have_data &&
                                  write_address == DISK_CACHE_DATA &&
-                                 disk_cache_write_address < DISK_CACHE_BYTES;
+                                 disk_cache_write_address < DISK_CACHE_BYTES &&
+                                 disk_cache_accept_write;
     wire disk_cache_fdc_write = fdc_write_strobe && disk_cache_fdc_valid;
     wire disk_cache_port_write = disk_cache_fdc_write || disk_cache_load_write;
-    wire [17:0] disk_cache_port_write_address = disk_cache_fdc_write
-                                                ? disk_cache_fdc_address[17:0]
+    wire [19:0] disk_cache_port_write_address = disk_cache_fdc_write
+                                                ? disk_cache_fdc_address
                                                 : disk_cache_write_address;
     wire [7:0] disk_cache_port_write_data = disk_cache_fdc_write
                                            ? fdc_write_data : write_data[7:0];
     // Firmware may inspect the cache only before it marks the manager ready;
     // afterward port B belongs exclusively to the live FDC.
-    wire [17:0] disk_cache_read_address = manager_ready
-                                          ? disk_cache_fdc_address[17:0]
+    wire [19:0] disk_cache_read_address = manager_ready
+                                          ? disk_cache_fdc_address
                                           : disk_cache_debug_address;
 
+`ifdef WUKONG_SHARED_DISK_CACHE
+    assign shared_disk_write = disk_cache_port_write;
+    assign shared_disk_write_address = disk_cache_port_write_address;
+    assign shared_disk_write_data = disk_cache_port_write_data;
+    assign shared_disk_sector_request_toggle = disk_sector_request_toggle;
+    assign shared_disk_sector_base_address = disk_sector_base_address;
+`else
+    // BRAM owns disk 0. Do not send duplicate writes or sector requests to
+    // the upper-RAM SDRAM controller; video/CPU retain its full bandwidth.
+    assign shared_disk_write = 1'b0;
+    assign shared_disk_write_address = 20'b0;
+    assign shared_disk_write_data = 8'b0;
+    assign shared_disk_sector_request_toggle = 1'b0;
+    assign shared_disk_sector_base_address = 20'b0;
+`endif
+
+`ifdef WUKONG_SHARED_DISK_CACHE
+    // Upper CoCo RAM and disk share the machine's single SDRAM controller.
+    // The manager never drives a second set of external SDRAM pins.
+    assign disk_cache_fdc_data = shared_disk_sector_read_data;
+    assign disk_sector_done_toggle = shared_disk_sector_done_toggle;
+    assign disk_sdram_ready = shared_disk_ready;
+    assign disk_sdram_debug_status = 32'b0;
+    assign sdram_clk = 1'b0;
+    assign sdram_cke = 1'b0;
+    assign sdram_cs_n = 1'b1;
+    assign sdram_ras_n = 1'b1;
+    assign sdram_cas_n = 1'b1;
+    assign sdram_we_n = 1'b1;
+    assign sdram_dqm = 2'b11;
+    assign sdram_address = 13'b0;
+    assign sdram_bank = 2'b0;
+    assign sdram_data = 16'hzzzz;
+`elsif WUKONG_SDRAM
+    // Keep CoCo RAM/video on the proven dual-port BRAM.  SDRAM holds only the
+    // mounted drive-0 image; a complete sector is prefetched before FDC_ACK.
+    manager_sdram_disk_cache disk_cache_i (
+        .memory_clock(memory_clock), .cache_clock(clock), .reset(reset),
+        .cache_write(disk_cache_port_write),
+        .cache_write_address(disk_cache_port_write_address[17:0]),
+        .cache_write_data(disk_cache_port_write_data),
+        .sector_request_toggle(disk_sector_request_toggle),
+        .sector_base_address(disk_sector_base_address[17:0]),
+        .sector_read_address(fdc_buffer_address),
+        .sector_read_data(disk_cache_fdc_data),
+        .sector_done_toggle(disk_sector_done_toggle),
+        .ready(disk_sdram_ready), .debug_status(disk_sdram_debug_status),
+        .sdram_clk(sdram_clk), .sdram_cke(sdram_cke),
+        .sdram_cs_n(sdram_cs_n), .sdram_ras_n(sdram_ras_n),
+        .sdram_cas_n(sdram_cas_n), .sdram_we_n(sdram_we_n),
+        .sdram_dqm(sdram_dqm), .sdram_address(sdram_address),
+        .sdram_bank(sdram_bank), .sdram_data(sdram_data)
+    );
+`else
     // An explicit primitive avoids synthesis-dependent inference for the
     // boot-loader/runtime-write address mux and guarantees that the 161 KB
     // image consumes block RAM with a one-clock FDC read latency.
@@ -232,12 +339,26 @@ module manager_sd_mmio #(
     ) disk_cache_i (
         .clka(clock), .clkb(clock),
         .ena(disk_cache_port_write), .wea(disk_cache_port_write),
-        .addra(disk_cache_port_write_address), .dina(disk_cache_port_write_data),
-        .enb(1'b1), .addrb(disk_cache_read_address),
+        .addra(disk_cache_port_write_address[17:0]), .dina(disk_cache_port_write_data),
+        .enb(1'b1), .addrb(disk_cache_read_address[17:0]),
         .doutb(disk_cache_fdc_data), .regceb(1'b1), .rstb(reset),
         .sleep(1'b0), .injectdbiterra(1'b0), .injectsbiterra(1'b0),
         .dbiterrb(), .sbiterrb()
     );
+    assign disk_sector_done_toggle = disk_sector_request_toggle;
+    assign disk_sdram_ready = 1'b1;
+    assign disk_sdram_debug_status = 32'b0;
+    assign sdram_clk = 1'b0;
+    assign sdram_cke = 1'b0;
+    assign sdram_cs_n = 1'b1;
+    assign sdram_ras_n = 1'b1;
+    assign sdram_cas_n = 1'b1;
+    assign sdram_we_n = 1'b1;
+    assign sdram_dqm = 2'b11;
+    assign sdram_address = 13'b0;
+    assign sdram_bank = 2'b0;
+    assign sdram_data = 16'hzzzz;
+`endif
 
     uart_tx #(.CLKS_PER_BIT(UART_CLKS_PER_BIT)) uart_i (
         .clock(clock), .reset(reset), .data(uart_data), .start(uart_start),
@@ -283,7 +404,9 @@ module manager_sd_mmio #(
     // complete 256-byte sector transfer and merges it into the FAT32 block.
     always @(posedge clock) begin
         if (fdc_write_strobe && fdc_present[0] && fdc_drive == 2'd0 &&
-            fdc_track < 8'd35 && fdc_sector >= 8'd1 && fdc_sector <= 8'd18) begin
+            fdc_track < disk_track_count &&
+            (!fdc_side || disk_double_sided) &&
+            fdc_sector >= 8'd1 && fdc_sector <= 8'd18) begin
             fdc_write_buffer[fdc_buffer_address] <= fdc_write_data;
         end
     end
@@ -347,7 +470,12 @@ module manager_sd_mmio #(
             fdc_buffer_write_bank <= 1;
             disk_cache_write_address <= 0;
             disk_cache_debug_address <= 0;
+            disk_cache_image_bytes <= 20'd161280;
             disk_cache_ready <= 1'b0;
+            disk_sector_request_toggle <= 1'b0;
+            disk_sector_base_address <= 0;
+            disk_sector_ack_wait <= 1'b0;
+            disk_sector_done_sync <= 2'b00;
             osd_write_address <= 0;
             osd_preview_write_address <= 0;
             osd_preview_read_data <= 0;
@@ -369,6 +497,8 @@ module manager_sd_mmio #(
             serial_keyboard_shift_override <= 1'b0;
             serial_function_keys <= 8'b0;
             serial_cold_reset <= 1'b0;
+            serial_trace_enable <= 1'b0;
+            serial_trace_snapshot_toggle <= 1'b0;
             uart_claim <= 1'b0;
             video_capture_request_toggle <= 1'b0;
             video_capture_stripe <= 3'b0;
@@ -389,6 +519,8 @@ module manager_sd_mmio #(
             bin_transfer_complete <= 1'b0;
             bin_transfer_error <= 1'b0;
         end else begin
+            disk_sector_done_sync <= {disk_sector_done_sync[0],
+                                      disk_sector_done_toggle};
             // Clock-enable the preview BRAM only while it can be visible.
             // This removes continuous BRAM address/data switching from normal
             // CoCo video operation after the menu has closed.
@@ -414,6 +546,17 @@ module manager_sd_mmio #(
             // additional clocks.  This prevents the FDC from observing the
             // previous sector when firmware immediately follows the final
             // data store with FDC_ACK.
+`ifdef WUKONG_DISK_PREFETCH
+            // The firmware's FDC_ACK starts a 256-byte SDRAM prefetch.  Do
+            // not release the WD1773 from busy until the sector buffer is
+            // complete and stable in this clock domain.
+            if (disk_sector_ack_wait &&
+                disk_sector_done_sync[1] == disk_sector_request_toggle) begin
+                disk_sector_ack_wait <= 1'b0;
+                fdc_ack_delay <= 2'd2;
+                fdc_ack_pending <= 1'b1;
+            end
+`endif
             if (fdc_ack_pending) begin
                 if (fdc_ack_delay != 0) begin
                     fdc_ack_delay <= fdc_ack_delay - 1'b1;
@@ -438,7 +581,9 @@ module manager_sd_mmio #(
                 have_data <= 1'b1;
                 write_data <= axi_wdata;
             end
-            if (!transaction_active && have_address && have_data) begin
+            if (!transaction_active && have_address && have_data &&
+                (write_address != DISK_CACHE_DATA || disk_cache_accept_write) &&
+                (write_address != DISK_CACHE_COMMIT || disk_cache_commit_idle)) begin
                 transaction_active <= 1'b1;
                 if (write_address == UART_DATA) begin
                     if (!uart_busy) begin uart_data <= write_data[7:0]; uart_start <= 1'b1; end
@@ -471,6 +616,7 @@ module manager_sd_mmio #(
                 end else if (write_address == DISK_CACHE_RESET) begin
                     disk_cache_write_address <= 0;
                     disk_cache_ready <= 1'b0;
+                    disk_sector_ack_wait <= 1'b0;
                     axi_bvalid <= 1'b1;
                 end else if (write_address == DISK_CACHE_DATA) begin
                     if (disk_cache_write_address < DISK_CACHE_BYTES) begin
@@ -478,11 +624,20 @@ module manager_sd_mmio #(
                     end
                     axi_bvalid <= 1'b1;
                 end else if (write_address == DISK_CACHE_COMMIT) begin
-                    disk_cache_ready <= write_data[0] &&
-                                        disk_cache_write_address == DISK_CACHE_BYTES;
+                    disk_cache_ready <=
+                        (write_data[19:0] == 20'd1 ||
+                         write_data[19:0] == DISK_CACHE_BYTES ||
+                         write_data[19:0] == 20'd161280 ||
+                         write_data[19:0] == 20'd368640) &&
+                        disk_cache_write_address ==
+                            (write_data[19:0] == 20'd1
+                             ? DISK_CACHE_BYTES : write_data[19:0]) &&
+                        disk_sdram_ready;
+                    disk_cache_image_bytes <= write_data[19:0] == 20'd1
+                        ? DISK_CACHE_BYTES : write_data[19:0];
                     axi_bvalid <= 1'b1;
                 end else if (write_address == DISK_CACHE_DEBUG_ADDRESS) begin
-                    disk_cache_debug_address <= write_data[17:0];
+                    disk_cache_debug_address <= write_data[19:0];
                     axi_bvalid <= 1'b1;
                 end else if (write_address == OSD_ADDRESS) begin
                     osd_write_address <= write_data[10:0];
@@ -545,6 +700,10 @@ module manager_sd_mmio #(
                     axi_bvalid <= 1'b1;
                 end else if (write_address == SERIAL_MACHINE_CONTROL) begin
                     serial_cold_reset <= write_data[0];
+                    serial_trace_enable <= write_data[2];
+                    if (write_data[3])
+                        serial_trace_snapshot_toggle <=
+                            ~serial_trace_snapshot_toggle;
                     if (write_data[1]) begin
                         serial_keyboard_keys <= 56'b0;
                         serial_keyboard_shift <= 1'b0;
@@ -622,12 +781,28 @@ module manager_sd_mmio #(
                     // sector bank before acknowledging.  Drive 0 instead
                     // reads directly from the committed full-disk cache and
                     // must not depend on the unrelated sector-bank count.
+                    fdc_ack_toggle_pending <= fdc_request_toggle;
+`ifdef WUKONG_DISK_PREFETCH
+                    if (write_data[0] && disk_cache_fdc_valid) begin
+                        disk_sector_base_address <=
+                            {disk_cache_fdc_address[19:8], 8'b0};
+                        disk_sector_request_toggle <=
+                            ~disk_sector_request_toggle;
+                        disk_sector_ack_wait <= 1'b1;
+                        fdc_ack_success_pending <= 1'b1;
+                    end else begin
+                        fdc_ack_success_pending <= write_data[0] &&
+                                                   fdc_buffer_fill_count == 9'd256;
+                        fdc_ack_delay <= 2'd2;
+                        fdc_ack_pending <= 1'b1;
+                    end
+`else
                     fdc_ack_success_pending <= write_data[0] &&
                                                (disk_cache_fdc_valid ||
                                                 fdc_buffer_fill_count == 9'd256);
-                    fdc_ack_toggle_pending <= fdc_request_toggle;
                     fdc_ack_delay <= 2'd2;
                     fdc_ack_pending <= 1'b1;
+`endif
                     axi_bvalid <= 1'b1;
                 end else if (write_address == FDC_WRITE_ACK) begin
                     fdc_write_success <= write_data[0];
@@ -668,7 +843,9 @@ module manager_sd_mmio #(
                     SPI_DATA: axi_rdata <= {24'b0, spi_rx};
                     FDC_STATE: axi_rdata <= {19'b0, fdc_write_complete_toggle, fdc_read_complete_toggle, fdc_present, 6'b0,
                                                fdc_done_toggle, fdc_request_toggle};
-                    FDC_INFO: axi_rdata <= {fdc_last_type1, fdc_track, fdc_sector, 6'b0, fdc_drive};
+                    FDC_INFO: axi_rdata <= {fdc_last_type1, fdc_track,
+                                              fdc_sector, 5'b0, fdc_side,
+                                              fdc_drive};
                     MOUNT_STATUS: axi_rdata <= {23'b0, manager_ready, 5'b0, fdc_present};
                     FDC_BUFFER_PEEK: axi_rdata <= {24'b0, fdc_buffer_data};
                     FDC_DEBUG_WORD: axi_rdata <= fdc_debug_word;
@@ -678,7 +855,7 @@ module manager_sd_mmio #(
                         ? fdc_buffer1[fdc_buffer_debug_address]
                         : fdc_buffer0[fdc_buffer_debug_address]};
                     FDC_WRITE_BUFFER_DEBUG_DATA: axi_rdata <= {24'b0, fdc_write_buffer[fdc_buffer_debug_address]};
-                    DISK_CACHE_STATUS: axi_rdata <= {13'b0,
+                    DISK_CACHE_STATUS: axi_rdata <= {11'b0,
                         disk_cache_write_address, disk_cache_ready};
                     DISK_CACHE_DEBUG_DATA: axi_rdata <= {24'b0, disk_cache_fdc_data};
                     OSD_CONTROL: axi_rdata <= {19'b0, osd_selected_row, 5'b0,
@@ -742,4 +919,10 @@ module manager_sd_mmio #(
     wire _unused = &{axi_wstrb};
 endmodule
 
+`ifdef WUKONG_DISK_PREFETCH
+`undef WUKONG_DISK_PREFETCH
+`endif
+`ifdef WUKONG_SHARED_DISK_CACHE
+`undef WUKONG_SHARED_DISK_CACHE
+`endif
 `default_nettype wire

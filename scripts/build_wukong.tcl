@@ -27,6 +27,7 @@ file mkdir $output_dir
 
 set sources [list \
     [file join $rtl_dir clocking.v] \
+    [file join $rtl_dir pmod_atari_joystick.v] \
     [file join $rtl_dir hdmi test_pattern.v] \
     [file join $rtl_dir hdmi tmds_serializer.v]]
 set systemverilog_sources [list [file join $rtl_dir wukong_top.v]]
@@ -64,6 +65,8 @@ if {$mode eq "COCO3_ELITE"} {
         [file join $repo_dir rtl core coco3_keyboard_matrix.v] \
         [file join $repo_dir rtl core coco3_128k_ram.v] \
         [file join $rtl_dir coco3_sdram_ram.v] \
+        [file join $rtl_dir coco3_hybrid_512k_ram.v] \
+        [file join $rtl_dir manager_sdram_disk_cache.v] \
         [file join $repo_dir rtl core coco3_system_rom.v] \
         [file join $repo_dir rtl core coco3_disk_rom.v] \
         [file join $repo_dir rtl core coco3_sd_cartridge.v] \
@@ -83,7 +86,11 @@ if {$mode eq "COCO3_ELITE"} {
         [file join $rtl_dir coco3_boot_system.v]
     set coco3_defines {NEW_SRAM HDMI_TEST_PATTERN HDMI_LIBRARY_COCO HDMI_LIBRARY_AUDIO HDMI_RASTER_800X525}
     if {$use_sdram} {
-        lappend coco3_defines WUKONG_SDRAM
+        lappend coco3_defines WUKONG_HYBRID_512K
+        # Keep the proven 160 KiB disk image in BRAM while the CoCo's upper
+        # 384 KiB remains in SDRAM. Shared disk arbitration is not yet a
+        # reliable hardware path for sustained game loads.
+        lappend coco3_defines WUKONG_BRAM_DISK
     }
     set_property include_dirs [list [file join $repo_dir rtl third-party ultraembedded-riscv core riscv] $output_dir] [current_fileset]
     if {$embedded_test_disks} {

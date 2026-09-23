@@ -51,9 +51,11 @@ module coco3_boot_machine #(
     input  wire [5:0]  joystick_left_x,
     input  wire [5:0]  joystick_left_y,
     input  wire        joystick_left_fire,
+    input  wire        joystick_left_fire2,
     input  wire [5:0]  joystick_right_x,
     input  wire [5:0]  joystick_right_y,
     input  wire        joystick_right_fire,
+    input  wire        joystick_right_fire2,
     input  wire [7:0]  sd_status,
     input  wire [7:0]  sd_detail,
     input  wire        video_hsync,
@@ -62,8 +64,19 @@ module coco3_boot_machine #(
     input  wire        video_vsync,
     input  wire [19:0] video_address,
     output wire [15:0] video_read_data,
+    output wire        video_cache_miss,
     output wire        memory_ready,
     output wire [31:0] memory_debug_status,
+    input  wire        disk_cache_write,
+    input  wire [19:0] disk_cache_write_address,
+    input  wire [7:0]  disk_cache_write_data,
+    output wire        disk_cache_write_ready,
+    output wire        disk_cache_write_idle,
+    input  wire        disk_sector_request_toggle,
+    input  wire [19:0] disk_sector_base_address,
+    input  wire [7:0]  disk_sector_read_address,
+    output wire [7:0] disk_sector_read_data,
+    output wire        disk_sector_done_toggle,
     output wire        sdram_clk,
     output wire        sdram_cke,
     output wire        sdram_cs_n,
@@ -94,6 +107,7 @@ module coco3_boot_machine #(
     input  wire [7:0]  sd_fdc_data,
     output wire [7:0]  sd_fdc_buffer_address,
     output wire [1:0]  sd_fdc_drive,
+    output wire        sd_fdc_side,
     output wire [7:0]  sd_fdc_track,
     output wire [7:0]  sd_fdc_sector,
     output wire [7:0]  sd_fdc_last_type1,
@@ -106,6 +120,7 @@ module coco3_boot_machine #(
     output wire        sd_fdc_request_toggle
 );
     reg [4:0] divider;
+    wire ram_cpu_wait;
     reg hold;
     reg sam_fast_mode;
     reg fast_divide_phase;
@@ -220,11 +235,20 @@ module coco3_boot_machine #(
         : mmu_enable
         ? mmu[{mmu_task, address[15:13]}]
         : {5'b00111, address[15:13]};
+`ifdef WUKONG_HYBRID_512K
+    // A 512 KiB CoCo implements all six GIME MMU page bits.  The normal
+    // reset map is $38-$3f; the hybrid backend keeps the encompassing
+    // $30-$3f 128 KiB region in the proven block RAM.
+    wire [18:0] physical_address = {mapped_page[5:0], address[12:0]};
+    wire [18:0] ram_cpu_address = cold_start_clear
+        ? {6'h38, 13'h071} : physical_address;
+`else
     // A 128K machine implements 16 physical 8K pages. Higher GIME page
     // numbers alias modulo 16, matching absent physical address pins.
     wire [16:0] physical_address = {mapped_page[3:0], address[12:0]};
     wire [16:0] ram_cpu_address = cold_start_clear
         ? 17'h10071 : physical_address;
+`endif
     wire [7:0] ram_cpu_write_data = cold_start_clear
         ? 8'h00 : write_data;
     wire active = !hold && vma;
@@ -280,8 +304,13 @@ module coco3_boot_machine #(
                                 joystick_select == 2'b01 ? joystick_right_y :
                                 joystick_right_x;
     wire joystick_comparator = joystick_value >= joystick_dac;
+    // CoCo 3 PIA0 port A exposes four independent active-low button inputs.
+    // Preserve the physical matrix order used by the CoCo 3 service manual
+    // and the original CoCo3FPGA core: right B1, left B1, left B2, right B2.
     wire [7:0] keyboard_joystick_rows =
-        {joystick_comparator, keyboard_rows[6:2],
+        {joystick_comparator, keyboard_rows[6:4],
+         keyboard_rows[3] & ~joystick_right_fire2,
+         keyboard_rows[2] & ~joystick_left_fire2,
          keyboard_rows[1] & ~joystick_left_fire,
          keyboard_rows[0] & ~joystick_right_fire};
     reg [7:0] io_read_data;
@@ -382,10 +411,18 @@ module coco3_boot_machine #(
         end else if (divider == ((cpu_fast_mode || sam_fast_mode)
                                  ? (fast_divide_phase ? 5'd2 : 5'd3)
                                  : 5'd6)) begin
-            divider <= 0;
-            hold <= 1'b0;
-            if (cpu_fast_mode || sam_fast_mode)
-                fast_divide_phase <= ~fast_divide_phase;
+            if (ram_cpu_wait) begin
+                // Keep the terminal divider phase stable. Once the SDRAM
+                // completion arrives, the next pixel edge supplies the one
+                // normal CPU enable pulse without shortening the bus cycle.
+                divider <= divider;
+                hold <= 1'b1;
+            end else begin
+                divider <= 0;
+                hold <= 1'b0;
+                if (cpu_fast_mode || sam_fast_mode)
+                    fast_divide_phase <= ~fast_divide_phase;
+            end
         end else begin
             divider <= divider + 1'b1;
             hold <= 1'b1;
@@ -640,7 +677,8 @@ module coco3_boot_machine #(
         .backend_write_done_toggle(sd_fdc_write_done_toggle),
         .backend_write_success(sd_fdc_write_success), .backend_data(sd_fdc_data),
         .backend_buffer_address(sd_fdc_buffer_address),
-        .backend_drive(sd_fdc_drive), .backend_track(sd_fdc_track),
+        .backend_drive(sd_fdc_drive), .backend_side(sd_fdc_side),
+        .backend_track(sd_fdc_track),
         .backend_sector(sd_fdc_sector), .backend_last_type1(sd_fdc_last_type1),
         .backend_debug_word(sd_fdc_debug_word),
         .backend_completed_debug_word(sd_fdc_completed_debug_word),
@@ -674,9 +712,40 @@ module coco3_boot_machine #(
     );
     assign cpu_firq = gime_cpu_firq;
 
-`ifdef WUKONG_SDRAM
+`ifdef WUKONG_HYBRID_512K
+    coco3_hybrid_512k_ram ram_i (
+        .memory_clock(memory_clock), .video_clock(clock),
+        .reset(memory_reset), .cpu_address(ram_cpu_address),
+        .cpu_write_data(ram_cpu_write_data), .cpu_read_enable(ram_read),
+        .cpu_write_enable(cold_start_clear || ram_write),
+        .cpu_read_data(ram_data), .cpu_wait(ram_cpu_wait),
+        .video_address(video_address), .video_blank(video_hblank),
+        .video_frame_sync(!video_vsync && !gime_init0[7]),
+        .video_frame_start_address({gime_video_vbank,
+                                    gime_video_offset, 2'b00}),
+        .video_read_data(video_read_data),
+        .video_cache_miss(video_cache_miss), .ready(memory_ready),
+        .debug_status(memory_debug_status),
+        .disk_cache_write(disk_cache_write),
+        .disk_cache_write_address(disk_cache_write_address),
+        .disk_cache_write_data(disk_cache_write_data),
+        .disk_cache_write_ready(disk_cache_write_ready),
+        .disk_cache_write_idle(disk_cache_write_idle),
+        .disk_sector_request_toggle(disk_sector_request_toggle),
+        .disk_sector_base_address(disk_sector_base_address),
+        .disk_sector_read_address(disk_sector_read_address),
+        .disk_sector_read_data(disk_sector_read_data),
+        .disk_sector_done_toggle(disk_sector_done_toggle),
+        .sdram_clk(sdram_clk), .sdram_cke(sdram_cke),
+        .sdram_cs_n(sdram_cs_n), .sdram_ras_n(sdram_ras_n),
+        .sdram_cas_n(sdram_cas_n), .sdram_we_n(sdram_we_n),
+        .sdram_dqm(sdram_dqm), .sdram_address(sdram_address),
+        .sdram_bank(sdram_bank), .sdram_data(sdram_data)
+    );
+`elsif WUKONG_COCO_RAM_SDRAM
     coco3_sdram_ram ram_i (
         .memory_clock(memory_clock),
+        .video_clock(clock),
         .reset(memory_reset),
         .cpu_address(ram_cpu_address),
         .cpu_write_data(ram_cpu_write_data),
@@ -692,6 +761,12 @@ module coco3_boot_machine #(
         .sdram_dqm(sdram_dqm), .sdram_address(sdram_address),
         .sdram_bank(sdram_bank), .sdram_data(sdram_data)
     );
+    assign ram_cpu_wait = 1'b0;
+    assign video_cache_miss = 1'b0;
+    assign disk_cache_write_ready = 1'b0;
+    assign disk_cache_write_idle = 1'b1;
+    assign disk_sector_read_data = 8'b0;
+    assign disk_sector_done_toggle = disk_sector_request_toggle;
 `else
     coco3_128k_ram #(.INIT_VALUE(8'h00)) ram_i (
         .clock(clock), .cpu_address(ram_cpu_address),
@@ -702,6 +777,7 @@ module coco3_boot_machine #(
     );
     assign memory_ready = 1'b1;
     assign memory_debug_status = 32'b0;
+    assign video_cache_miss = 1'b0;
     assign sdram_clk = 1'b0;
     assign sdram_cke = 1'b0;
     assign sdram_cs_n = 1'b1;
@@ -712,6 +788,11 @@ module coco3_boot_machine #(
     assign sdram_address = 13'b0;
     assign sdram_bank = 2'b0;
     assign sdram_data = 16'hzzzz;
+    assign ram_cpu_wait = 1'b0;
+    assign disk_cache_write_ready = 1'b0;
+    assign disk_cache_write_idle = 1'b1;
+    assign disk_sector_read_data = 8'b0;
+    assign disk_sector_done_toggle = disk_sector_request_toggle;
     wire _unused_memory_inputs = memory_clock ^ memory_reset;
 `endif
 

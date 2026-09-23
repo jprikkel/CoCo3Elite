@@ -6,6 +6,8 @@
 module coco3_uart_debug (
     input  wire         clock,
     input  wire         reset,
+    input  wire         trace_periodic_enable,
+    input  wire         trace_snapshot_toggle,
     input  wire [15:0]  cpu_address,
     input  wire [15:0]  cpu_pc,
     input  wire         cpu_vma,
@@ -25,6 +27,10 @@ module coco3_uart_debug (
     // DD WW RR CC: dropped writes, write-FIFO high-water mark, maximum
     // refresh debt, and current refresh debt.
     input  wire [31:0]  sdram_debug_status,
+    // Q=CCCXXXYYY: completed-frame cache misses, last fetch X/Y.
+    input  wire [31:0]  video_cache_miss_status,
+    // P,B2,B1,R,L,D,U. P=1 routes J10 to the right CoCo port.
+    input  wire [6:0]   physical_joystick_state,
     output wire         uart_tx_o
 );
     localparam [2:0] MSG_READY = 3'd0;
@@ -33,6 +39,8 @@ module coco3_uart_debug (
     localparam [2:0] MSG_PC    = 3'd3;
 
     reg [24:0] second_count;
+    reg trace_snapshot_seen;
+    reg trace_snapshot_pending;
     reg boot_pending;
     reg cart_previous;
     reg cart_entry_seen;
@@ -45,6 +53,8 @@ module coco3_uart_debug (
     reg [2:0] captured_memory_flags;
     reg [127:0] captured_mmu;
     reg [31:0] captured_sdram_debug_status;
+    reg [31:0] captured_video_cache_miss_status;
+    reg [6:0] captured_physical_joystick_state;
     reg [15:0] captured_pc;
     reg captured_cart;
     reg captured_key;
@@ -72,7 +82,7 @@ module coco3_uart_debug (
                 MSG_READY: message_length = 18;
                 MSG_CART:  message_length = 9;
                 MSG_ENTRY: message_length = 17;
-                default:   message_length = 130;
+                default:   message_length = 146;
             endcase
         end
     endfunction
@@ -92,6 +102,8 @@ module coco3_uart_debug (
         input [2:0] flags;
         input [127:0] mmu;
         input [31:0] sdram_debug;
+        input [31:0] video_miss;
+        input [6:0] joystick_state;
         begin
             message_byte = 8'h20;
             case (kind)
@@ -164,8 +176,16 @@ module coco3_uart_debug (
                     117:message_byte=" ";
                     118:message_byte="D";
                     119:message_byte="=";
-                    128:message_byte=8'h0d;
-                    129:message_byte=8'h0a;
+                    128:message_byte=" ";
+                    129:message_byte="Q";
+                    130:message_byte="=";
+                    139:message_byte=" ";
+                    140:message_byte="J";
+                    141:message_byte="=";
+                    142:message_byte=hex_digit({1'b0,joystick_state[6:4]});
+                    143:message_byte=hex_digit(joystick_state[3:0]);
+                    144:message_byte=8'h0d;
+                    145:message_byte=8'h0a;
                     default: begin
                         if (index >= 34 && index <= 73)
                             message_byte=hex_digit(video[159-(index-34)*4 -: 4]);
@@ -174,6 +194,9 @@ module coco3_uart_debug (
                         else if (index >= 120 && index <= 127)
                             message_byte=hex_digit(
                                 sdram_debug[31-(index-120)*4 -: 4]);
+                        else if (index >= 131 && index <= 138)
+                            message_byte=hex_digit(
+                                video_miss[31-(index-131)*4 -: 4]);
                     end
                 endcase
             endcase
@@ -188,6 +211,8 @@ module coco3_uart_debug (
     always @(posedge clock) begin
         if (reset) begin
             second_count <= 25'd0;
+            trace_snapshot_seen <= trace_snapshot_toggle;
+            trace_snapshot_pending <= 1'b0;
             boot_pending <= 1'b1;
             cart_previous <= 1'b0;
             cart_entry_seen <= 1'b0;
@@ -201,6 +226,8 @@ module coco3_uart_debug (
             captured_memory_flags <= 3'd0;
             captured_mmu <= 128'd0;
             captured_sdram_debug_status <= 32'd0;
+            captured_video_cache_miss_status <= 32'd0;
+            captured_physical_joystick_state <= 7'd0;
             captured_cart <= 1'b0;
             captured_key <= 1'b0;
             captured_row <= 8'hff;
@@ -218,6 +245,10 @@ module coco3_uart_debug (
             // trace. Sampling it continuously gives each status line a stable
             // value without touching the CPU bus or adding wait states.
             sampled_cpu_pc <= cpu_pc;
+            if (trace_snapshot_toggle != trace_snapshot_seen) begin
+                trace_snapshot_seen <= trace_snapshot_toggle;
+                trace_snapshot_pending <= 1'b1;
+            end
             if (cpu_vma && !cpu_read && cpu_address == 16'hff02)
                 last_keyboard_column <= cpu_write_data;
             if (cpu_vma && cpu_read && cpu_address == 16'hff00)
@@ -245,7 +276,10 @@ module coco3_uart_debug (
                     message_kind <= MSG_ENTRY;
                     message_index <= 7'd0;
                     message_active <= 1'b1;
-                end else if (second_count == 25'd25199999) begin
+                end else if (trace_snapshot_pending ||
+                             (trace_periodic_enable &&
+                              second_count == 25'd25199999)) begin
+                    trace_snapshot_pending <= 1'b0;
                     captured_pc <= sampled_cpu_pc;
                     captured_video <= video_state;
                     captured_gime_init0 <= gime_init0;
@@ -253,6 +287,8 @@ module coco3_uart_debug (
                     captured_memory_flags <= memory_flags;
                     captured_mmu <= mmu_state;
                     captured_sdram_debug_status <= sdram_debug_status;
+                    captured_video_cache_miss_status <= video_cache_miss_status;
+                    captured_physical_joystick_state <= physical_joystick_state;
                     captured_cart <= cartridge_enabled;
                     captured_key <= keyboard_active;
                     captured_row <= last_keyboard_row;
@@ -270,7 +306,9 @@ module coco3_uart_debug (
                                         captured_gime_init0,
                                         captured_gime_init1,
                                         captured_memory_flags, captured_mmu,
-                                        captured_sdram_debug_status);
+                                        captured_sdram_debug_status,
+                                        captured_video_cache_miss_status,
+                                        captured_physical_joystick_state);
                 tx_start <= 1'b1;
                 if (message_index + 1'b1 == message_length(message_kind)) begin
                     message_active <= 1'b0;

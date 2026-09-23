@@ -1,7 +1,7 @@
 # Current Wukong implementation
 
 This document describes the code currently used by the QMTECH Wukong V3
-port. It is a snapshot of the implementation on 2026-09-14, not a list of
+port. It is a snapshot of the implementation on 2026-09-23, not a list of
 future goals. Historical bring-up notes and plans remain useful context, but
 this file is the starting point for understanding the active design.
 
@@ -34,6 +34,8 @@ Hardware-verified functions include:
 - Stable 32-, 40-, and 80-column text with working mode changes.
 - PS/2 keyboard on J14, including Break, soft reset, function-key controls,
   and keyboard-emulated left and right joysticks.
+- One passive Atari/C64-style digital joystick on J10 with standard fire and
+  an optional second button; F7 selects the right or left CoCo joystick port.
 - F12 SD management interface with subdirectory and long-filename browsing,
   writable `.DSK` mounting, media removal/reinsertion recovery, and `.CCC`
   ROM-Pak loading through a controlled cold-start sequence.
@@ -86,7 +88,7 @@ Open hardware issues in the current working implementation are:
               |      +--> GIME/SAM/PIA/timer/FDC compatibility logic
               |      +--> COCO3VIDEO + portable character ROM
               |      +--> NTSC artifact filter --> CRT filter
-              |      `--> PS/2, RV32 SD manager, joysticks, and UART
+              |      `--> PS/2, J10 joystick, RV32 SD manager, and UART
               |
               +--> Wukong raster alignment and narrow-mode centering
               `--> hdl-util HDMI encoder --> TMDS serializer --> HDMI pins
@@ -188,8 +190,8 @@ Important FPGA controls are:
 | --- | --- |
 | F3 | Normal CoCo keyboard function key; no fixed cartridge action |
 | F6 | Toggle the board turbo override |
-| F7 | Reserved |
-| F8 | Cycle keyboard joystick mapping: Off, Left, Right. Arrows control direction, Space is primary fire, and Left Ctrl is the second logical fire line. |
+| F7 | Toggle the physical J10 joystick between the right and left CoCo joystick ports; right is selected after FPGA reset. |
+| F8 | Cycle keyboard joystick mapping: Off, Left, Right. Arrows control direction, Space is Button 1, and Left Ctrl is the selected CoCo 3 joystick's genuine Button 2 input. |
 | F9 | Toggle horizontal scanlines |
 | F10 | Toggle NTSC artifact-color decoding |
 | F11 | Open live video and management-font Settings |

@@ -2,7 +2,8 @@ param(
     [string]$PortName = 'COM5',
     [ValidateRange(1, 600)]
     [int]$Seconds = 8,
-    [string]$OutputPath
+    [string]$OutputPath,
+    [switch]$Passive
 )
 
 $ErrorActionPreference = 'Stop'
@@ -12,6 +13,9 @@ $serial.ReadTimeout = 250
 $serial.NewLine = "`n"
 try {
     $serial.Open()
+    if (-not $Passive) {
+        $serial.Write("TRACE ON`n")
+    }
     $until = [Diagnostics.Stopwatch]::StartNew()
     $received = New-Object System.Text.StringBuilder
     while ($until.Elapsed.TotalSeconds -lt $Seconds) {
@@ -35,6 +39,14 @@ try {
         Write-Host "Captured UART trace: $absoluteOutput"
     }
 } finally {
-    if ($serial.IsOpen) { $serial.Close() }
+    if ($serial.IsOpen) {
+        if (-not $Passive) {
+            try {
+                $serial.Write("TRACE OFF`n")
+                Start-Sleep -Milliseconds 200
+            } catch { }
+        }
+        $serial.Close()
+    }
     $serial.Dispose()
 }

@@ -21,3 +21,6 @@
 /roms/*.rom
 /roms/*.bin
 /roms/*.ccc
+/roms/binmeta/
+/roms/demos/
+/reference/*

@@ -4,6 +4,12 @@ module wukong_top (
     input  wire       clk_50mhz,
     input  wire       ps2_clk,
     input  wire       ps2_data,
+    input  wire       joystick_up_n,
+    input  wire       joystick_down_n,
+    input  wire       joystick_left_n,
+    input  wire       joystick_right_n,
+    input  wire       joystick_button1_n,
+    input  wire       joystick_button2_n,
     output wire       sd_cs_n,
     output wire       sd_sck,
     output wire       sd_mosi,
@@ -46,6 +52,12 @@ module wukong_top (
     wire [6:0] audio_dac;
     wire narrow_video_mode;
     wire menu_active;
+    wire physical_joystick_up;
+    wire physical_joystick_down;
+    wire physical_joystick_left;
+    wire physical_joystick_right;
+    wire physical_joystick_button1;
+    wire physical_joystick_button2;
 
     wukong_clocking clocking_i (
         .clk_50mhz    (clk_50mhz),
@@ -54,6 +66,18 @@ module wukong_top (
         .memory_clk   (memory_clk),
         .locked       (clocks_locked),
         .video_reset  (video_reset)
+    );
+
+    pmod_atari_joystick physical_joystick_i (
+        .clock(pixel_clk), .reset(video_reset),
+        .up_n(joystick_up_n), .down_n(joystick_down_n),
+        .left_n(joystick_left_n), .right_n(joystick_right_n),
+        .button1_n(joystick_button1_n),
+        .button2_n(joystick_button2_n),
+        .up(physical_joystick_up), .down(physical_joystick_down),
+        .left(physical_joystick_left), .right(physical_joystick_right),
+        .button1(physical_joystick_button1),
+        .button2(physical_joystick_button2)
     );
 
 `ifdef HDMI_TEST_PATTERN
@@ -156,6 +180,12 @@ module wukong_top (
         .raster_resync(library_frame_start),
         .screen_x(library_x), .screen_y(library_y), .hsync(hsync),
         .ps2_clk(ps2_clk), .ps2_data(ps2_data),
+        .physical_joystick_up(physical_joystick_up),
+        .physical_joystick_down(physical_joystick_down),
+        .physical_joystick_left(physical_joystick_left),
+        .physical_joystick_right(physical_joystick_right),
+        .physical_joystick_button1(physical_joystick_button1),
+        .physical_joystick_button2(physical_joystick_button2),
         .sd_cs_n(sd_cs_n), .sd_sck(sd_sck),
         .sd_mosi(sd_mosi), .sd_miso(sd_miso),
         .vsync(vsync), .video_enable(video_enable),

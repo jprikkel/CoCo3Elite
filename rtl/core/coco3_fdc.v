@@ -25,6 +25,7 @@ module coco3_fdc (
     input  wire [7:0]  backend_data,
     output wire [7:0]  backend_buffer_address,
     output reg  [1:0]  backend_drive,
+    output wire        backend_side,
     output reg  [7:0]  backend_track,
     output reg  [7:0]  backend_sector,
     output reg  [7:0]  backend_last_type1,
@@ -55,8 +56,15 @@ module coco3_fdc (
     wire drive1_selected = drive_latch[1];
     wire drive2_selected = drive_latch[2];
     wire drive_selected = drive0_selected | drive1_selected | drive2_selected;
+    // Extended CoCo images can have 40 or 80 cylinders; the mounted image
+    // backend checks its actual geometry before acknowledging a sector.
+`ifdef EMBEDDED_TEST_DISKS
     wire valid_track = track < 8'd35;
+`else
+    wire valid_track = track < 8'd80;
+`endif
     wire valid_position = valid_track && sector >= 8'd1 && sector <= 8'd18;
+    assign backend_side = drive_latch[6];
 
 `ifdef EMBEDDED_TEST_DISKS
     wire [10:0] linear_sector = ({3'b000, track} << 4) +

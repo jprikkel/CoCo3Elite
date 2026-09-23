@@ -6,8 +6,10 @@
 // The CoCo/GIME side remains in the 25.2 MHz pixel-clock domain.  The SDRAM
 // controller runs from the synchronous 126 MHz serializer clock (exactly 5x
 // the 25.2 MHz pixel clock) with CAS latency two. This baseline controller uses
-// single-word SDRAM reads and writes. Each GIME video request is fetched
-// directly so CPU writes cannot leave stale data in a video-side burst cache.
+// single-word SDRAM writes.  This diagnostic configuration keeps SDRAM as the
+// CPU backing store while a write-through dual-clock BRAM shadow supplies the
+// GIME.  It deliberately trades BRAM for deterministic video timing so SDRAM
+// CPU correctness can be tested independently of video arbitration.
 //
 // This first hardware milestone deliberately exposes exactly 128 KiB.  The
 // wider SDRAM addressing is retained internally so later 512 KiB and 2 MiB
@@ -16,10 +18,11 @@
 module coco3_sdram_ram #(
     parameter integer POWERUP_CLOCKS = 25200,
     parameter integer CLEAR_WORDS = 65536,
-    parameter integer REFRESH_CLOCKS = 952,
+    parameter integer REFRESH_CLOCKS = 560,
     parameter integer WRITE_FIFO_LOG2 = 4
 ) (
     input  wire        memory_clock,
+    input  wire        video_clock,
     input  wire        reset,
 
     input  wire [16:0] cpu_address,
@@ -30,7 +33,7 @@ module coco3_sdram_ram #(
 
     input  wire [19:0] video_address,
     input  wire        video_blank,
-    output reg  [15:0] video_read_data,
+    output wire [15:0] video_read_data,
     output reg         ready,
     output wire [31:0] debug_status,
 
@@ -66,6 +69,31 @@ module coco3_sdram_ram #(
     assign sdram_data = data_output_enable ? data_out : 16'hzzzz;
     wire [15:0] data_in = sdram_data;
 
+    // Temporary 128 KiB write-through video shadow.  CPU writes update both
+    // SDRAM and this mirror; the GIME reads the mirror in its native clock
+    // domain with the same one-clock behavior as coco3_128k_ram.
+    (* ram_style = "block" *) reg [7:0] video_shadow_low [0:65535];
+    (* ram_style = "block" *) reg [7:0] video_shadow_high [0:65535];
+    reg [15:0] video_shadow_read_data;
+    reg [15:0] video_sdram_read_data;
+    assign video_read_data = video_shadow_read_data;
+    integer video_shadow_index;
+
+    initial begin
+        for (video_shadow_index = 0; video_shadow_index < 65536;
+             video_shadow_index = video_shadow_index + 1) begin
+            video_shadow_low[video_shadow_index] = 8'h00;
+            video_shadow_high[video_shadow_index] = 8'h00;
+        end
+    end
+
+    always @(posedge video_clock) begin
+        video_shadow_read_data[7:0] <=
+            video_shadow_low[video_address[15:0]];
+        video_shadow_read_data[15:8] <=
+            video_shadow_high[video_address[15:0]];
+    end
+
     localparam [4:0]
         STATE_POWERUP       = 5'd0,
         STATE_INIT_PRE      = 5'd1,
@@ -81,7 +109,8 @@ module coco3_sdram_ram #(
         STATE_CAPTURE       = 5'd11,
         STATE_COMPLETE      = 5'd12,
         STATE_REFRESH_PRE   = 5'd13,
-        STATE_REFRESH       = 5'd14;
+        STATE_REFRESH       = 5'd14,
+        STATE_VIDEO_STREAM  = 5'd15;
 
     localparam [1:0]
         OWNER_CLEAR = 2'd0,
@@ -114,6 +143,8 @@ module coco3_sdram_ram #(
 
     reg [19:0] video_observed_address;
     reg video_observed_valid;
+    reg [19:0] video_address_sampled;
+    reg video_blank_sampled;
     reg [19:0] video_pending_address;
     reg video_pending;
     reg [19:0] video_input_address_previous;
@@ -121,6 +152,39 @@ module coco3_sdram_ram #(
     reg [15:0] video_result_address;
     reg video_result_valid;
     reg [7:0] video_deadline_miss_count;
+
+    // Eight entries retain the current four-word display group and the next
+    // prefetched group. The low address bits select an entry and the complete
+    // implemented word address is retained as a tag, so jumps and wrapping
+    // display addresses cannot return an unrelated cached word.
+    reg [7:0] video_cache_valid;
+    reg [15:0] video_cache_address [0:7];
+    reg [15:0] video_cache_data [0:7];
+    wire [2:0] video_cache_index = video_address_sampled[2:0];
+    wire video_cache_hit = video_cache_valid[video_cache_index] &&
+        video_cache_address[video_cache_index] ==
+            video_address_sampled[15:0];
+    wire [15:0] video_lookahead_candidate =
+        video_address_sampled[15:0] + 16'd3;
+    wire [2:0] video_lookahead_index = video_lookahead_candidate[2:0];
+    wire video_lookahead_hit = video_cache_valid[video_lookahead_index] &&
+        video_cache_address[video_lookahead_index] ==
+            video_lookahead_candidate;
+    reg [19:0] video_lookahead_pending_address;
+    reg video_lookahead_pending;
+    reg request_video_demand;
+
+    // READ commands remain burst-length one, but up to four commands are
+    // issued on consecutive controller clocks. At CAS latency two the data
+    // then returns on consecutive clocks. Addresses travel beside the valid
+    // pipeline so each word is placed in the correct cache entry.
+    reg [2:0] video_read_target_count;
+    reg [2:0] video_read_issue_count;
+    reg [2:0] video_read_capture_count;
+    reg [2:0] video_read_valid_pipeline;
+    reg [15:0] video_read_address_pipeline [0:2];
+    reg [3:0] video_cache_epoch;
+    reg [3:0] request_cache_epoch;
 
     reg [16:0] cpu_observed_address;
     reg cpu_observed_valid;
@@ -168,8 +232,7 @@ module coco3_sdram_ram #(
     wire refresh_emergency = refresh_debt == 4'hf;
     wire cpu_write_video_collision = !cpu_write_fifo_empty && video_pending &&
         cpu_write_fifo_head_address[16:1] == video_pending_address[15:0];
-    wire refresh_priority = (video_blank && refresh_debt != 0) ||
-        refresh_emergency;
+    wire refresh_priority = refresh_debt != 0 || refresh_emergency;
     wire cpu_write_fifo_pop = state == STATE_IDLE && !refresh_priority &&
         !cpu_write_fifo_empty &&
         (!video_pending || cpu_write_video_collision);
@@ -190,6 +253,7 @@ module coco3_sdram_ram #(
                            video_deadline_miss_count,
                            refresh_debt_max[3:0], refresh_debt};
     integer bank_index;
+    integer cache_index;
 
     // Commands are active low.  Every state starts from a deselected NOP and
     // overrides these signals only when issuing a command.
@@ -216,6 +280,8 @@ module coco3_sdram_ram #(
 
             video_observed_address <= 0;
             video_observed_valid <= 1'b0;
+            video_address_sampled <= 0;
+            video_blank_sampled <= 1'b1;
             video_pending_address <= 0;
             video_pending <= 1'b0;
             video_input_address_previous <= 0;
@@ -223,6 +289,24 @@ module coco3_sdram_ram #(
             video_result_address <= 0;
             video_result_valid <= 1'b0;
             video_deadline_miss_count <= 0;
+            video_cache_valid <= 0;
+            for (cache_index = 0; cache_index < 8;
+                 cache_index = cache_index + 1) begin
+                video_cache_address[cache_index] <= 0;
+                video_cache_data[cache_index] <= 0;
+            end
+            video_lookahead_pending_address <= 0;
+            video_lookahead_pending <= 1'b0;
+            request_video_demand <= 1'b0;
+            video_read_target_count <= 0;
+            video_read_issue_count <= 0;
+            video_read_capture_count <= 0;
+            video_read_valid_pipeline <= 0;
+            for (cache_index = 0; cache_index < 3;
+                 cache_index = cache_index + 1)
+                video_read_address_pipeline[cache_index] <= 0;
+            video_cache_epoch <= 0;
+            request_cache_epoch <= 0;
             cpu_observed_address <= 0;
             cpu_observed_valid <= 1'b0;
             cpu_pending_address <= 0;
@@ -242,7 +326,7 @@ module coco3_sdram_ram #(
             cpu_write_enable_meta <= 1'b0;
             cpu_write_enable_sync <= 1'b0;
             cpu_read_data <= 0;
-            video_read_data <= 0;
+            video_sdram_read_data <= 0;
             ready <= 1'b0;
 
             sdram_cke <= 1'b0;
@@ -273,31 +357,15 @@ module coco3_sdram_ram #(
             cpu_write_enable_meta <= cpu_write_enable;
             cpu_write_enable_sync <= cpu_write_enable_meta;
             cpu_write_enable_previous <= cpu_write_enable_sync;
+            // Retain the sampled signals for diagnostics while the temporary
+            // BRAM shadow removes video traffic from SDRAM arbitration.
+            video_address_sampled <= video_address;
+            video_blank_sampled <= video_blank;
 
             // Read and video requests each use a one-entry queue. CPU writes
             // use the FIFO below so consecutive bus writes cannot be lost
             // while SDRAM is servicing video or refresh traffic.
             if (ready) begin
-                if (!video_input_address_valid ||
-                    video_address != video_input_address_previous) begin
-                    if (video_input_address_valid && !video_blank &&
-                        (!video_result_valid ||
-                         video_result_address !=
-                             video_input_address_previous[15:0]) &&
-                        video_deadline_miss_count != 8'hff)
-                        video_deadline_miss_count <=
-                            video_deadline_miss_count + 1'b1;
-                    video_input_address_previous <= video_address;
-                    video_input_address_valid <= 1'b1;
-                end
-                if ((!video_observed_valid ||
-                     video_address != video_observed_address) &&
-                    !video_pending) begin
-                    video_pending_address <= video_address;
-                    video_observed_address <= video_address;
-                    video_observed_valid <= 1'b1;
-                    video_pending <= 1'b1;
-                end
                 if (cpu_read_enable_sync &&
                     (!cpu_observed_valid ||
                      cpu_address_sync != cpu_observed_address) &&
@@ -321,6 +389,22 @@ module coco3_sdram_ram #(
                 if (cpu_write_event && !cpu_write_fifo_push &&
                     cpu_write_drop_count != 8'hff)
                     cpu_write_drop_count <= cpu_write_drop_count + 1'b1;
+
+                // Invalidate immediately when a CPU write is observed, not
+                // when SDRAM eventually accepts it. The epoch also prevents
+                // an already-running video read from repopulating stale data
+                // after this invalidation.
+                if (cpu_write_event) begin
+                    video_cache_valid <= 0;
+                    video_cache_epoch <= video_cache_epoch + 1'b1;
+                    video_lookahead_pending <= 1'b0;
+                    if (cpu_address_sync[0])
+                        video_shadow_high[cpu_address_sync[16:1]] <=
+                            cpu_write_data_sync;
+                    else
+                        video_shadow_low[cpu_address_sync[16:1]] <=
+                            cpu_write_data_sync;
+                end
 
                 if (refresh_due) begin
                     refresh_count <= 0;
@@ -454,6 +538,8 @@ module coco3_sdram_ram #(
                         request_dqm <= 2'b00;
                         request_write <= 1'b0;
                         request_owner <= OWNER_VIDEO;
+                        request_video_demand <= 1'b1;
+                        request_cache_epoch <= video_cache_epoch;
                         video_pending <= 1'b0;
                         state <= STATE_PREPARE;
                     end else if (!cpu_write_fifo_empty) begin
@@ -466,6 +552,17 @@ module coco3_sdram_ram #(
                         request_write <= 1'b1;
                         request_owner <= OWNER_CPU_WRITE;
                         request_cpu_lane <= cpu_write_fifo_head_address[0];
+                        state <= STATE_PREPARE;
+                    end else if (video_lookahead_pending) begin
+                        request_word <= {8'b00000000,
+                            video_lookahead_pending_address[15:0]};
+                        request_write_data <= 0;
+                        request_dqm <= 2'b00;
+                        request_write <= 1'b0;
+                        request_owner <= OWNER_VIDEO;
+                        request_video_demand <= 1'b0;
+                        request_cache_epoch <= video_cache_epoch;
+                        video_lookahead_pending <= 1'b0;
                         state <= STATE_PREPARE;
                     end else if (cpu_read_pending) begin
                         request_word <= {8'b00000000,
@@ -527,18 +624,87 @@ module coco3_sdram_ram #(
                         data_output_enable <= 1'b1;
                         wait_count <= 8'd0;
                         wait_return_state <= STATE_COMPLETE;
+                        state <= STATE_WAIT;
                     end else begin
                         // CAS latency two: capture on the controller edge
                         // immediately following the second SDRAM clock edge.
-                        wait_count <= 8'd1;
-                        wait_return_state <= STATE_CAPTURE;
+                        if (request_owner == OWNER_VIDEO) begin
+                            // Never pipeline across a 512-word row boundary;
+                            // the next miss will perform the required
+                            // PRECHARGE/ACTIVATE sequence normally.
+                            if (request_column >= 9'd509)
+                                video_read_target_count <=
+                                    10'd512 - request_column;
+                            else
+                                video_read_target_count <= 3'd4;
+                            video_read_issue_count <= 3'd1;
+                            video_read_capture_count <= 0;
+                            video_read_valid_pipeline <= 3'b001;
+                            video_read_address_pipeline[0] <=
+                                request_word[15:0];
+                            video_read_address_pipeline[1] <= 0;
+                            video_read_address_pipeline[2] <= 0;
+                            state <= STATE_VIDEO_STREAM;
+                        end else begin
+                            wait_count <= 8'd1;
+                            wait_return_state <= STATE_CAPTURE;
+                            state <= STATE_WAIT;
+                        end
                     end
-                    state <= STATE_WAIT;
+                end
+
+                STATE_VIDEO_STREAM: begin
+                    // Advance the command-to-data correspondence pipeline.
+                    video_read_valid_pipeline <=
+                        {video_read_valid_pipeline[1:0], 1'b0};
+                    video_read_address_pipeline[2] <=
+                        video_read_address_pipeline[1];
+                    video_read_address_pipeline[1] <=
+                        video_read_address_pipeline[0];
+
+                    // With the row already open, consecutive BL1 READ
+                    // commands may be issued on consecutive SDRAM clocks.
+                    if (video_read_issue_count < video_read_target_count) begin
+                        sdram_bank <= request_bank;
+                        sdram_address[8:0] <= request_column +
+                            video_read_issue_count;
+                        sdram_address[10] <= 1'b0;
+                        sdram_cas_n <= 1'b0;
+                        video_read_valid_pipeline[0] <= 1'b1;
+                        video_read_address_pipeline[0] <=
+                            request_word[15:0] + video_read_issue_count;
+                        video_read_issue_count <=
+                            video_read_issue_count + 1'b1;
+                    end
+
+                    if (video_read_valid_pipeline[2]) begin
+                        if (request_cache_epoch == video_cache_epoch &&
+                            !cpu_write_event) begin
+                            video_cache_valid[
+                                video_read_address_pipeline[2][2:0]] <= 1'b1;
+                            video_cache_address[
+                                video_read_address_pipeline[2][2:0]] <=
+                                    video_read_address_pipeline[2];
+                            video_cache_data[
+                                video_read_address_pipeline[2][2:0]] <= data_in;
+                        end
+                        if (request_video_demand &&
+                            video_read_capture_count == 0) begin
+                            video_sdram_read_data <= data_in;
+                            video_result_address <= request_word[15:0];
+                            video_result_valid <= 1'b1;
+                        end
+                        video_read_capture_count <=
+                            video_read_capture_count + 1'b1;
+                        if (video_read_capture_count + 1'b1 ==
+                            video_read_target_count)
+                            state <= STATE_COMPLETE;
+                    end
                 end
 
                 STATE_CAPTURE: begin
                     if (request_owner == OWNER_VIDEO) begin
-                        video_read_data <= data_in;
+                        video_sdram_read_data <= data_in;
                         video_result_address <= request_word[15:0];
                         video_result_valid <= 1'b1;
                         state <= STATE_COMPLETE;
