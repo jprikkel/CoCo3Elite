@@ -9,13 +9,9 @@ the standard fire button, and an optional second passive fire button.
 The joystick defaults to the CoCo **right joystick** input. Press **F7** to
 move the complete physical joystick between the right and left CoCo ports.
 Button 1 is the selected joystick's primary fire button and button 2 remains
-its secondary physical button.
-
-A standard CoCo exposes only one fire input per joystick connector. Software
-therefore reads button 2 through the otherwise-unused fire input belonging to
-the other CoCo port. F7 swaps the primary and secondary PIA assignments
-together; it does not turn the physical second button into the other
-joystick's primary button.
+its genuine CoCo 3 second button. The CoCo 3 PIA provides separate first- and
+second-button inputs for both joystick ports, so neither button borrows a
+signal from the opposite joystick. F7 moves both button inputs together.
 
 ![Rear-panel DE-9 joystick pinout](pmod-atari-joystick-de9-rear.svg)
 
@@ -81,7 +77,9 @@ this direct adapter.
 - Physical movement controls the right joystick after reset; F7 toggles J10
   between the right and left CoCo joystick ports.
 - Button 1 is primary fire; button 2 is the selected physical joystick's
-  second button, represented by the spare CoCo PIA fire input.
+  genuine second button.
+- The PIA matrix order is right Button 1, left Button 1, left Button 2, then
+  right Button 2. This non-paired ordering matches the CoCo 3 hardware.
 - Opposite directions pressed together resolve to the centered axis value.
 - Inputs are ignored while the F11/F12 management overlay is active and while
   the CoCo is being reset.

@@ -51,9 +51,11 @@ module coco3_boot_machine #(
     input  wire [5:0]  joystick_left_x,
     input  wire [5:0]  joystick_left_y,
     input  wire        joystick_left_fire,
+    input  wire        joystick_left_fire2,
     input  wire [5:0]  joystick_right_x,
     input  wire [5:0]  joystick_right_y,
     input  wire        joystick_right_fire,
+    input  wire        joystick_right_fire2,
     input  wire [7:0]  sd_status,
     input  wire [7:0]  sd_detail,
     input  wire        video_hsync,
@@ -302,8 +304,13 @@ module coco3_boot_machine #(
                                 joystick_select == 2'b01 ? joystick_right_y :
                                 joystick_right_x;
     wire joystick_comparator = joystick_value >= joystick_dac;
+    // CoCo 3 PIA0 port A exposes four independent active-low button inputs.
+    // Preserve the physical matrix order used by the CoCo 3 service manual
+    // and the original CoCo3FPGA core: right B1, left B1, left B2, right B2.
     wire [7:0] keyboard_joystick_rows =
-        {joystick_comparator, keyboard_rows[6:2],
+        {joystick_comparator, keyboard_rows[6:4],
+         keyboard_rows[3] & ~joystick_right_fire2,
+         keyboard_rows[2] & ~joystick_left_fire2,
          keyboard_rows[1] & ~joystick_left_fire,
          keyboard_rows[0] & ~joystick_right_fire};
     reg [7:0] io_read_data;

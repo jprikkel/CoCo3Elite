@@ -104,9 +104,8 @@ module coco3_boot_system #(
     reg keyboard_f7_previous;
     reg cpu_fast_mode;
     // F8 cycles keyboard joystick emulation: 0=off, 1=left, 2=right.
-    // A real CoCo exposes one fire input per joystick connector.  Space drives
-    // the selected connector's fire input; Ctrl drives the other connector's
-    // fire input so software that treats both lines as two buttons can use it.
+    // Space and Ctrl drive the selected CoCo 3 port's genuine Button 1 and
+    // Button 2 inputs, respectively.
     reg [1:0] keyboard_joystick_mode;
     // F7 selects which CoCo joystick port receives the physical J10 stick.
     // Reset defaults to the right port for compatibility with most games.
@@ -196,22 +195,21 @@ module coco3_boot_system #(
     wire [5:0] joystick_right_y =
         joystick_right_up && !joystick_right_down ? 6'd0 :
         joystick_right_down && !joystick_right_up ? 6'd63 : 6'd32;
-    // A standard CoCo has one PIA fire input per joystick connector. Button 2
-    // remains the second button on this physical stick, but software sees it
-    // through the otherwise-unused fire input of the unselected CoCo port.
-    // Swapping J10 with F7 swaps both primary and secondary roles together.
-    wire keyboard_left_fire =
+    // The CoCo 3 adds a distinct second button to each six-pin joystick port.
+    // F7 therefore moves both J10 buttons together without borrowing either
+    // button input from the unselected port.
+    wire joystick_left_fire =
         (keyboard_joystick_left && effective_keyboard_keys[31]) ||
-        (keyboard_joystick_right && effective_keyboard_keys[52]);
-    wire keyboard_right_fire =
-        (keyboard_joystick_right && effective_keyboard_keys[31]) ||
-        (keyboard_joystick_left && effective_keyboard_keys[52]);
-    wire joystick_left_fire = keyboard_left_fire ||
-        (physical_joystick_to_left && physical_joystick_button1) ||
-        (physical_joystick_to_right && physical_joystick_button2);
-    wire joystick_right_fire = keyboard_right_fire ||
-        (physical_joystick_to_right && physical_joystick_button1) ||
+        (physical_joystick_to_left && physical_joystick_button1);
+    wire joystick_left_fire2 =
+        (keyboard_joystick_left && effective_keyboard_keys[52]) ||
         (physical_joystick_to_left && physical_joystick_button2);
+    wire joystick_right_fire =
+        (keyboard_joystick_right && effective_keyboard_keys[31]) ||
+        (physical_joystick_to_right && physical_joystick_button1);
+    wire joystick_right_fire2 =
+        (keyboard_joystick_right && effective_keyboard_keys[52]) ||
+        (physical_joystick_to_right && physical_joystick_button2);
     // J=PBBDLRU in the UART trace: P is 1 for right/0 for left, followed by
     // button 2, button 1, and the four active-high contact states.
     wire [6:0] physical_joystick_debug =
@@ -701,9 +699,11 @@ module coco3_boot_system #(
         .joystick_left_x(joystick_left_x),
         .joystick_left_y(joystick_left_y),
         .joystick_left_fire(joystick_left_fire),
+        .joystick_left_fire2(joystick_left_fire2),
         .joystick_right_x(joystick_right_x),
         .joystick_right_y(joystick_right_y),
         .joystick_right_fire(joystick_right_fire),
+        .joystick_right_fire2(joystick_right_fire2),
         .sd_status(sd_status), .sd_detail(sd_detail),
         .sd_drive_present(manager_drive_present),
         .sd_fdc_done_toggle(manager_done_toggle), .sd_fdc_success(manager_success),

@@ -191,7 +191,7 @@ Important FPGA controls are:
 | F3 | Normal CoCo keyboard function key; no fixed cartridge action |
 | F6 | Toggle the board turbo override |
 | F7 | Toggle the physical J10 joystick between the right and left CoCo joystick ports; right is selected after FPGA reset. |
-| F8 | Cycle keyboard joystick mapping: Off, Left, Right. Arrows control direction, Space is primary fire, and Left Ctrl is the second logical fire line. |
+| F8 | Cycle keyboard joystick mapping: Off, Left, Right. Arrows control direction, Space is Button 1, and Left Ctrl is the selected CoCo 3 joystick's genuine Button 2 input. |
 | F9 | Toggle horizontal scanlines |
 | F10 | Toggle NTSC artifact-color decoding |
 | F11 | Open live video and management-font Settings |

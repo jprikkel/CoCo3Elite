@@ -82,7 +82,8 @@ J10 is assigned to one direct Atari/C64-style digital joystick:
 | 10 | G6 | Reserved |
 
 J10 defaults to the right CoCo joystick port. F7 moves the complete physical
-joystick, including both buttons, between the right and left CoCo ports.
+joystick, including both genuine CoCo 3 button inputs, between the right and
+left CoCo ports. Button 2 does not consume the other port's Button 1 input.
 
 See the [digital joystick interface](pmod-atari-joystick-digital-interface.md)
 for the DE-9 pinout and electrical restrictions. The earlier MAX3421E USB

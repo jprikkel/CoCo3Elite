@@ -64,7 +64,7 @@ special CoCo meanings or control FPGA features:
 | F4–F5 | Unmapped | Reserved for future use |
 | F6 | Processor speed | Toggles between normal speed (approximately 0.9 MHz) and fast speed (approximately 1.8 MHz); normal speed is selected after FPGA reset |
 | F7 | Physical joystick port | Toggles J10 between the right and left CoCo joystick ports; right is selected after reset |
-| F8 | Keyboard joystick | Cycles Off, Left, and Right for arrow-key, Space, and Left Ctrl joystick emulation |
+| F8 | Keyboard joystick | Cycles Off, Left, and Right; arrows control direction, Space is Button 1, and Left Ctrl is the selected CoCo 3 joystick's Button 2 |
 | F9 | Horizontal scanlines | Toggles horizontal CRT scanlines on or off; disabled after reset |
 | F10 | NTSC artifact color | Toggles HDMI artifact-color processing on or off; enabled after reset |
 | F11 | Settings OSD | Opens live font, artifact, CoCo 2 palette, and text-color settings |

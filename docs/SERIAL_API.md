@@ -111,6 +111,11 @@ Contact bits are active high in this decoded field. With J10 idle after reset,
 `J=40` is expected. Grounding J10 pin 1 changes it to `J=41`; F7 changes the
 port bit and therefore an otherwise-idle value to `J=00`.
 
+The two physical button contacts feed independent CoCo 3 PIA inputs. The PIA
+matrix order is right Button 1, left Button 1, left Button 2, then right
+Button 2. F7 moves both contacts to the selected joystick port; Button 2 is
+never reported as Button 1 on the opposite port.
+
 ### Reset the browser to `/`
 
 Request:
