@@ -1,11 +1,16 @@
 `timescale 1ns/1ps
 module boot_video_tb;
  reg clock=0, reset=1, raster_resync=0; wire hs,vs,de; wire [7:0] r,g,b;
+ reg joy_up=0, joy_down=0, joy_left=0, joy_right=0;
+ reg joy_button1=0, joy_button2=0;
  integer n, active_lines, first_active, last_active;
  always #5 clock=~clock;
  coco3_boot_system #(.SOFT_RESET_GUARD_CLOCKS(3),
                      .CARTRIDGE_COLD_RESET_CLOCKS(3)) dut(.pixel_clk(clock),.reset(reset),
   .raster_resync(raster_resync),.screen_x(10'd0),.screen_y(10'd0),.hsync(hs),.vsync(vs),
+  .physical_joystick_up(joy_up),.physical_joystick_down(joy_down),
+  .physical_joystick_left(joy_left),.physical_joystick_right(joy_right),
+  .physical_joystick_button1(joy_button1),.physical_joystick_button2(joy_button2),
   .video_enable(de),.red(r),.green(g),.blue(b));
  initial begin
   repeat(8) @(posedge clock);
@@ -20,6 +25,52 @@ module boot_video_tb;
    $fatal;
   end
   reset=0;
+
+  joy_left=1; joy_button1=1; joy_button2=1;
+  @(posedge clock); #1;
+  if (dut.joystick_right_x !== 6'd0 ||
+      dut.joystick_right_y !== 6'd32 ||
+      !dut.joystick_right_fire || !dut.joystick_left_fire) begin
+   $display("FAIL: physical right joystick or second button mapping is incorrect");
+   $fatal;
+  end
+  joy_right=1;
+  @(posedge clock); #1;
+  if (dut.joystick_right_x !== 6'd32) begin
+   $display("FAIL: opposing physical directions did not resolve to center");
+   $fatal;
+  end
+  joy_left=0; joy_right=0; joy_button1=0; joy_button2=0;
+  @(posedge clock); #1;
+  if (dut.joystick_right_x !== 6'd32 || dut.joystick_right_fire ||
+      dut.joystick_left_fire) begin
+   $display("FAIL: released physical joystick did not return to idle");
+   $fatal;
+  end
+  $display("PASS: physical right joystick and second button mapping");
+
+  // F7 moves the complete physical stick to the left CoCo port. Button 1 is
+  // then left fire and the physical second button remains its secondary fire,
+  // exposed through the spare right-fire PIA input.
+  force dut.manager_serial_function_keys = 8'h04;
+  repeat(4) @(posedge clock); #1;
+  force dut.manager_serial_function_keys = 8'h00;
+  repeat(4) @(posedge clock); #1;
+  if (dut.physical_joystick_right_port !== 1'b0) begin
+   $display("FAIL: F7 did not select the left physical joystick port");
+   $fatal;
+  end
+  joy_left=1; joy_button1=1; joy_button2=1;
+  @(posedge clock); #1;
+  if (dut.joystick_left_x !== 6'd0 || dut.joystick_right_x !== 6'd32 ||
+      !dut.joystick_left_fire || !dut.joystick_right_fire) begin
+   $display("FAIL: F7 left-port physical joystick/button mapping is incorrect");
+   $fatal;
+  end
+  joy_left=0; joy_button1=0; joy_button2=0;
+  release dut.manager_serial_function_keys;
+  @(posedge clock); #1;
+  $display("PASS: F7 swaps J10 and keeps both physical buttons together");
 
   // A cartridge selection must behave like installing a ROM-Pak with power
   // off.  Preserve the manager, cold-reset the CoCo, clear BASIC's retained

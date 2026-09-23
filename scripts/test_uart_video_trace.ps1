@@ -10,5 +10,5 @@ try {
  & "$VivadoBin\xelab.bat" uart_video_trace_tb -s uart_video_trace_sim --timescale 1ns/1ps
  if($LASTEXITCODE){throw 'UART elaboration failed'}
  & "$VivadoBin\xsim.bat" uart_video_trace_sim -runall
- if($LASTEXITCODE -or -not(Select-String -Path xsim.log -SimpleMatch 'PASS: UART trace defaults off and one-shot emits complete 141-byte PC/SD/video/MMU/SDRAM/cache-miss snapshot')){throw 'UART regression failed'}
+ if($LASTEXITCODE -or -not(Select-String -Path xsim.log -SimpleMatch 'PASS: UART trace defaults off and one-shot emits complete 146-byte PC/SD/video/MMU/SDRAM/cache-miss/joystick snapshot')){throw 'UART regression failed'}
 } finally {Pop-Location}

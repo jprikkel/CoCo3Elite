@@ -29,6 +29,8 @@ module coco3_uart_debug (
     input  wire [31:0]  sdram_debug_status,
     // Q=CCCXXXYYY: completed-frame cache misses, last fetch X/Y.
     input  wire [31:0]  video_cache_miss_status,
+    // P,B2,B1,R,L,D,U. P=1 routes J10 to the right CoCo port.
+    input  wire [6:0]   physical_joystick_state,
     output wire         uart_tx_o
 );
     localparam [2:0] MSG_READY = 3'd0;
@@ -52,6 +54,7 @@ module coco3_uart_debug (
     reg [127:0] captured_mmu;
     reg [31:0] captured_sdram_debug_status;
     reg [31:0] captured_video_cache_miss_status;
+    reg [6:0] captured_physical_joystick_state;
     reg [15:0] captured_pc;
     reg captured_cart;
     reg captured_key;
@@ -79,7 +82,7 @@ module coco3_uart_debug (
                 MSG_READY: message_length = 18;
                 MSG_CART:  message_length = 9;
                 MSG_ENTRY: message_length = 17;
-                default:   message_length = 141;
+                default:   message_length = 146;
             endcase
         end
     endfunction
@@ -100,6 +103,7 @@ module coco3_uart_debug (
         input [127:0] mmu;
         input [31:0] sdram_debug;
         input [31:0] video_miss;
+        input [6:0] joystick_state;
         begin
             message_byte = 8'h20;
             case (kind)
@@ -175,8 +179,13 @@ module coco3_uart_debug (
                     128:message_byte=" ";
                     129:message_byte="Q";
                     130:message_byte="=";
-                    139:message_byte=8'h0d;
-                    140:message_byte=8'h0a;
+                    139:message_byte=" ";
+                    140:message_byte="J";
+                    141:message_byte="=";
+                    142:message_byte=hex_digit({1'b0,joystick_state[6:4]});
+                    143:message_byte=hex_digit(joystick_state[3:0]);
+                    144:message_byte=8'h0d;
+                    145:message_byte=8'h0a;
                     default: begin
                         if (index >= 34 && index <= 73)
                             message_byte=hex_digit(video[159-(index-34)*4 -: 4]);
@@ -218,6 +227,7 @@ module coco3_uart_debug (
             captured_mmu <= 128'd0;
             captured_sdram_debug_status <= 32'd0;
             captured_video_cache_miss_status <= 32'd0;
+            captured_physical_joystick_state <= 7'd0;
             captured_cart <= 1'b0;
             captured_key <= 1'b0;
             captured_row <= 8'hff;
@@ -278,6 +288,7 @@ module coco3_uart_debug (
                     captured_mmu <= mmu_state;
                     captured_sdram_debug_status <= sdram_debug_status;
                     captured_video_cache_miss_status <= video_cache_miss_status;
+                    captured_physical_joystick_state <= physical_joystick_state;
                     captured_cart <= cartridge_enabled;
                     captured_key <= keyboard_active;
                     captured_row <= last_keyboard_row;
@@ -296,7 +307,8 @@ module coco3_uart_debug (
                                         captured_gime_init1,
                                         captured_memory_flags, captured_mmu,
                                         captured_sdram_debug_status,
-                                        captured_video_cache_miss_status);
+                                        captured_video_cache_miss_status,
+                                        captured_physical_joystick_state);
                 tx_start <= 1'b1;
                 if (message_index + 1'b1 == message_length(message_kind)) begin
                     message_active <= 1'b0;

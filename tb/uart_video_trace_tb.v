@@ -3,7 +3,7 @@ module uart_video_trace_tb;
  reg clk=0,reset=1;
  reg trace_periodic_enable=0,trace_snapshot_toggle=0;
  wire tx;
- reg [8*141-1:0] expected={"PC=1234 K=1 R=FF C=FF S=80 T=00 V=807E00D620980123456789ABCDEF0123456789AB G=4C204 M=38393A3B3C3D3E3F3031323334353637 D=12345678 Q=12345678",8'h0d,8'h0a};
+ reg [8*146-1:0] expected={"PC=1234 K=1 R=FF C=FF S=80 T=00 V=807E00D620980123456789ABCDEF0123456789AB G=4C204 M=38393A3B3C3D3E3F3031323334353637 D=12345678 Q=12345678 J=5A",8'h0d,8'h0a};
  reg [7:0] received;
  integer i,b;
  always #5 clk=~clk;
@@ -18,7 +18,8 @@ module uart_video_trace_tb;
  .gime_init0(8'h4c),.gime_init1(8'h20),.memory_flags(3'b100),
  .mmu_state(128'h38393A3B3C3D3E3F3031323334353637),
  .sdram_debug_status(32'h12345678),
- .video_cache_miss_status(32'h12345678),.uart_tx_o(tx));
+ .video_cache_miss_status(32'h12345678),
+ .physical_joystick_state(7'h5a),.uart_tx_o(tx));
  initial begin
   repeat(4) @(negedge clk); reset=0;
   wait(dut.message_active); wait(!dut.message_active);
@@ -28,16 +29,16 @@ module uart_video_trace_tb;
   repeat(50) @(posedge clk);
   if(dut.message_active) $fatal(1,"Periodic trace was not off by default");
   @(negedge clk); trace_snapshot_toggle=1;
-  for(i=0;i<141;i=i+1) begin
+  for(i=0;i<146;i=i+1) begin
    @(negedge tx);
    repeat(328) @(posedge clk);
    for(b=0;b<8;b=b+1) begin
     #1; received[b]=tx;
     repeat(219) @(posedge clk);
    end
-   if(received!==expected[8*(140-i)+:8]) $fatal(1,"UART byte %0d got %h expected %h",i,received,expected[8*(140-i)+:8]);
+   if(received!==expected[8*(145-i)+:8]) $fatal(1,"UART byte %0d got %h expected %h",i,received,expected[8*(145-i)+:8]);
   end
-  $display("PASS: UART trace defaults off and one-shot emits complete 141-byte PC/SD/video/MMU/SDRAM/cache-miss snapshot at 115200 baud");
+  $display("PASS: UART trace defaults off and one-shot emits complete 146-byte PC/SD/video/MMU/SDRAM/cache-miss/joystick snapshot at 115200 baud");
   $finish;
  end
  initial begin #6000000; $fatal(1,"UART timeout"); end

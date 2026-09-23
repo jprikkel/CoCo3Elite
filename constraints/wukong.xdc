@@ -20,6 +20,17 @@ set_property ASYNC_REG TRUE [get_cells -quiet -hier -filter {
     NAME =~ */KEYBOARD/KB_DATA_B_reg
 }]
 
+# Passive Atari/C64-style digital joystick on PMOD J10. Each contact is
+# active-low and closes to ground. J10 pin 8 is an optional second button and
+# must only be connected through a passive-switch adapter.
+set_property -dict { PACKAGE_PIN D5 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports joystick_up_n]
+set_property -dict { PACKAGE_PIN G5 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports joystick_down_n]
+set_property -dict { PACKAGE_PIN G7 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports joystick_left_n]
+set_property -dict { PACKAGE_PIN G8 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports joystick_right_n]
+set_property -dict { PACKAGE_PIN E5 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports joystick_button1_n]
+set_property -dict { PACKAGE_PIN E6 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports joystick_button2_n]
+set_false_path -from [get_ports {joystick_up_n joystick_down_n joystick_left_n joystick_right_n joystick_button1_n joystick_button2_n}]
+
 # Digilent Pmod MicroSD on J13 (standard Type-2 SPI layout).
 set_property -dict { PACKAGE_PIN N22 IOSTANDARD LVCMOS33 } [get_ports sd_cs_n]
 set_property -dict { PACKAGE_PIN N21 IOSTANDARD LVCMOS33 } [get_ports sd_mosi]

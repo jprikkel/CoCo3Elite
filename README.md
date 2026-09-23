@@ -42,6 +42,7 @@ Hardware interface documentation is maintained under [`hardware/`](hardware/):
 - [QMTECH Wukong V3 board overview](hardware/wukong-board.md)
 - [Wukong V3 PMOD pinout](hardware/wukong-pmod-pinout.md)
 - [PS/2 keyboard interface](hardware/pmod-keyboard-ps2-interface.md)
+- [Atari/C64 digital joystick interface](hardware/pmod-atari-joystick-digital-interface.md)
 - [USB host prototype and proposed wiring](hardware/pmod-usb-host-interface.md)
 
 The onboard USB connection is a passive UART diagnostic link.

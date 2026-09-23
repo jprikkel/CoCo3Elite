@@ -1,6 +1,7 @@
 param(
     [string]$VivadoBin = 'C:\AMD\2025.2\Vivado\bin',
     [switch]$UseExistingRomMem,
+    [switch]$UseExistingFirmware,
     [string]$RunDir
 )
 
@@ -31,21 +32,28 @@ $toolchain = 'C:\AMD\2025.2\gnu\riscv\nt\bin'
 New-Item -ItemType Directory -Force -Path $firmwareDir | Out-Null
 $firmwareElf = Join-Path $firmwareDir 'rv32_sd_mount.elf'
 $firmwareBin = Join-Path $firmwareDir 'rv32_sd_mount.bin'
-& (Join-Path $PSScriptRoot 'build_decb_bin_loader.ps1') -OutputDirectory $firmwareDir
-& (Join-Path $toolchain 'riscv64-unknown-elf-gcc.exe') `
-    '-march=rv32im_zicsr' '-mabi=ilp32' '-Os' '-ffreestanding' '-fno-builtin' '-nostdlib' `
-    '-Wl,--build-id=none' '-Wl,--gc-sections' '-T' (Join-Path $repoRoot 'firmware\management\rv32_tcm.ld') `
-    '-I' $firmwareDir `
-    (Join-Path $repoRoot 'firmware\management\rv32_start.S') `
-    (Join-Path $repoRoot 'firmware\management\decb_bin_format.c') `
-    (Join-Path $repoRoot 'firmware\management\coco3_banked_bin_format.c') `
-    (Join-Path $repoRoot 'firmware\management\settings_ui.c') `
-    (Join-Path $repoRoot 'firmware\management\rv32_sd_mount.c') '-o' $firmwareElf
-if ($LASTEXITCODE) { throw "RV32 firmware link failed: $LASTEXITCODE" }
-& (Join-Path $toolchain 'riscv64-unknown-elf-objcopy.exe') '-O' 'binary' $firmwareElf $firmwareBin
-if ($LASTEXITCODE) { throw "RV32 firmware conversion failed: $LASTEXITCODE" }
-& (Join-Path $PSScriptRoot 'generate_rv32_program_header.ps1') `
-    -Binary $firmwareBin -Output (Join-Path $runDir 'rv32_sd_mount_program.vh')
+$firmwareHeader = Join-Path $runDir 'rv32_sd_mount_program.vh'
+if ($UseExistingFirmware) {
+    if (-not (Test-Path -LiteralPath $firmwareHeader -PathType Leaf)) {
+        throw "Existing firmware header was not found: $firmwareHeader"
+    }
+} else {
+    & (Join-Path $PSScriptRoot 'build_decb_bin_loader.ps1') -OutputDirectory $firmwareDir
+    & (Join-Path $toolchain 'riscv64-unknown-elf-gcc.exe') `
+        '-march=rv32im_zicsr' '-mabi=ilp32' '-Os' '-ffreestanding' '-fno-builtin' '-nostdlib' `
+        '-Wl,--build-id=none' '-Wl,--gc-sections' '-T' (Join-Path $repoRoot 'firmware\management\rv32_tcm.ld') `
+        '-I' $firmwareDir `
+        (Join-Path $repoRoot 'firmware\management\rv32_start.S') `
+        (Join-Path $repoRoot 'firmware\management\decb_bin_format.c') `
+        (Join-Path $repoRoot 'firmware\management\coco3_banked_bin_format.c') `
+        (Join-Path $repoRoot 'firmware\management\settings_ui.c') `
+        (Join-Path $repoRoot 'firmware\management\rv32_sd_mount.c') '-o' $firmwareElf
+    if ($LASTEXITCODE) { throw "RV32 firmware link failed: $LASTEXITCODE" }
+    & (Join-Path $toolchain 'riscv64-unknown-elf-objcopy.exe') '-O' 'binary' $firmwareElf $firmwareBin
+    if ($LASTEXITCODE) { throw "RV32 firmware conversion failed: $LASTEXITCODE" }
+    & (Join-Path $PSScriptRoot 'generate_rv32_program_header.ps1') `
+        -Binary $firmwareBin -Output $firmwareHeader
+}
 
 function Invoke-VivadoTool {
     param([string]$Tool, [string[]]$Arguments)
@@ -82,7 +90,7 @@ $sources = @($managerCpuSources) + (@(
 Push-Location $runDir
 try {
     Invoke-VivadoTool xvlog @((Join-Path $repoRoot 'rtl\third-party\MC6809\mc6809i.v'), (Join-Path $repoRoot 'rtl\core\cpu09.v'))
-    Invoke-VivadoTool xvlog (@('-d', 'NEW_SRAM', '-i',
+    Invoke-VivadoTool xvlog (@('-d', 'NEW_SRAM', '-d', 'COCO3_BOOT_SIM', '-i',
         (Join-Path $repoRoot 'rtl\third-party\ultraembedded-riscv\core\riscv'),
         '-i', $runDir) + $sources)
     Invoke-VivadoTool xelab @('-L', 'xpm', 'boot_video_tb', '-s',

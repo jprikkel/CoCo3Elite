@@ -6,6 +6,7 @@ param(
     [switch]$KeepIntermediates,
     [switch]$EmbeddedTestDisks,
     [switch]$NoCpuUartDebug,
+    [switch]$UseExistingFirmware,
     # Normal builds keep lower 128 KiB and the 160 KiB disk in BRAM while
     # upper 384 KiB uses SDRAM. Use -UseSdram:$false
     # only when deliberately testing the legacy all-BRAM configuration.
@@ -45,20 +46,27 @@ if ($Mode -eq 'COCO3_ELITE') {
     $objcopy = Join-Path $toolchain 'riscv64-unknown-elf-objcopy.exe'
     $firmwareElf = Join-Path $firmwareDir 'rv32_sd_mount.elf'
     $firmwareBin = Join-Path $firmwareDir 'rv32_sd_mount.bin'
-    & (Join-Path $PSScriptRoot 'build_decb_bin_loader.ps1') -OutputDirectory $firmwareDir
-    & $gcc '-DWUKONG_BRAM_DISK' '-march=rv32im_zicsr' '-mabi=ilp32' '-Os' '-ffreestanding' '-fno-builtin' '-nostdlib' `
-        '-Wl,--build-id=none' '-Wl,--gc-sections' '-T' (Join-Path $repoRoot 'firmware\management\rv32_tcm.ld') `
-        '-I' $firmwareDir `
-        (Join-Path $repoRoot 'firmware\management\rv32_start.S') `
-        (Join-Path $repoRoot 'firmware\management\decb_bin_format.c') `
-        (Join-Path $repoRoot 'firmware\management\coco3_banked_bin_format.c') `
-        (Join-Path $repoRoot 'firmware\management\settings_ui.c') `
-        (Join-Path $repoRoot 'firmware\management\rv32_sd_mount.c') '-o' $firmwareElf
-    if ($LASTEXITCODE) { throw "RV32 SD mount firmware link failed: $LASTEXITCODE" }
-    & $objcopy '-O' 'binary' $firmwareElf $firmwareBin
-    if ($LASTEXITCODE) { throw "RV32 SD mount firmware conversion failed: $LASTEXITCODE" }
-    & (Join-Path $PSScriptRoot 'generate_rv32_program_header.ps1') `
-        -Binary $firmwareBin -Output (Join-Path $buildDir 'rv32_sd_mount_program.vh')
+    $firmwareHeader = Join-Path $buildDir 'rv32_sd_mount_program.vh'
+    if ($UseExistingFirmware) {
+        if (-not (Test-Path -LiteralPath $firmwareHeader -PathType Leaf)) {
+            throw "Existing firmware header was not found: $firmwareHeader"
+        }
+    } else {
+        & (Join-Path $PSScriptRoot 'build_decb_bin_loader.ps1') -OutputDirectory $firmwareDir
+        & $gcc '-DWUKONG_BRAM_DISK' '-march=rv32im_zicsr' '-mabi=ilp32' '-Os' '-ffreestanding' '-fno-builtin' '-nostdlib' `
+            '-Wl,--build-id=none' '-Wl,--gc-sections' '-T' (Join-Path $repoRoot 'firmware\management\rv32_tcm.ld') `
+            '-I' $firmwareDir `
+            (Join-Path $repoRoot 'firmware\management\rv32_start.S') `
+            (Join-Path $repoRoot 'firmware\management\decb_bin_format.c') `
+            (Join-Path $repoRoot 'firmware\management\coco3_banked_bin_format.c') `
+            (Join-Path $repoRoot 'firmware\management\settings_ui.c') `
+            (Join-Path $repoRoot 'firmware\management\rv32_sd_mount.c') '-o' $firmwareElf
+        if ($LASTEXITCODE) { throw "RV32 SD mount firmware link failed: $LASTEXITCODE" }
+        & $objcopy '-O' 'binary' $firmwareElf $firmwareBin
+        if ($LASTEXITCODE) { throw "RV32 SD mount firmware conversion failed: $LASTEXITCODE" }
+        & (Join-Path $PSScriptRoot 'generate_rv32_program_header.ps1') `
+            -Binary $firmwareBin -Output $firmwareHeader
+    }
 }
 
 # Vivado resolves $readmemh paths from its process working directory. Mirror

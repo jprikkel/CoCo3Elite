@@ -95,7 +95,7 @@ individual hardware samples used to form the response.
 
 `TRACE SNAP` returns a single detailed `PC=...` line; `TRACE ON` repeats that
 line once per second until `TRACE OFF`. Neither `STATUS` nor the default boot
-state enables repeating output. `RESET` disables it. The final `Q=` field is
+state enables repeating output. `RESET` disables it. The `Q=` field is
 eight hexadecimal digits encoding `{miss_count[11:0], last_x[9:0],
 last_y[9:0]}` for the most recently completed HDMI frame. Positions refer to
 the GIME video-memory fetch, before the downstream RGB/narrow-mode delay.
@@ -104,6 +104,12 @@ were observed in that frame. This is passive telemetry: it does not wait or
 change the fetched pixel. `scripts/capture_serial_debug.ps1` enables the
 repeating trace only for its capture interval and disables it on exit; use
 `-Passive` to observe without changing trace state.
+
+The final `J=` byte reports the physical J10 input as `0PBBDLRU`: port
+selection (`P`, 1 right/0 left), button 2, button 1, right, left, down, and up.
+Contact bits are active high in this decoded field. With J10 idle after reset,
+`J=40` is expected. Grounding J10 pin 1 changes it to `J=41`; F7 changes the
+port bit and therefore an otherwise-idle value to `J=00`.
 
 ### Reset the browser to `/`
 
@@ -244,7 +250,7 @@ OK FUNCTION
 | ---: | --- | --- | --- | --- |
 | 0 | F3 | `FK 01` | `FK 00` | Accepted; no current serial consumer. |
 | 1 | F6 | `FK 03` | `FK 02` | CPU normal/fast mode control. |
-| 2 | F7 | `FK 05` | `FK 04` | Accepted; no current serial consumer. |
+| 2 | F7 | `FK 05` | `FK 04` | Toggle physical J10 joystick between right and left CoCo ports. |
 | 3 | F8 | `FK 07` | `FK 06` | Cycle keyboard joystick mapping. |
 | 4 | F9 | `FK 09` | `FK 08` | Scanline option. |
 | 5 | F10 | `FK 0B` | `FK 0A` | Current F10 function. |
@@ -350,7 +356,7 @@ CART ENTRY C000
 It also emits approximately one status line per second:
 
 ```text
-PC=pppp K=k R=rr C=cc S=ss T=tt V=<40 hex> G=<5 hex> M=<32 hex> D=<8 hex>
+PC=pppp K=k R=rr C=cc S=ss T=tt V=<40 hex> G=<5 hex> M=<32 hex> D=<8 hex> Q=<8 hex> J=<2 hex>
 ```
 
 The fields are:
@@ -370,6 +376,9 @@ The fields are:
 - `M`: the sixteen MMU mapping registers in order.
 - `D`: SDRAM diagnostics as four bytes: dropped writes, write-FIFO high-water
   mark, maximum refresh debt, and current refresh debt.
+- `Q`: completed-frame upper-SDRAM cache misses and last fetch position.
+- `J`: decoded J10 port selection and six active-high joystick contacts as
+  `0PBBDLRU`.
 
 These periodic lines are deliberately low-rate snapshots. They are intended to
 identify hangs, video configuration, MMU state, and memory-controller pressure;

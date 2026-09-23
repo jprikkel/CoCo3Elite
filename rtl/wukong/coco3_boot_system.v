@@ -9,6 +9,10 @@ module coco3_boot_system #(
     input wire raster_resync,
     input wire [9:0] screen_x, input wire [9:0] screen_y,
     input wire ps2_clk, input wire ps2_data,
+    input wire physical_joystick_up, input wire physical_joystick_down,
+    input wire physical_joystick_left, input wire physical_joystick_right,
+    input wire physical_joystick_button1,
+    input wire physical_joystick_button2,
     output wire sd_cs_n, output wire sd_sck, output wire sd_mosi,
     input wire sd_miso,
     output wire hsync, output wire vsync, output wire video_enable,
@@ -88,6 +92,7 @@ module coco3_boot_system #(
     wire keyboard_f10;
     wire keyboard_f12;
     reg [1:0] keyboard_f6_sync;
+    reg [1:0] keyboard_f7_sync;
     reg [1:0] keyboard_f10_sync;
     reg [1:0] keyboard_f8_sync;
     reg [1:0] keyboard_f9_sync;
@@ -96,12 +101,16 @@ module coco3_boot_system #(
     reg [1:0] keyboard_reset_sync;
     reg keyboard_reset_previous;
     reg keyboard_f6_previous;
+    reg keyboard_f7_previous;
     reg cpu_fast_mode;
     // F8 cycles keyboard joystick emulation: 0=off, 1=left, 2=right.
     // A real CoCo exposes one fire input per joystick connector.  Space drives
     // the selected connector's fire input; Ctrl drives the other connector's
     // fire input so software that treats both lines as two buttons can use it.
     reg [1:0] keyboard_joystick_mode;
+    // F7 selects which CoCo joystick port receives the physical J10 stick.
+    // Reset defaults to the right port for compatibility with most games.
+    reg physical_joystick_right_port;
     reg artifact_enabled;
     reg keyboard_f10_previous;
     reg keyboard_f8_previous;
@@ -143,24 +152,73 @@ module coco3_boot_system #(
     wire joystick_right_only = effective_keyboard_keys[30] && !effective_keyboard_keys[29];
     wire joystick_up_only = effective_keyboard_keys[27] && !effective_keyboard_keys[28];
     wire joystick_down_only = effective_keyboard_keys[28] && !effective_keyboard_keys[27];
-    wire [5:0] joystick_left_x = !keyboard_joystick_left ? 6'd32 :
-                                 joystick_left_only ? 6'd0 :
-                                 joystick_right_only ? 6'd63 : 6'd32;
-    wire [5:0] joystick_left_y = !keyboard_joystick_left ? 6'd32 :
-                                 joystick_up_only ? 6'd0 :
-                                 joystick_down_only ? 6'd63 : 6'd32;
-    wire [5:0] joystick_right_x = !keyboard_joystick_right ? 6'd32 :
-                                  joystick_left_only ? 6'd0 :
-                                  joystick_right_only ? 6'd63 : 6'd32;
-    wire [5:0] joystick_right_y = !keyboard_joystick_right ? 6'd32 :
-                                  joystick_up_only ? 6'd0 :
-                                  joystick_down_only ? 6'd63 : 6'd32;
-    wire joystick_left_fire =
+    // Gate J10 while the manager owns the display, then merge it with the
+    // optional F8 keyboard mapping. F7 independently assigns J10 to the left
+    // or right CoCo port. Opposing directions resolve to the centered value.
+    wire physical_joystick_enabled = !soft_reset_active && !menu_active;
+    wire physical_joystick_to_left =
+        physical_joystick_enabled && !physical_joystick_right_port;
+    wire physical_joystick_to_right =
+        physical_joystick_enabled && physical_joystick_right_port;
+    wire joystick_left_left =
+        (keyboard_joystick_left && joystick_left_only) ||
+        (physical_joystick_to_left && physical_joystick_left);
+    wire joystick_left_right =
+        (keyboard_joystick_left && joystick_right_only) ||
+        (physical_joystick_to_left && physical_joystick_right);
+    wire joystick_left_up =
+        (keyboard_joystick_left && joystick_up_only) ||
+        (physical_joystick_to_left && physical_joystick_up);
+    wire joystick_left_down =
+        (keyboard_joystick_left && joystick_down_only) ||
+        (physical_joystick_to_left && physical_joystick_down);
+    wire joystick_right_left =
+        (keyboard_joystick_right && joystick_left_only) ||
+        (physical_joystick_to_right && physical_joystick_left);
+    wire joystick_right_right =
+        (keyboard_joystick_right && joystick_right_only) ||
+        (physical_joystick_to_right && physical_joystick_right);
+    wire joystick_right_up =
+        (keyboard_joystick_right && joystick_up_only) ||
+        (physical_joystick_to_right && physical_joystick_up);
+    wire joystick_right_down =
+        (keyboard_joystick_right && joystick_down_only) ||
+        (physical_joystick_to_right && physical_joystick_down);
+    wire [5:0] joystick_left_x =
+        joystick_left_left && !joystick_left_right ? 6'd0 :
+        joystick_left_right && !joystick_left_left ? 6'd63 : 6'd32;
+    wire [5:0] joystick_left_y =
+        joystick_left_up && !joystick_left_down ? 6'd0 :
+        joystick_left_down && !joystick_left_up ? 6'd63 : 6'd32;
+    wire [5:0] joystick_right_x =
+        joystick_right_left && !joystick_right_right ? 6'd0 :
+        joystick_right_right && !joystick_right_left ? 6'd63 : 6'd32;
+    wire [5:0] joystick_right_y =
+        joystick_right_up && !joystick_right_down ? 6'd0 :
+        joystick_right_down && !joystick_right_up ? 6'd63 : 6'd32;
+    // A standard CoCo has one PIA fire input per joystick connector. Button 2
+    // remains the second button on this physical stick, but software sees it
+    // through the otherwise-unused fire input of the unselected CoCo port.
+    // Swapping J10 with F7 swaps both primary and secondary roles together.
+    wire keyboard_left_fire =
         (keyboard_joystick_left && effective_keyboard_keys[31]) ||
         (keyboard_joystick_right && effective_keyboard_keys[52]);
-    wire joystick_right_fire =
+    wire keyboard_right_fire =
         (keyboard_joystick_right && effective_keyboard_keys[31]) ||
         (keyboard_joystick_left && effective_keyboard_keys[52]);
+    wire joystick_left_fire = keyboard_left_fire ||
+        (physical_joystick_to_left && physical_joystick_button1) ||
+        (physical_joystick_to_right && physical_joystick_button2);
+    wire joystick_right_fire = keyboard_right_fire ||
+        (physical_joystick_to_right && physical_joystick_button1) ||
+        (physical_joystick_to_left && physical_joystick_button2);
+    // J=PBBDLRU in the UART trace: P is 1 for right/0 for left, followed by
+    // button 2, button 1, and the four active-high contact states.
+    wire [6:0] physical_joystick_debug =
+        {physical_joystick_right_port, physical_joystick_button2,
+         physical_joystick_button1, physical_joystick_right,
+         physical_joystick_left, physical_joystick_down,
+         physical_joystick_up};
     // The manager owns the SD pins and filesystem.  The CoCo sees only a
     // WD1773-like sector service, preserving Disk BASIC's normal protocol.
     wire manager_uart_tx, manager_uart_busy, manager_uart_claim;
@@ -395,7 +453,14 @@ module coco3_boot_system #(
     assign sdram_dqm = manager_sdram_dqm;
     assign sdram_address = manager_sdram_address;
     assign sdram_bank = manager_sdram_bank;
+`ifdef COCO3_BOOT_SIM
+    // The boot regression does not exercise external SDRAM. Avoid Vivado
+    // Simulator's unsupported bidirectional tran primitive in this one model.
+    assign manager_sdram_data = 16'hzzzz;
+    assign sdram_data = 16'hzzzz;
+`else
     tran manager_sdram_bus[15:0](sdram_data, manager_sdram_data);
+`endif
 `endif
 
     // The SD manager intentionally survives both Ctrl-Alt-Delete and a
@@ -494,6 +559,7 @@ module coco3_boot_system #(
     always @(posedge pixel_clk) begin
         if (reset) begin
             keyboard_f6_sync <= 2'b00;
+            keyboard_f7_sync <= 2'b00;
             keyboard_f11_sync <= 2'b00;
             keyboard_f12_sync <= 2'b00;
             keyboard_f10_sync <= 2'b00;
@@ -502,8 +568,10 @@ module coco3_boot_system #(
             keyboard_reset_sync <= 2'b00;
             keyboard_reset_previous <= 1'b0;
             keyboard_f6_previous <= 1'b0;
+            keyboard_f7_previous <= 1'b0;
             cpu_fast_mode <= 1'b0;
             keyboard_joystick_mode <= 2'd0;
+            physical_joystick_right_port <= 1'b1;
             artifact_enabled <= 1'b1;
             keyboard_f10_previous <= 1'b0;
             keyboard_f8_previous <= 1'b0;
@@ -511,6 +579,7 @@ module coco3_boot_system #(
             scanlines_enabled <= 1'b0;
         end else begin
             keyboard_f6_sync <= {keyboard_f6_sync[0], keyboard_f6 | manager_serial_function_keys[1]};
+            keyboard_f7_sync <= {keyboard_f7_sync[0], keyboard_f7 | manager_serial_function_keys[2]};
             keyboard_f11_sync <= {keyboard_f11_sync[0], keyboard_f11 | manager_serial_function_keys[6]};
             keyboard_f12_sync <= {keyboard_f12_sync[0], keyboard_f12 | manager_serial_function_keys[7]};
             keyboard_f10_sync <= {keyboard_f10_sync[0], keyboard_f10 | manager_serial_function_keys[5]};
@@ -519,6 +588,7 @@ module coco3_boot_system #(
             keyboard_reset_sync <= {keyboard_reset_sync[0], keyboard_reset};
             keyboard_reset_previous <= keyboard_reset_sync[1];
             keyboard_f6_previous <= keyboard_f6_sync[1];
+            keyboard_f7_previous <= keyboard_f7_sync[1];
             keyboard_f10_previous <= keyboard_f10_sync[1];
             keyboard_f8_previous <= keyboard_f8_sync[1];
             keyboard_f9_previous <= keyboard_f9_sync[1];
@@ -528,6 +598,8 @@ module coco3_boot_system #(
                 artifact_enabled <= ~artifact_enabled;
             if (keyboard_f6_sync[1] && !keyboard_f6_previous)
                 cpu_fast_mode <= ~cpu_fast_mode;
+            if (keyboard_f7_sync[1] && !keyboard_f7_previous)
+                physical_joystick_right_port <= ~physical_joystick_right_port;
             if (keyboard_f8_sync[1] && !keyboard_f8_previous)
                 keyboard_joystick_mode <= keyboard_joystick_mode == 2'd2
                     ? 2'd0 : keyboard_joystick_mode + 1'b1;
@@ -695,6 +767,7 @@ module coco3_boot_system #(
         .memory_flags(debug_memory_flags), .mmu_state(debug_mmu),
         .sdram_debug_status(machine_memory_debug_status),
         .video_cache_miss_status(completed_video_miss_status),
+        .physical_joystick_state(physical_joystick_debug),
         .uart_tx_o(coco_uart_debug_tx)
     );
 `endif

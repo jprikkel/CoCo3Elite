@@ -63,8 +63,8 @@ special CoCo meanings or control FPGA features:
 | F3 | CoCo F3 | Normal keyboard-matrix function key; no fixed cartridge action |
 | F4–F5 | Unmapped | Reserved for future use |
 | F6 | Processor speed | Toggles between normal speed (approximately 0.9 MHz) and fast speed (approximately 1.8 MHz); normal speed is selected after FPGA reset |
-| F7 | Keyboard right joystick | Toggles W/S/A/D/F control of the emulated right joystick; disabled after reset |
-| F8 | Keyboard left joystick | Toggles arrow-key and Space control of the emulated left joystick; disabled after reset |
+| F7 | Physical joystick port | Toggles J10 between the right and left CoCo joystick ports; right is selected after reset |
+| F8 | Keyboard joystick | Cycles Off, Left, and Right for arrow-key, Space, and Left Ctrl joystick emulation |
 | F9 | Horizontal scanlines | Toggles horizontal CRT scanlines on or off; disabled after reset |
 | F10 | NTSC artifact color | Toggles HDMI artifact-color processing on or off; enabled after reset |
 | F11 | Settings OSD | Opens live font, artifact, CoCo 2 palette, and text-color settings |
@@ -91,17 +91,15 @@ where the CoCo has no matching physical key:
 | `{` / `}` | `Ctrl+,` / `Ctrl+.` |
 | `'` / `"` | `Shift+7` / `Shift+2` |
 
-When F8 keyboard-joystick mode is enabled, Up produces minimum Y, Down maximum
-Y, Left minimum X, Right maximum X, and Space presses the left joystick's
-primary fire button. Opposing directions return that axis to center. These five
-keys are consumed by the joystick while the mode is active and return to their
-normal CoCo keyboard meanings when F8 disables it.
+F8 cycles keyboard-joystick mode through Off, Left, and Right. Up produces
+minimum Y, Down maximum Y, Left minimum X, Right maximum X, Space presses the
+selected joystick's primary fire input, and Left Ctrl supplies its second
+logical button through the spare PIA fire input. Opposing directions return
+that axis to center. The six keys return to their normal CoCo meanings when F8
+cycles back to Off.
 
-When F7 keyboard-joystick mode is enabled, W produces minimum Y, S maximum Y,
-A minimum X, D maximum X, and F presses the right joystick's primary fire
-button. Opposing directions return that axis to center. These five keys are
-consumed by the joystick while the mode is active and return to their normal
-CoCo keyboard meanings when F7 disables it.
+F7 does not enable keyboard emulation. It switches the physical J10 joystick,
+including both of its buttons, between the CoCo's right and left ports.
 
 F4 through F5 and the Insert, Home, End, Page Up, Page Down, Print Screen,
 Pause, and numeric-keypad navigation keys are not currently mapped. The

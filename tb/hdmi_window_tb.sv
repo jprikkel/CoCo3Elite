@@ -24,7 +24,10 @@ module hdmi_window_tb;
  integer capture_file, capture_pixels;
  integer top_left_pixel_one_valid;
  integer top_left_black_run, top_left_max_black_run;
- wukong_top dut(.clk_50mhz(clk),.ps2_clk(1'b1),.ps2_data(1'b1),.sd_miso(1'b1));
+ wukong_top dut(.clk_50mhz(clk),.ps2_clk(1'b1),.ps2_data(1'b1),.sd_miso(1'b1),
+  .joystick_up_n(1'b1),.joystick_down_n(1'b1),
+  .joystick_left_n(1'b1),.joystick_right_n(1'b1),
+  .joystick_button1_n(1'b1),.joystick_button2_n(1'b1));
  initial begin
   // This test checks RGB window alignment, not HDMI data-island encoding.
   // Hold the unused TERC4 input known to prevent simulator-only X warnings.
