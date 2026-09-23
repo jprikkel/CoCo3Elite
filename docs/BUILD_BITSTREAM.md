@@ -191,6 +191,18 @@ For the normal SD-card-enabled CoCo image:
 & .\scripts\build_wukong.ps1 -Mode COCO3_ELITE
 ```
 
+This defaults to the Wukong V3 onboard MicroSD socket. To build the same
+logic for the Digilent Pmod MicroSD on J13 instead, select the alternate
+constraint fragment:
+
+```powershell
+& .\scripts\build_wukong.ps1 -Mode COCO3_ELITE -SdSlot PMOD
+```
+
+`-SdSlot ONBOARD` and `-SdSlot PMOD` are mutually exclusive build targets;
+one bitstream never drives or monitors both sockets. The selection changes
+only FPGA pin constraints, not the SD controller or management firmware.
+
 `COCO3_ELITE` is the default, so the following is equivalent:
 
 ```powershell

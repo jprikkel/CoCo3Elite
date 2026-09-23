@@ -11,6 +11,8 @@ param(
     # upper 384 KiB uses SDRAM. Use -UseSdram:$false
     # only when deliberately testing the legacy all-BRAM configuration.
     [switch]$UseSdram = $true,
+    [ValidateSet('ONBOARD', 'PMOD')]
+    [string]$SdSlot = 'ONBOARD',
     [string]$Drive0Disk = 'disks\fpgatest.dsk',
     [string]$Drive1Disk = 'disks\games.dsk'
 )
@@ -110,7 +112,7 @@ $env:XILINX_LOCAL_USER_DATA = 'NO'
 Push-Location $buildDir
 try {
     & $Vivado -mode batch -nojournal -nolog `
-        -source $buildTcl -tclargs $Part $Mode ([int]$EmbeddedTestDisks.IsPresent) ([int](-not $NoCpuUartDebug.IsPresent)) ([int]$UseSdram.IsPresent)
+        -source $buildTcl -tclargs $Part $Mode ([int]$EmbeddedTestDisks.IsPresent) ([int](-not $NoCpuUartDebug.IsPresent)) ([int]$UseSdram.IsPresent) $SdSlot
     $vivadoExitCode = $LASTEXITCODE
 } finally {
     Pop-Location

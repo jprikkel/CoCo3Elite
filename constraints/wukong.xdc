@@ -31,12 +31,8 @@ set_property -dict { PACKAGE_PIN E5 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports
 set_property -dict { PACKAGE_PIN E6 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports joystick_button2_n]
 set_false_path -from [get_ports {joystick_up_n joystick_down_n joystick_left_n joystick_right_n joystick_button1_n joystick_button2_n}]
 
-# Digilent Pmod MicroSD on J13 (standard Type-2 SPI layout).
-set_property -dict { PACKAGE_PIN N22 IOSTANDARD LVCMOS33 } [get_ports sd_cs_n]
-set_property -dict { PACKAGE_PIN N21 IOSTANDARD LVCMOS33 } [get_ports sd_mosi]
-set_property -dict { PACKAGE_PIN R20 IOSTANDARD LVCMOS33 PULLUP TRUE } [get_ports sd_miso]
-set_property -dict { PACKAGE_PIN T22 IOSTANDARD LVCMOS33 } [get_ports sd_sck]
-set_false_path -from [get_ports sd_miso]
+# MicroSD pins are selected by exactly one of the shared wukong_sd_*.xdc
+# fragments. The normal build defaults to the onboard socket.
 
 # Onboard 32 MB Winbond W9825G6KH-6 SDR SDRAM. Pin assignments are from the
 # official QMTECH Wukong V3 Test10_SDRAM project. The controller uses a

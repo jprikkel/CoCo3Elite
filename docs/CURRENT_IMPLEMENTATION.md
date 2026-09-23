@@ -239,7 +239,9 @@ With `-EmbeddedTestDisks`, the build converts and embeds:
 These are read-only, 35-track images. Without the option, sector commands do
 not silently fall through to an embedded image.
 
-The J13 SD path is owned by the RV32 management firmware. Boot initializes the
+The selected SD SPI path is owned by the RV32 management firmware. Normal
+builds use the Wukong V3 onboard MicroSD socket; `-SdSlot PMOD` selects the
+Digilent Pmod MicroSD on J13 instead. Boot initializes the
 card and FAT32 volume but does not automatically mount or cache a DSK. F12 scans
 the current directory and opens the HDMI browser; firmware supports FAT32
 subdirectories and long filenames, loads a selected `.DSK` into the drive-0

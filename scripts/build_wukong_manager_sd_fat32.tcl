@@ -1,5 +1,9 @@
 set script_dir [file normalize [file dirname [info script]]]
 set repo [file normalize [file join $script_dir ..]]
+set sd_slot [string toupper [expr {$argc > 0 ? [lindex $argv 0] : "ONBOARD"}]]
+if {$sd_slot ni {ONBOARD PMOD}} {
+    error "Unknown SD slot '$sd_slot'; use ONBOARD or PMOD"
+}
 set work [file join $repo build wukong-manager-sd-fat32]
 set core [file join $repo rtl third-party ultraembedded-riscv core riscv]
 set tcm [file join $repo rtl third-party ultraembedded-riscv top_tcm_axi src_v]
@@ -13,6 +17,9 @@ set sources [concat [lsort [glob [file join $core *.v]]] [lsort [glob [file join
 set_property include_dirs [list $core $work] [current_fileset]
 read_verilog $sources
 read_xdc [file join $repo constraints wukong_manager_sd_fat32.xdc]
+set sd_xdc [expr {$sd_slot eq "ONBOARD" ? "wukong_sd_onboard.xdc" : "wukong_sd_pmod.xdc"}]
+read_xdc [file join $repo constraints $sd_xdc]
+puts "MicroSD target: $sd_slot ([file join $repo constraints $sd_xdc])"
 synth_design -top wukong_manager_sd_fat32_top -part xc7a100tfgg676-2
 opt_design
 place_design

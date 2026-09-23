@@ -64,9 +64,10 @@ The PS/2 keyboard uses the Digilent layout on J14: pin 1 (`P23`) for data and
 pin 3 (`T24`) for clock. See [PS/2 keyboard wiring](pmod-keyboard-ps2-interface.md) for voltage translation
 and wiring requirements.
 
-J13 is assigned to the external Digilent Pmod MicroSD: pin 1 chip select,
-pin 2 MOSI, pin 3 MISO, and pin 4 SPI clock. The current MicroSD path supports
-initialization and sector-zero reads only; FAT32 DSK mounting is not implemented.
+J13 is free in the default build because MicroSD uses the onboard socket.
+Building with `-SdSlot PMOD` instead assigns J13 pin 1 to chip select, pin 2 to
+MOSI, pin 3 to MISO, and pin 4 to SPI clock. The two targets use separate,
+mutually exclusive constraint fragments.
 
 J10 is assigned to one direct Atari/C64-style digital joystick:
 

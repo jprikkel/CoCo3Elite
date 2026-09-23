@@ -13,6 +13,7 @@ set cpu_uart_debug [expr {$argc > 3 ? [lindex $argv 3] : 1}]
 # Keep external SDRAM opt-in.  The default image uses the established 128 KB
 # block-RAM implementation; SDRAM is still available for isolated experiments.
 set use_sdram [expr {$argc > 4 ? [lindex $argv 4] : 0}]
+set sd_slot [string toupper [expr {$argc > 5 ? [lindex $argv 5] : "ONBOARD"}]]
 set top        wukong_top
 
 # Allow Vivado implementation phases to use the available host cores. Some
@@ -21,6 +22,9 @@ set_param general.maxThreads 8
 
 if {$mode ni {HDMI_TEST_PATTERN COCO3_ELITE BASIC_6809_DVI_TEST}} {
     error "Unknown mode '$mode'; use HDMI_TEST_PATTERN, COCO3_ELITE, or BASIC_6809_DVI_TEST"
+}
+if {$sd_slot ni {ONBOARD PMOD}} {
+    error "Unknown SD slot '$sd_slot'; use ONBOARD or PMOD"
 }
 
 file mkdir $output_dir
@@ -118,6 +122,9 @@ if {$mode eq "BASIC_6809_DVI_TEST"} {
 read_verilog $sources
 read_verilog -sv [concat $systemverilog_sources $hdmi_sources]
 read_xdc [file join $repo_dir constraints wukong.xdc]
+set sd_xdc [expr {$sd_slot eq "ONBOARD" ? "wukong_sd_onboard.xdc" : "wukong_sd_pmod.xdc"}]
+read_xdc [file join $repo_dir constraints $sd_xdc]
+puts "MicroSD target: $sd_slot ([file join $repo_dir constraints $sd_xdc])"
 if {$mode in {HDMI_TEST_PATTERN COCO3_ELITE}} {
     read_xdc [file join $repo_dir constraints wukong_audio.xdc]
 }

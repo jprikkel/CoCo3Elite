@@ -1,3 +1,8 @@
+param(
+    [ValidateSet('ONBOARD', 'PMOD')]
+    [string]$SdSlot = 'ONBOARD'
+)
+
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 $work = Join-Path $repo 'build\wukong-manager-sd-fat32'
@@ -18,5 +23,5 @@ if ($LASTEXITCODE) { throw "RV32 firmware conversion failed: $LASTEXITCODE" }
 & (Join-Path $repo 'scripts\generate_rv32_program_header.ps1') `
     -Binary (Join-Path $firmwareWork 'rv32_sd_fat32_list.bin') `
     -Output (Join-Path $work 'rv32_sd_list_program.vh')
-& $vivado -mode batch -nojournal -nolog -source (Join-Path $repo 'scripts\build_wukong_manager_sd_fat32.tcl')
+& $vivado -mode batch -nojournal -nolog -source (Join-Path $repo 'scripts\build_wukong_manager_sd_fat32.tcl') -tclargs $SdSlot
 if ($LASTEXITCODE) { throw "Manager SD/FAT32 bitstream build failed: $LASTEXITCODE" }

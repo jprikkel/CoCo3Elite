@@ -26,7 +26,8 @@ PS/2 keyboard interface connected to PMOD J14.*
 | JTAG header | Used | Volatile FPGA programming and hardware testing |
 | Artix-7 block RAM | Used | 128 KiB CoCo main memory, system ROM, character ROM, and supporting buffers |
 | PMOD J14 | Implemented and verified | Direct clock, data, and power for the HP KB-0133 PS/2 keyboard |
-| PMOD J13 | Partial | External Digilent Pmod MicroSD: initialization and sector-zero reads only; no FAT32 DSK mounting |
+| Onboard MicroSD | Implemented | Default FAT32 storage, DSK mounting/writeback, and BIN/CCC loading |
+| PMOD J13 | Optional | Alternate Digilent Pmod MicroSD target selected at build time |
 | Remaining PMOD connectors | Planned | External audio, joystick ADC, and optional I2C RTC modules |
 | CH340N USB-to-UART | Used | 115200-baud passive diagnostic console; see [USB serial diagnostics](serial-debug.md) |
 | User keys | Unassigned | Candidate reset, cold-start, or maintenance controls |
@@ -82,12 +83,21 @@ can connect directly. Other PS/2 keyboards may require 5 V and a suitable
 open-drain-compatible level shifter because the Artix-7 pins are not 5 V
 tolerant. See `pmod-keyboard-ps2-interface.md` for the complete wiring and constraint guidance.
 
-### External MicroSD storage
+### MicroSD storage
 
-The Wukong board does not include a MicroSD slot. A Digilent Pmod MicroSD is
-connected to PMOD J13 and uses the standard SPI assignment below. Initialization and sector-zero reads are implemented; FAT32 DSK mounting is
-planned. Optional read-only embedded DSK files remain a separate, untracked
-test backend. DriveWire will not be ported.
+The default build uses the Wukong V3 onboard MicroSD socket in SPI mode. The
+same RTL and firmware can instead target a Digilent Pmod MicroSD on J13 by
+building with `-SdSlot PMOD`. Only one constraint fragment is loaded in a
+bitstream; the two sockets are not active simultaneously.
+
+| Function | Onboard SD signal | FPGA pin |
+| --- | ---: | --- |
+| Chip select (active low) | D3 | J6 |
+| MOSI | CMD | J8 |
+| MISO | D0 | M5 |
+| SPI clock | CLK | L4 |
+
+The alternate J13 assignment is:
 
 | Function | J13 pin | FPGA pin |
 | --- | ---: | --- |

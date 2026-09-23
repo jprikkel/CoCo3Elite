@@ -4,7 +4,8 @@
 
 This source set targets the QMTECH Wukong V3 board populated with an Artix-7
 `XC7A100T` in the FGG676 package. The standalone `HDMI_TEST_PATTERN` needs only the
-oscillator and HDMI. Real-ROM modes also use J14 PS/2, J13 MicroSD, J10 digital
+oscillator and HDMI. Real-ROM modes also use J14 PS/2, the onboard MicroSD
+socket, J10 digital
 joystick, and the onboard USB UART. DDR3, Ethernet, and physical joystick ADCs are
 not integrated. See [current implementation](CURRENT_IMPLEMENTATION.md).
 
@@ -88,8 +89,9 @@ speed grade can be passed as the first Tcl argument without changing the board
 pin assignments.
 
 The four V3 PMOD connector pinouts are recorded in
-`hardware/wukong-pmod-pinout.md`. J13 is assigned to the external Digilent
-Pmod MicroSD, J14 to the PS/2 keyboard, and J10 to a passive digital joystick.
+`hardware/wukong-pmod-pinout.md`. J13 remains available for an optional
+Digilent Pmod MicroSD build, J14 is assigned to the PS/2 keyboard, and J10 to
+a passive digital joystick.
 
 ## Peripheral pin constraints
 
@@ -97,10 +99,10 @@ Pmod MicroSD, J14 to the PS/2 keyboard, and J10 to a passive digital joystick.
 | --- | --- | --- |
 | PS/2 data | J14 pin 1 | P23 |
 | PS/2 clock | J14 pin 3 | T24 |
-| MicroSD chip select | J13 pin 1 | N22 |
-| MicroSD MOSI | J13 pin 2 | N21 |
-| MicroSD MISO | J13 pin 3 | R20 |
-| MicroSD clock | J13 pin 4 | T22 |
+| MicroSD chip select | Onboard socket D3 | J6 |
+| MicroSD MOSI | Onboard socket CMD | J8 |
+| MicroSD MISO | Onboard socket D0 | M5 |
+| MicroSD clock | Onboard socket CLK | L4 |
 | Joystick up | J10 pin 1 | D5 |
 | Joystick down | J10 pin 2 | G5 |
 | Joystick left | J10 pin 3 | G7 |
@@ -109,7 +111,11 @@ Pmod MicroSD, J14 to the PS/2 keyboard, and J10 to a passive digital joystick.
 | Joystick button 2 | J10 pin 8 | E6 |
 | FPGA UART transmit | Onboard CH340N | E3 |
 
-These are already assigned in `constraints/wukong.xdc`; UART RX/F3 is unused.
+The fixed board signals are assigned in `constraints/wukong.xdc`. MicroSD is
+assigned by one mutually exclusive fragment: `wukong_sd_onboard.xdc` is the
+default and `wukong_sd_pmod.xdc` maps the same logical SPI interface to J13.
+Pass `-SdSlot PMOD` to the PowerShell build launcher for the latter. UART RX/F3
+is unused.
 PS/2 inputs have pull-ups, asynchronous input false paths, and receiver
 synchronizer attributes. MISO has a pull-up and asynchronous input false path.
 Neither PS/2 clock nor SPI clock is declared as a new external timing clock.
@@ -117,8 +123,8 @@ See [keyboard wiring](../hardware/pmod-keyboard-ps2-interface.md) for voltage re
 See [digital joystick wiring](../hardware/pmod-atari-joystick-digital-interface.md)
 for the rear-panel DE-9 pinout and passive-device restrictions.
 
-The MicroSD path currently supports initialization and sector-zero reads only,
-not FAT32 DSK mounting. Optional read-only embedded disks are separate local,
-untracked inputs. The [build-mode table](CURRENT_IMPLEMENTATION.md#build-modes)
-is the reference for filenames and source selection; Tcl arguments are part,
-mode, and the embedded-test-disk flag (0 or 1).
+The MicroSD path supports FAT32 browsing, DSK mounting and writeback, and
+supported BIN/CCC launching. Optional read-only embedded disks are separate
+local, untracked inputs. The
+[build-mode table](CURRENT_IMPLEMENTATION.md#build-modes) is the reference for
+filenames and source selection.
