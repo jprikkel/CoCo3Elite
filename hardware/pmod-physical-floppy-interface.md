@@ -46,7 +46,7 @@ FeatherWing's level translators. The FPGA-facing signals are 3.3 V logic.
 
 | J13 pin | FPGA pin | Direction at FPGA | Feather label / signal | Feather pad | Floppy IDC pin | Function |
 | ---: | --- | --- | --- | ---: | ---: | --- |
-| 1 | N22 | Output | `A0` / `Sel` | 5 | 12 | Select the single drive |
+| 1 | N22 | Output | `A0` / `Sel` | 5 | 12 | Select the single drive in the Adafruit prototype (DS1) |
 | 2 | N21 | Output | `A2` / `En` | 7 | 16 | Spindle motor enable |
 | 3 | R20 | Input | `D9` / `RD` | 21 | 30 | Raw read-data transitions |
 | 4 | T22 | Output | `A3` / `Dir` | 8 | 18 | Step direction |
@@ -100,6 +100,28 @@ connect the other drive-select lines. Use one drive on the straight,
 **untwisted** portion of a PC floppy ribbon cable as described by Adafruit.
 Verify cable keying and continuity: some older mechanisms have missing or
 nonstandard connector keys.
+
+### DS0 requirement for the final PMOD hardware
+
+The Adafruit FeatherWing is suitable for development, but its fixed DS1 routing
+does not match an unmodified Tandy CoCo drive. Tandy drives are normally
+configured as **DS0** and listen on 34-pin IDC pin 10. The current prototype
+therefore requires either moving the drive's select jumper from DS0 to DS1 or
+using a passive adapter that reroutes FeatherWing IDC pin 12 to drive IDC pin
+10 while leaving drive pin 12 disconnected. FPGA polarity or firmware changes
+cannot correct this physical pin-routing difference.
+
+The final CoCo3Elite floppy PMOD/interposer shall:
+
+- route its active-low drive-select output to **DS0 / IDC pin 10** by default;
+- work with a normally configured Tandy drive without changing its jumper;
+- optionally provide a clearly labeled DS0/DS1 jumper or switch for non-Tandy
+  mechanisms;
+- prevent DS0 and DS1 from being driven simultaneously; and
+- retain the straight, untwisted ribbon-cable convention.
+
+Until that hardware exists, all Adafruit FeatherWing tests in this document
+refer to DS1 unless an explicit pin-12-to-pin-10 adapter is installed.
 
 A 3.5-inch 720K-capable mechanism with double-density media is convenient for
 initial electrical tests. Reading original CoCo 5.25-inch media requires a
@@ -192,20 +214,31 @@ absent.
 
 The next milestone is also implemented: the FPGA can capture one complete
 index-to-index revolution of raw read-data timing from either selected head.
-It stores a 1024-interval window in one 18 Kbit BRAM and computes complete-turn
-counts, minimum/maximum spacing, and an order-sensitive hash. The management
-firmware uploads buffered windows over the CH340N serial link at the normal
-460800 baud with a per-window CRC-32.
-`scripts/capture_physical_floppy_flux.ps1` reconstructs all windows and writes
-little-endian raw intervals, forward and reversed CSV views, and JSON metadata.
-See `docs/SERIAL_API.md` for the wire protocol and file formats.
+It stores up to 48 KiB of two-clock interval samples, plus complete-turn counts,
+minimum/maximum spacing, and an order-sensitive hash. The management firmware
+uploads the track over the CH340N serial link at 460800 baud with CRC-32.
+`scripts/capture_physical_floppy_disk.ps1` validates transfers, retries without
+stepping when necessary, saves per-track native data and JSON metadata, and
+assembles a standard SCP image. See `docs/SERIAL_API.md` for the protocol.
 
-Hardware validation with the current Mitsumi/Newtronics D502 produced roughly
-47,390 transitions per revolution from its working lower/second head. Its
-known-faulty upper head produced only sparse transitions with saturated gaps;
-the side-select path works, but those samples are not usable disk data. The
-design does not yet decode FM/MFM or connect a physical drive to the emulated
-FDC.
+An optional indexless recovery path is now implemented for physically flipped
+media. `FLUX BULK` records one contiguous 205 ms interval stream in a 48 KiB
+FPGA track buffer, and `scripts/capture_physical_floppy_disk.ps1 -Indexless`
+steps through the requested tracks and creates an SCP image. Greaseweazle's
+`gw convert --reverse` option restores the temporal direction of flipped media.
+Only one track is buffered at a time; the host receives it before the next
+step, so this does not reserve RAM for an entire floppy image. To fit the track
+buffer, the optional physical-floppy bitstream omits serial video-frame capture
+while retaining the normal HDMI output. Ordinary builds are unaffected.
+
+Hardware validation with a working drive recovered a normal-orientation CoCo
+DECB disk in one revolution per track. All 35 tracks captured at approximately
+199.6 ms per revolution, and Greaseweazle decoded all 630 of 630 sectors into a
+161,280-byte DSK image. A known-faulty drive showed progressively poorer reads
+toward the inner tracks, demonstrating that CRC validation and missing-track
+reporting reject bad hardware data instead of silently producing an image.
+The FPGA does not yet decode FM/MFM or connect the physical drive directly to
+the emulated FDC; decoding currently happens on the host from the SCP capture.
 
 Write support is a separate future design. It requires at least `WG`, `WD`, and
 write-protect sensing, so it will require another connector or an active

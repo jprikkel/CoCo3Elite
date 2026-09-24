@@ -14,7 +14,11 @@ module pmod_floppy_read_only #(
     parameter integer STEP_LOW_CYCLES = 504,
     parameter integer STEP_INTERVAL_CYCLES = 151200,
     parameter integer HOME_MAX_STEPS = 85,
-    parameter integer CAPTURE_MAX_CYCLES = 7560000
+    parameter integer CAPTURE_MAX_CYCLES = 7560000,
+    // 205 ms includes a complete nominal 300 RPM revolution plus modest
+    // spindle tolerance when flipped media hides the index aperture.
+    parameter integer CAPTURE_INDEXLESS_CYCLES = 5166000,
+    parameter integer CAPTURE_BULK_SAMPLES = 49152
 ) (
     input  wire        clock,
     input  wire        reset,
@@ -26,7 +30,7 @@ module pmod_floppy_read_only #(
     input  wire        abort_request_toggle,
     input  wire        capture_request_toggle,
     input  wire [15:0] capture_skip_count,
-    input  wire [9:0]  capture_sample_address,
+    input  wire [15:0] capture_sample_address,
     input  wire        read_data_n,
     input  wire        track_zero_n,
     input  wire        index_n,
@@ -54,7 +58,7 @@ module pmod_floppy_read_only #(
     output reg  [15:0] capture_min_interval,
     output reg  [15:0] capture_max_interval,
     output reg  [31:0] capture_hash,
-    output reg  [10:0] capture_sample_count,
+    output reg  [15:0] capture_sample_count,
     output reg  [15:0] capture_sample_data
 );
     (* ASYNC_REG = "TRUE" *) reg [2:0] input_meta;
@@ -77,12 +81,28 @@ module pmod_floppy_read_only #(
     reg [15:0] capture_interval_timer;
     reg [15:0] capture_interval_index;
     reg capture_have_flux;
+    reg capture_bulk_mode;
+    reg capture_indexless_mode;
     (* ram_style = "block" *) reg [15:0] capture_samples [0:1023];
+    // A DECB track is normally below 48K transitions. Bulk captures
+    // quantize 25.2 MHz intervals to two-clock units, fitting one uninterrupted
+    // track in 48 KiB. Overflow is reported instead of silently wrapping.
+    (* ram_style = "block" *) reg [7:0]
+        capture_bulk_samples [0:CAPTURE_BULK_SAMPLES-1];
+    reg [15:0] capture_sample_word;
+    reg [7:0] capture_bulk_sample_byte;
     wire index_active_edge = input_previous[0] && !input_sync[0];
+    // RD is an active-low pulse for each detected flux transition. The rising
+    // edge is the fixed pulse ending, not a second transition.
     wire flux_active_edge = input_previous[2] && !input_sync[2];
     wire [15:0] capture_current_interval =
         capture_interval_timer == 16'hffff
         ? 16'hffff : capture_interval_timer + 1'b1;
+    // One unit is two 25.2 MHz clocks (79.4 ns). This retains enough timing
+    // resolution for FM/MFM decoding while fitting a revolution in 48 KiB.
+    wire [7:0] capture_bulk_interval =
+        capture_current_interval >= 16'd510
+        ? 8'hff : (capture_current_interval + 1'b1) >> 1;
 
     localparam [2:0] HOME_IDLE = 3'd0,
                      HOME_SPINUP = 3'd1,
@@ -135,6 +155,8 @@ module pmod_floppy_read_only #(
             capture_interval_timer <= 16'b0;
             capture_interval_index <= 16'b0;
             capture_have_flux <= 1'b0;
+            capture_bulk_mode <= 1'b0;
+            capture_indexless_mode <= 1'b0;
             capture_busy <= 1'b0;
             capture_done_toggle <= 1'b0;
             capture_success <= 1'b0;
@@ -146,7 +168,7 @@ module pmod_floppy_read_only #(
             capture_min_interval <= 16'hffff;
             capture_max_interval <= 16'b0;
             capture_hash <= 32'h811c9dc5;
-            capture_sample_count <= 11'b0;
+            capture_sample_count <= 16'b0;
             capture_sample_data <= 16'b0;
         end else begin
             input_meta <= {read_data_n, track_zero_n, index_n};
@@ -161,7 +183,13 @@ module pmod_floppy_read_only #(
             capture_request_meta <= capture_request_toggle;
             capture_request_sync <= capture_request_meta;
             capture_request_previous <= capture_request_sync;
-            capture_sample_data <= capture_samples[capture_sample_address];
+            // Select between independently registered BRAM read ports.  A
+            // mux around the array references prevents Vivado from inferring
+            // block RAM and would otherwise expand the 64 KiB track buffer
+            // into thousands of LUTRAM primitives.
+            capture_sample_data <= capture_bulk_mode
+                ? {8'b0, capture_bulk_sample_byte}
+                : capture_sample_word;
 
             // Abort is an event rather than a firmware-dependent level. It
             // immediately removes select, motor, and STEP even if firmware
@@ -297,12 +325,20 @@ module pmod_floppy_read_only #(
                 capture_min_interval <= 16'hffff;
                 capture_max_interval <= 16'b0;
                 capture_hash <= 32'h811c9dc5;
-                capture_sample_count <= 11'b0;
+                capture_sample_count <= 16'b0;
                 capture_interval_timer <= 16'b0;
                 capture_interval_index <= 16'b0;
                 capture_have_flux <= 1'b0;
-                capture_state <= CAPTURE_WAIT_INDEX;
-                capture_timer <= CAPTURE_MAX_CYCLES - 1;
+                capture_bulk_mode <= capture_skip_count == 16'hffff ||
+                                     capture_skip_count == 16'hfffe;
+                capture_indexless_mode <= capture_skip_count == 16'hffff;
+                if (capture_skip_count == 16'hffff) begin
+                    capture_state <= CAPTURE_REVOLUTION;
+                    capture_timer <= CAPTURE_INDEXLESS_CYCLES - 1;
+                end else begin
+                    capture_state <= CAPTURE_WAIT_INDEX;
+                    capture_timer <= CAPTURE_MAX_CYCLES - 1;
+                end
             end else if (capture_busy) begin
                 if (!motor_active || !control_sync[0]) begin
                     capture_busy <= 1'b0;
@@ -328,14 +364,15 @@ module pmod_floppy_read_only #(
                                 capture_timer <= capture_timer - 1'b1;
                         end
                         CAPTURE_REVOLUTION: begin
-                            if (index_active_edge) begin
+                            if (!capture_indexless_mode && index_active_edge) begin
                                 capture_busy <= 1'b0;
                                 capture_success <= capture_flux_count != 0;
                                 capture_done_toggle <= ~capture_done_toggle;
                                 capture_state <= CAPTURE_IDLE;
                             end else if (capture_timer == 0) begin
                                 capture_busy <= 1'b0;
-                                capture_success <= 1'b0;
+                                capture_success <= capture_indexless_mode &&
+                                                   capture_flux_count != 0;
                                 capture_done_toggle <= ~capture_done_toggle;
                                 capture_state <= CAPTURE_IDLE;
                             end else begin
@@ -353,9 +390,20 @@ module pmod_floppy_read_only #(
                                     else
                                         capture_truncated <= 1'b1;
                                     if (capture_have_flux) begin
-                                        if (capture_interval_index >=
+                                        if (capture_bulk_mode) begin
+                                            if (capture_sample_count <
+                                                CAPTURE_BULK_SAMPLES) begin
+                                                capture_bulk_samples[
+                                                    capture_sample_count] <=
+                                                    capture_bulk_interval;
+                                                capture_sample_count <=
+                                                    capture_sample_count + 1'b1;
+                                            end else begin
+                                                capture_truncated <= 1'b1;
+                                            end
+                                        end else if (capture_interval_index >=
                                             capture_skip_count &&
-                                            capture_sample_count < 11'd1024) begin
+                                            capture_sample_count < 16'd1024) begin
                                             capture_samples[
                                                 capture_sample_count[9:0]] <=
                                                 capture_current_interval;
@@ -427,6 +475,12 @@ module pmod_floppy_read_only #(
                     read_transition_count <= read_transition_count + 1'b1;
             end
         end
+    end
+
+    always @(posedge clock) begin
+        capture_sample_word <= capture_samples[capture_sample_address[9:0]];
+        capture_bulk_sample_byte <=
+            capture_bulk_samples[capture_sample_address];
     end
 endmodule
 

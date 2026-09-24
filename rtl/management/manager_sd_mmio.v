@@ -79,7 +79,7 @@ module manager_sd_mmio #(
     output reg physical_floppy_abort_request_toggle,
     output reg physical_floppy_capture_request_toggle,
     output reg [15:0] physical_floppy_capture_skip_count,
-    output reg [9:0] physical_floppy_capture_sample_address,
+    output reg [15:0] physical_floppy_capture_sample_address,
     input wire physical_floppy_motor_active,
     input wire physical_floppy_home_active,
     input wire physical_floppy_home_done_toggle,
@@ -96,7 +96,7 @@ module manager_sd_mmio #(
     input wire [15:0] physical_floppy_capture_min_interval,
     input wire [15:0] physical_floppy_capture_max_interval,
     input wire [31:0] physical_floppy_capture_hash,
-    input wire [10:0] physical_floppy_capture_sample_count,
+    input wire [15:0] physical_floppy_capture_sample_count,
     input wire [15:0] physical_floppy_capture_sample_data,
     output reg video_capture_request_toggle,
     output reg [2:0] video_capture_stripe,
@@ -556,7 +556,7 @@ module manager_sd_mmio #(
             physical_floppy_abort_request_toggle <= 1'b0;
             physical_floppy_capture_request_toggle <= 1'b0;
             physical_floppy_capture_skip_count <= 16'b0;
-            physical_floppy_capture_sample_address <= 10'b0;
+            physical_floppy_capture_sample_address <= 16'b0;
             uart_claim <= 1'b0;
             video_capture_request_toggle <= 1'b0;
             video_capture_stripe <= 3'b0;
@@ -810,7 +810,7 @@ module manager_sd_mmio #(
                 end else if (write_address ==
                              PHYSICAL_FLOPPY_CAPTURE_ADDRESS) begin
                     physical_floppy_capture_sample_address <=
-                        write_data[9:0];
+                        write_data[15:0];
                     axi_bvalid <= 1'b1;
                 end else if (write_address == UART_DIVISOR) begin
                     // Firmware changes speed only while TX is idle. Keep the
@@ -994,14 +994,14 @@ module manager_sd_mmio #(
                             physical_floppy_capture_revolution_cycles};
                     PHYSICAL_FLOPPY_CAPTURE_COUNTS:
                         axi_rdata <= {physical_floppy_capture_flux_count,
-                            5'b0, physical_floppy_capture_sample_count};
+                            physical_floppy_capture_sample_count};
                     PHYSICAL_FLOPPY_CAPTURE_INTERVALS:
                         axi_rdata <= {physical_floppy_capture_max_interval,
                             physical_floppy_capture_min_interval};
                     PHYSICAL_FLOPPY_CAPTURE_HASH:
                         axi_rdata <= physical_floppy_capture_hash;
                     PHYSICAL_FLOPPY_CAPTURE_ADDRESS:
-                        axi_rdata <= {22'b0,
+                        axi_rdata <= {16'b0,
                             physical_floppy_capture_sample_address};
                     PHYSICAL_FLOPPY_CAPTURE_DATA:
                         axi_rdata <= {16'b0,

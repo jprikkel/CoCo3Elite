@@ -54,6 +54,10 @@ try {
     if ($final -notmatch 'OK=1') {
         throw "Physical floppy did not assert TRACK0 within 85 steps: $final"
     }
+    if ($final -notmatch 'TRACK0=1') {
+        Write-Warning ('HOME succeeded using the FPGA-latched TRACK0 event; ' +
+            'the mechanism released its live TRACK0 output after deselection')
+    }
     Write-Host 'PASS: physical floppy reached TRACK0 within the bounded seek'
 } finally {
     if ($serial.IsOpen) {

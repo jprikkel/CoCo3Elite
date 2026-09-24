@@ -47,6 +47,8 @@ payload.
 | `FLOPPY SIDE 0` / `FLOPPY SIDE 1` | `OK FLOPPY SIDE n` | Set the electrical side-select level without rebuilding. |
 | `FLOPPY STEP` | `OK FLOPPY STEP` | Issue one bounded STEP pulse while the motor/select interval is active. |
 | `FLUX nnnn` | `FLUX BEGIN ...`, binary intervals, `FLUX END ...` | Capture one indexed revolution and transfer one interval window at 460800 baud. |
+| `FLUX TRACK` | `FLUX BULK BEGIN ... INDEXED=1`, binary intervals, `FLUX BULK END ...` | Capture and transfer one complete index-to-index revolution. |
+| `FLUX BULK` | `FLUX BULK BEGIN ... INDEXED=0`, binary intervals, `FLUX BULK END ...` | Capture a timed 205 ms window when an index pulse is unavailable. |
 | `TRACE SNAP` | `OK TRACE SNAP`, then one `PC=... Q=...` line | Request one complete diagnostic snapshot. |
 | `TRACE ON` | `OK TRACE ON` | Start one complete diagnostic snapshot per second. |
 | `TRACE OFF` | `OK TRACE OFF` | Stop repeating snapshots (the power-on default). |
@@ -200,6 +202,67 @@ physically flipped. The JSON sidecar records capture settings and every
 index-aligned chunk. Because the BRAM holds 1024 intervals, a reconstructed
 track combines matching offsets from successive revolutions; it is intended
 for diagnostics and decoder development, not archival imaging.
+
+`FLUX TRACK` is the preferred whole-track command. It waits for an index edge,
+captures one uninterrupted index-to-index revolution, and stops at the next
+index edge. `FLUX BULK` is the fallback for physically flipped media whose
+index aperture is no longer visible; it captures a timed 205 ms window instead.
+
+```text
+FLUX TRACK
+FLUX BULK BEGIN CLK=25200000 SCALE=2 INDEXED=1 SIDE=1 DIR=0 COUNT=B91D CYCLES=004CCF20 MIN=0024 MAX=0138 HASH=81234567
+<COUNT unsigned-byte interval values>
+FLUX BULK END CRC32=89ABCDEF
+```
+
+Each payload byte represents an interval in `SCALE` capture clocks. The FPGA
+stores at most 48 KiB, which is enough for one nominal 300 RPM DD track. This
+is a one-track timing buffer, not a disk-image cache: buffering is required
+because even 460800-baud UART cannot accept live flux transitions without
+pauses. The optional physical-floppy build borrows BRAM from serial video-frame
+capture for this buffer; normal HDMI video output and non-floppy builds are
+unchanged.
+
+The disk-capture host tool homes once, steps at runtime, rejects tracks with
+fewer than 1000 intervals as disconnected-head noise, validates every UART
+payload CRC, retries a failed transfer without stepping, writes one native file
+per track, and assembles a standard multi-revolution SCP image. Indexed capture
+is the default:
+
+```powershell
+.\scripts\capture_physical_floppy_disk.ps1 -Port COM5 `
+  -LastTrack 34 -PhysicalSide 1 -LogicalHead 0 `
+  -RevolutionsPerTrack 1 -CaptureRetries 2 `
+  -MotorSpinupMs 3000 -HeadLoadSettleMs 250 `
+  -AllowUnstableTrackZero -Name coco-disk
+```
+
+Add `-Indexless` only for flipped media that cannot expose index:
+
+```powershell
+.\scripts\capture_physical_floppy_disk.ps1 -Port COM5 `
+  -LastTrack 34 -PhysicalSide 1 -LogicalHead 0 -Indexless `
+  -MotorSpinupMs 3000 -HeadLoadSettleMs 500 `
+  -AllowUnstableTrackZero -Name flipped-disk
+```
+
+Greaseweazle can reverse a flipped track while converting the SCP image:
+
+```powershell
+C:\develop\greaseweazle-1.23\gw.exe convert --format coco.decb `
+  --reverse .\build\test-output\floppy-disks\flipped-disk\flipped-disk.scp `
+  .\build\test-output\floppy-disks\flipped-disk\flipped-disk.dsk
+```
+
+This is the failed-head recovery path: select the working physical head, flip
+the disk if necessary, capture without index, and reverse during conversion.
+It cannot compensate for a head that produces no flux transitions or for poor
+head/media contact. `-AllowUnstableTrackZero` is intentionally opt-in: it uses
+the FPGA's latched HOME result when an old drive's live TRACK0 sensor chatters,
+while the default path still requires TRACK0 to remain asserted.
+`-HeadLoadSettleMs` delays capture after each watchdog refresh because
+`FLOPPY START` briefly cycles drive-select; older mechanisms may unload and
+reload the head during that refresh.
 
 For example, the following changes direction and issues exactly one step:
 

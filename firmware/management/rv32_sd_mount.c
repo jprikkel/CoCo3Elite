@@ -162,6 +162,7 @@ static int parse_hex_byte(const char *p,uint8_t *value){int a=hex_digit(p[0]),b=
 static int parse_hex_word(const char *p,uint16_t *value){uint16_t v=0;for(uint8_t n=0;n<4u;++n){int d=hex_digit(p[n]);if(d<0)return 0;v=(uint16_t)((v<<4)|d);}if(p[4])return 0;*value=v;return 1;}
 static void serial_capture_frame(void);
 static void serial_capture_flux(uint16_t skip);
+static void serial_capture_flux_bulk(uint8_t indexed);
 static void serial_apply_keys(void){SERIAL_KEY_LO=serial_key_lo;SERIAL_KEY_HI=serial_key_hi;SERIAL_KEY_CONTROL=(uint32_t)serial_shift|((uint32_t)serial_shift_override<<1);SERIAL_FUNCTION_KEYS=serial_function_keys;}
 static void serial_release_all(void){serial_key_lo=0;serial_key_hi=0;serial_shift=0;serial_shift_override=0;serial_function_keys=0;SERIAL_KEY_CONTROL=0x100u;SERIAL_FUNCTION_KEYS=0;}
 static void serial_browser_root(void){current_directory=root_cluster;parent_directory=root_cluster;directory_depth=0;current_path[0]='/';current_path[1]=0;puts("OK ROOT\r\n");}
@@ -184,6 +185,8 @@ static void serial_execute_command(void){
     else if(equal(serial_command,"FLOPPY SIDE 0")){physical_floppy_control&=~16u;floppy_write_control();puts("OK FLOPPY SIDE 0\r\n");}
     else if(equal(serial_command,"FLOPPY SIDE 1")){physical_floppy_control|=16u;floppy_write_control();puts("OK FLOPPY SIDE 1\r\n");}
     else if(equal(serial_command,"FLOPPY STEP")){uint32_t status=PHYSICAL_FLOPPY_STATUS;if(!(status&8u))puts("ERR FLOPPY DISABLED\r\n");else if(!(status&16u))puts("ERR FLOPPY MOTOR OFF\r\n");else if(status&32u)puts("ERR FLOPPY BUSY\r\n");else{floppy_event(32u);puts("OK FLOPPY STEP\r\n");}}
+    else if(equal(serial_command,"FLUX BULK")){serial_capture_flux_bulk(0u);}
+    else if(equal(serial_command,"FLUX TRACK")){serial_capture_flux_bulk(1u);}
     else if(serial_command[0]=='F'&&serial_command[1]=='L'&&serial_command[2]=='U'&&serial_command[3]=='X'&&serial_command[4]==' '&&parse_hex_word(&serial_command[5],&word)){serial_capture_flux(word);}
     else if(equal(serial_command,"TRACE ON")){
         trace_enabled=1u;SERIAL_MACHINE_CONTROL=4u;puts("OK TRACE ON\r\n");
@@ -277,6 +280,46 @@ static void serial_capture_flux(uint16_t skip){
         putc((char)(sample>>8));crc=crc32_byte(crc,(uint8_t)(sample>>8));
     }
     puts("\r\nFLUX END CRC32=");hex32(crc^0xffffffffu);puts("\r\n");
+    while(UART_STATUS&1u){}
+    UART_CONTROL=0u;
+}
+static void serial_capture_flux_bulk(uint8_t indexed){
+    uint32_t drive=PHYSICAL_FLOPPY_STATUS;
+    uint32_t previous,timeout,status,counts,intervals,crc=0xffffffffu;
+    uint16_t sample_count;
+    if(!(drive&8u)){puts("ERR FLOPPY DISABLED\r\n");return;}
+    if(!(drive&16u)){puts("ERR FLOPPY MOTOR OFF\r\n");return;}
+    if(drive&32u){puts("ERR FLOPPY BUSY\r\n");return;}
+    previous=PHYSICAL_FLOPPY_CAPTURE_STATUS&1u;
+    // $fffe captures one contiguous index-to-index revolution. $ffff is the
+    // timed fallback for flipped media whose index aperture is unavailable.
+    // Each payload byte is one interval in units of two 25.2 MHz clocks.
+    PHYSICAL_FLOPPY_CAPTURE_SKIP=indexed?0xfffeu:0xffffu;
+    PHYSICAL_FLOPPY_CAPTURE_CONTROL=1u;
+    timeout=50000000u;
+    while(((PHYSICAL_FLOPPY_CAPTURE_STATUS&1u)==previous)&&timeout)--timeout;
+    if(!timeout){puts("ERR FLUX BULK TIMEOUT\r\n");return;}
+    status=PHYSICAL_FLOPPY_CAPTURE_STATUS;
+    if(!(status&4u)){puts("ERR FLUX BULK CAPTURE\r\n");return;}
+    counts=PHYSICAL_FLOPPY_CAPTURE_COUNTS;
+    sample_count=(uint16_t)counts;
+    intervals=PHYSICAL_FLOPPY_CAPTURE_INTERVALS;
+    UART_CONTROL=1u;
+    puts("FLUX BULK BEGIN CLK=25200000 SCALE=2 INDEXED=");
+    putc(indexed?'1':'0');puts(" SIDE=");
+    putc((status&32u)?'1':'0');puts(" DIR=");putc((status&16u)?'1':'0');
+    puts(" COUNT=");hex16(sample_count);
+    puts(" CYCLES=");hex32(PHYSICAL_FLOPPY_CAPTURE_CYCLES);
+    puts(" MIN=");hex16((uint16_t)intervals);
+    puts(" MAX=");hex16((uint16_t)(intervals>>16));
+    puts(" HASH=");hex32(PHYSICAL_FLOPPY_CAPTURE_HASH);puts("\r\n");
+    for(uint32_t n=0;n<sample_count;++n){
+        uint8_t sample;
+        PHYSICAL_FLOPPY_CAPTURE_ADDRESS=n;
+        sample=(uint8_t)PHYSICAL_FLOPPY_CAPTURE_DATA;
+        putc((char)sample);crc=crc32_byte(crc,sample);
+    }
+    puts("\r\nFLUX BULK END CRC32=");hex32(crc^0xffffffffu);puts("\r\n");
     while(UART_STATUS&1u){}
     UART_CONTROL=0u;
 }

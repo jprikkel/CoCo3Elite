@@ -80,7 +80,7 @@ module wukong_top (
     wire physical_floppy_abort_request_toggle;
     wire physical_floppy_capture_request_toggle;
     wire [15:0] physical_floppy_capture_skip_count;
-    wire [9:0] physical_floppy_capture_sample_address;
+    wire [15:0] physical_floppy_capture_sample_address;
     wire physical_floppy_motor_active;
     wire physical_floppy_home_active;
     wire physical_floppy_home_done_toggle;
@@ -97,7 +97,7 @@ module wukong_top (
     wire [15:0] physical_floppy_capture_min_interval;
     wire [15:0] physical_floppy_capture_max_interval;
     wire [31:0] physical_floppy_capture_hash;
-    wire [10:0] physical_floppy_capture_sample_count;
+    wire [15:0] physical_floppy_capture_sample_count;
     wire [15:0] physical_floppy_capture_sample_data;
 
     wukong_clocking clocking_i (
@@ -184,7 +184,7 @@ module wukong_top (
     assign physical_floppy_capture_min_interval = 16'b0;
     assign physical_floppy_capture_max_interval = 16'b0;
     assign physical_floppy_capture_hash = 32'b0;
-    assign physical_floppy_capture_sample_count = 11'b0;
+    assign physical_floppy_capture_sample_count = 16'b0;
     assign physical_floppy_capture_sample_data = 16'b0;
 `endif
 
@@ -387,6 +387,14 @@ module wukong_top (
         end
     end
 
+`ifdef WUKONG_PHYSICAL_FLOPPY
+    // The optional physical-floppy diagnostic build uses these BRAMs for a
+    // contiguous flux revolution. Normal builds retain full serial frame
+    // capture; HDMI output itself is unchanged in either configuration.
+    assign video_capture_done_toggle = video_capture_request_toggle;
+    assign video_capture_busy = 1'b0;
+    assign video_capture_read_data = 8'b0;
+`else
     video_frame_capture capture_i (
         .clock(pixel_clk), .reset(video_reset),
         .screen_x(library_x), .screen_y(library_y), .rgb(library_rgb),
@@ -396,6 +404,7 @@ module wukong_top (
         .read_address(video_capture_read_address),
         .read_data(video_capture_read_data)
     );
+`endif
 `else
     assign uart_tx = 1'b1;
     assign sd_cs_n = 1'b1;

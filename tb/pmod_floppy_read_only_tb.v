@@ -11,7 +11,7 @@ module pmod_floppy_read_only_tb;
     reg abort_request_toggle = 1'b0;
     reg capture_request_toggle = 1'b0;
     reg [15:0] capture_skip_count = 16'b0;
-    reg [9:0] capture_sample_address = 10'b0;
+    reg [15:0] capture_sample_address = 16'b0;
     reg read_data_n = 1'b1;
     reg track_zero_n = 1'b1;
     reg index_n = 1'b1;
@@ -27,15 +27,15 @@ module pmod_floppy_read_only_tb;
     wire [15:0] capture_max_interval, capture_sample_data;
     wire [23:0] capture_revolution_cycles;
     wire [31:0] capture_hash;
-    wire [10:0] capture_sample_count;
+    wire [15:0] capture_sample_count;
 
     always #5 clock = !clock;
 
     pmod_floppy_read_only #(
-        .MOTOR_MAX_CYCLES(200), .HOME_SPINUP_CYCLES(2),
+        .MOTOR_MAX_CYCLES(500), .HOME_SPINUP_CYCLES(2),
         .HOME_DIRECTION_SETUP_CYCLES(2), .STEP_LOW_CYCLES(2),
         .STEP_INTERVAL_CYCLES(3), .HOME_MAX_STEPS(4),
-        .CAPTURE_MAX_CYCLES(100)
+        .CAPTURE_MAX_CYCLES(100), .CAPTURE_INDEXLESS_CYCLES(120)
     ) dut (
         .clock(clock), .reset(reset),
         .motor_request(motor_request),
@@ -120,7 +120,7 @@ module pmod_floppy_read_only_tb;
             $display("FAIL: runtime direction/side control did not restore");
             $fatal;
         end
-        repeat (201) @(posedge clock); #1;
+        repeat (501) @(posedge clock); #1;
         if (motor_active || !drive_select_n || !motor_enable_n) begin
             $display("FAIL: hardware motor watchdog did not expire safely");
             $fatal;
@@ -134,9 +134,8 @@ module pmod_floppy_read_only_tb;
             $fatal;
         end
 
-        // Capture exact falling-edge intervals from one index-bounded turn.
-        // Four flux pulses produce three measured intervals because the first
-        // pulse establishes the reference timestamp.
+        // Capture falling-edge flux pulses from one index-bounded turn. Four
+        // pulses produce three intervals because the first establishes time.
         capture_request_toggle = !capture_request_toggle;
         wait (capture_busy);
         index_n = 1'b0; settle; index_n = 1'b1; settle;
@@ -159,6 +158,51 @@ module pmod_floppy_read_only_tb;
             $display("FAIL: indexed flux capture BRAM did not return data");
             $fatal;
         end
+
+        // $fffe captures one contiguous indexed revolution into bulk BRAM.
+        capture_skip_count = 16'hfffe;
+        capture_request_toggle = !capture_request_toggle;
+        wait (capture_busy);
+        index_n = 1'b0; settle; index_n = 1'b1; settle;
+        repeat (5) begin
+            read_data_n = 1'b0; settle;
+            read_data_n = 1'b1; settle;
+        end
+        index_n = 1'b0; settle; index_n = 1'b1; settle;
+        wait (!capture_busy); #1;
+        if (!capture_success || capture_flux_count !== 5 ||
+            capture_sample_count !== 4 || capture_truncated) begin
+            $display("FAIL: indexed bulk flux capture is incorrect");
+            $fatal;
+        end
+        capture_sample_address = 0; settle;
+        if (capture_sample_data[7:0] == 0 ||
+            capture_sample_data[15:8] != 0) begin
+            $display("FAIL: indexed bulk BRAM did not return data");
+            $fatal;
+        end
+
+        // A flipped disk can hide the index aperture. $ffff requests one
+        // uninterrupted timed capture with the same byte format.
+        capture_skip_count = 16'hffff;
+        capture_request_toggle = !capture_request_toggle;
+        wait (capture_busy);
+        repeat (5) begin
+            read_data_n = 1'b0; settle;
+            read_data_n = 1'b1; settle;
+        end
+        wait (!capture_busy); #1;
+        if (!capture_success || capture_flux_count !== 5 ||
+            capture_sample_count !== 4 || capture_truncated) begin
+            $display("FAIL: indexless bulk flux capture is incorrect");
+            $fatal;
+        end
+        capture_sample_address = 0; settle;
+        if (capture_sample_data[7:0] == 0 ||
+            capture_sample_data[15:8] != 0) begin
+            $display("FAIL: indexless compressed BRAM did not return data");
+            $fatal;
+        end
         motor_request = 1'b0;
         settle;
         if (motor_active || !drive_select_n || !motor_enable_n) begin
@@ -177,7 +221,7 @@ module pmod_floppy_read_only_tb;
         settle;
         index_n = 1'b1;
         settle;
-        if (index_pulse_count !== 3 || input_status[0] !== 1'b0) begin
+        if (index_pulse_count !== 5 || input_status[0] !== 1'b0) begin
             $display("FAIL: index pulse counter is incorrect count=%0d status=%b",
                      index_pulse_count, input_status);
             $fatal;
@@ -189,7 +233,7 @@ module pmod_floppy_read_only_tb;
         settle;
         read_data_n = 1'b0;
         settle;
-        if (read_transition_count !== 11) begin
+        if (read_transition_count !== 31) begin
             $display("FAIL: read-transition counter is incorrect");
             $fatal;
         end
