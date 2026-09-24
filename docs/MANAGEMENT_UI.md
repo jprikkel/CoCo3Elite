@@ -179,9 +179,30 @@ while the image is visible, so it does not switch during ordinary CoCo video.
 ### Browser controls
 
 - **Up/Down:** move through entries.
+- **Joystick Up/Down:** move through entries exactly like the keyboard arrows.
+- **Left or Joystick Left:** return to the parent SD-card directory.
 - **Enter:** open a directory, mount a disk, or launch a supported file.
-- **Space:** select the destination drive or open a small drive-assignment action, once multi-drive mounting is implemented.
+- **1/2:** select the destination as CoCo drive 0 or 1. Each
+  drive retains its mounted image and browser position independently; the last
+  selected drive remains active when the browser is reopened.
+- **Tab:** move focus between the file list and the `Source:` field. While the
+  source field is focused, Up/Down cycles through available sources. The
+  current choices are `SDCard` and `Floppy DS1`; unavailable sources are
+  omitted.
 - **Esc/F12:** close the UI and return to the CoCo.
+
+Drive 0 and Drive 1 are destinations and therefore are not repeated in the
+source list. The source selector contains SDCard and the one physical mechanism,
+named `Floppy DS1` because the current Adafruit FeatherWing routes its select
+output to Shugart DS1/IDC pin 12. Up/Down only highlights a source. With the
+Source field focused, pressing Enter on `Floppy DS1` mounts that read-only
+mechanism into the active Drive 0 or Drive 1 destination, closes the browser,
+and returns to Disk BASIC. Merely highlighting the source or changing the
+active destination does not move the mechanism. The SD image remembered under
+the other destination is preserved. The current firmware provides the complete
+directory browser for SDCard. Physical-disk directory listing still requires a
+DECB/OS-9 filesystem browser. USB sources remain hidden until a USB
+mass-storage backend is connected.
 
 Potentially destructive actions, such as discarding dirty cached sectors or replacing a mounted writable disk, must require confirmation or a successful flush first.
 

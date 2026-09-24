@@ -96,12 +96,36 @@ module pmod_floppy_read_only #(
     reg capture_indexless_mode;
     (* ram_style = "block" *) reg [15:0] capture_samples [0:1023];
     // A DECB track is normally below 48K transitions. Bulk captures
-    // quantize 25.2 MHz intervals to two-clock units, fitting one uninterrupted
-    // track in 48 KiB. Overflow is reported instead of silently wrapping.
-    (* ram_style = "block" *) reg [7:0]
-        capture_bulk_samples [0:CAPTURE_BULK_SAMPLES-1];
+    // quantize 25.2 MHz intervals to two-clock units. Pack four lossless
+    // eight-bit intervals into each BRAM word: the equivalent byte-wide
+    // inference wastes four RAMB36s because a 48K-deep byte array rounds up
+    // to the primitive's 64K depth. Overflow is still reported rather than
+    // silently wrapping.
+    // Three explicit 4K-word banks avoid Vivado rounding a 48K-byte array to
+    // a 64K address space. Each bank stores 16K flux bytes and maps to four
+    // RAMB36 primitives.
+    (* ram_style = "block" *) reg [31:0] capture_bulk_bank0 [0:4095];
+    (* ram_style = "block" *) reg [31:0] capture_bulk_bank1 [0:4095];
+    (* ram_style = "block" *) reg [31:0] capture_bulk_bank2 [0:4095];
+    reg [31:0] capture_bulk_pack;
+    reg capture_bulk_write_enable;
+    reg [13:0] capture_bulk_write_address;
+    reg [31:0] capture_bulk_write_data;
+    reg [31:0] capture_bulk_read_bank0;
+    reg [31:0] capture_bulk_read_bank1;
+    reg [31:0] capture_bulk_read_bank2;
+    reg [1:0] capture_bulk_read_bank;
+    reg [1:0] capture_bulk_read_lane;
     reg [15:0] capture_sample_word;
-    reg [7:0] capture_bulk_sample_byte;
+    wire [31:0] capture_bulk_read_word =
+        capture_bulk_read_bank == 2'd0 ? capture_bulk_read_bank0 :
+        capture_bulk_read_bank == 2'd1 ? capture_bulk_read_bank1 :
+                                         capture_bulk_read_bank2;
+    wire [7:0] capture_bulk_sample_byte =
+        capture_bulk_read_lane == 2'd0 ? capture_bulk_read_word[7:0] :
+        capture_bulk_read_lane == 2'd1 ? capture_bulk_read_word[15:8] :
+        capture_bulk_read_lane == 2'd2 ? capture_bulk_read_word[23:16] :
+                                         capture_bulk_read_word[31:24];
     reg decode_request_meta;
     reg decode_request_sync;
     reg decode_request_previous;
@@ -214,12 +238,17 @@ module pmod_floppy_read_only #(
             capture_hash <= 32'h811c9dc5;
             capture_sample_count <= 16'b0;
             capture_sample_data <= 16'b0;
+            capture_bulk_pack <= 32'b0;
+            capture_bulk_write_enable <= 1'b0;
+            capture_bulk_write_address <= 14'b0;
+            capture_bulk_write_data <= 32'b0;
             decode_request_meta <= 1'b0;
             decode_request_sync <= 1'b0;
             decode_request_previous <= 1'b0;
             decode_start <= 1'b0;
             decode_sample_valid <= 1'b0;
             decode_sample_last <= 1'b0;
+            capture_bulk_write_enable <= 1'b0;
             decode_sample_interval <= 8'b0;
             decode_sample_index <= 16'b0;
             decode_feed_state <= DECODE_FEED_IDLE;
@@ -390,6 +419,7 @@ module pmod_floppy_read_only #(
                 capture_max_interval <= 16'b0;
                 capture_hash <= 32'h811c9dc5;
                 capture_sample_count <= 16'b0;
+                capture_bulk_pack <= 32'b0;
                 capture_interval_timer <= 16'b0;
                 capture_interval_index <= 16'b0;
                 capture_have_flux <= 1'b0;
@@ -429,11 +459,39 @@ module pmod_floppy_read_only #(
                         end
                         CAPTURE_REVOLUTION: begin
                             if (!capture_indexless_mode && index_active_edge) begin
+                                if (capture_bulk_mode &&
+                                    capture_sample_count[1:0] != 2'b00) begin
+                                    case (capture_sample_count[1:0])
+                                        2'd1: capture_bulk_write_data <=
+                                            {24'b0, capture_bulk_pack[7:0]};
+                                        2'd2: capture_bulk_write_data <=
+                                            {16'b0, capture_bulk_pack[15:0]};
+                                        default: capture_bulk_write_data <=
+                                            {8'b0, capture_bulk_pack[23:0]};
+                                    endcase
+                                    capture_bulk_write_enable <= 1'b1;
+                                    capture_bulk_write_address <=
+                                        capture_sample_count[15:2];
+                                end
                                 capture_busy <= 1'b0;
                                 capture_success <= capture_flux_count != 0;
                                 capture_done_toggle <= ~capture_done_toggle;
                                 capture_state <= CAPTURE_IDLE;
                             end else if (capture_timer == 0) begin
+                                if (capture_bulk_mode &&
+                                    capture_sample_count[1:0] != 2'b00) begin
+                                    case (capture_sample_count[1:0])
+                                        2'd1: capture_bulk_write_data <=
+                                            {24'b0, capture_bulk_pack[7:0]};
+                                        2'd2: capture_bulk_write_data <=
+                                            {16'b0, capture_bulk_pack[15:0]};
+                                        default: capture_bulk_write_data <=
+                                            {8'b0, capture_bulk_pack[23:0]};
+                                    endcase
+                                    capture_bulk_write_enable <= 1'b1;
+                                    capture_bulk_write_address <=
+                                        capture_sample_count[15:2];
+                                end
                                 capture_busy <= 1'b0;
                                 capture_success <= capture_indexless_mode &&
                                                    capture_flux_count != 0;
@@ -457,9 +515,24 @@ module pmod_floppy_read_only #(
                                         if (capture_bulk_mode) begin
                                             if (capture_sample_count <
                                                 CAPTURE_BULK_SAMPLES) begin
-                                                capture_bulk_samples[
-                                                    capture_sample_count] <=
-                                                    capture_bulk_interval;
+                                                case (capture_sample_count[1:0])
+                                                    2'd0: capture_bulk_pack[7:0] <=
+                                                        capture_bulk_interval;
+                                                    2'd1: capture_bulk_pack[15:8] <=
+                                                        capture_bulk_interval;
+                                                    2'd2: capture_bulk_pack[23:16] <=
+                                                        capture_bulk_interval;
+                                                    default: begin
+                                                        capture_bulk_write_enable <=
+                                                            1'b1;
+                                                        capture_bulk_write_address <=
+                                                            capture_sample_count[15:2];
+                                                        capture_bulk_write_data <=
+                                                            {capture_bulk_interval,
+                                                             capture_bulk_pack[23:0]};
+                                                        capture_bulk_pack <= 32'b0;
+                                                    end
+                                                endcase
                                                 capture_sample_count <=
                                                     capture_sample_count + 1'b1;
                                             end else begin
@@ -580,7 +653,22 @@ module pmod_floppy_read_only #(
 
     always @(posedge clock) begin
         capture_sample_word <= capture_samples[capture_sample_address[9:0]];
-        capture_bulk_sample_byte <= capture_bulk_samples[bulk_read_address];
+        if (capture_bulk_write_enable) begin
+            case (capture_bulk_write_address[13:12])
+                2'd0: capture_bulk_bank0[capture_bulk_write_address[11:0]] <=
+                    capture_bulk_write_data;
+                2'd1: capture_bulk_bank1[capture_bulk_write_address[11:0]] <=
+                    capture_bulk_write_data;
+                2'd2: capture_bulk_bank2[capture_bulk_write_address[11:0]] <=
+                    capture_bulk_write_data;
+                default: begin end
+            endcase
+        end
+        capture_bulk_read_bank0 <= capture_bulk_bank0[bulk_read_address[13:2]];
+        capture_bulk_read_bank1 <= capture_bulk_bank1[bulk_read_address[13:2]];
+        capture_bulk_read_bank2 <= capture_bulk_bank2[bulk_read_address[13:2]];
+        capture_bulk_read_bank <= bulk_read_address[15:14];
+        capture_bulk_read_lane <= bulk_read_address[1:0];
     end
 endmodule
 

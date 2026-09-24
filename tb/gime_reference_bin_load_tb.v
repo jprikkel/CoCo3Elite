@@ -54,7 +54,7 @@ module gime_reference_bin_load_tb;
         .video_css(), .video_palette(), .video_border_palette(),
         .video_mode(), .video_resolution(), .video_vbank(),
         .video_scroll(), .video_offset(), .video_horizontal_offset(),
-        .video_blink(), .sd_drive_present(3'b000),
+        .video_blink(), .sd_drive_present(2'b00),
         .sd_fdc_done_toggle(1'b0), .sd_fdc_success(1'b0),
         .sd_fdc_write_done_toggle(1'b0),
         .sd_fdc_write_success(1'b0), .sd_fdc_data(8'h00),

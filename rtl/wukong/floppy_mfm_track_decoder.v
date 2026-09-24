@@ -57,7 +57,12 @@ module floppy_mfm_track_decoder (
     reg decoded_bit;
     reg finish_pending;
 
-    (* ram_style = "block" *) reg [7:0] sector_cache [0:4607];
+    // Keep the decoded 18-sector scratchpad in distributed RAM.  The physical
+    // floppy path also retains a complete revolution of raw flux in BRAM, and
+    // placing both stores there exceeds the Wukong device's block-RAM budget.
+    // This cache is accessed only by the low-rate floppy decoder/readback path,
+    // so LUT RAM provides ample timing margin without reducing capture depth.
+    (* ram_style = "distributed" *) reg [7:0] sector_cache [0:4607];
     wire [7:0] completed_byte = {data_shift[6:0], decoded_bit};
     wire [15:0] shifted_raw = {raw_shift[14:0], decoded_bit};
     wire [12:0] sector_write_address =

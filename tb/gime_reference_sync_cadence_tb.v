@@ -30,7 +30,7 @@ module gime_reference_sync_cadence_tb;
         .joystick_right_fire(1'b0), .joystick_right_fire2(1'b0), .sd_status(8'h00),
         .sd_detail(8'h00), .video_hsync(video_hsync),
         .pia_hsync(pia_hsync), .video_vsync(1'b1),
-        .video_address(20'h00000), .sd_drive_present(3'b000),
+        .video_address(20'h00000), .sd_drive_present(2'b00),
         .sd_fdc_done_toggle(1'b0), .sd_fdc_success(1'b0),
         .sd_fdc_write_done_toggle(1'b0),
         .sd_fdc_write_success(1'b0), .sd_fdc_data(8'h00)

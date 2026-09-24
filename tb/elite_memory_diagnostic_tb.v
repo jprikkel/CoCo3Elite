@@ -58,7 +58,7 @@ module elite_memory_diagnostic_tb;
         .video_css(), .video_palette(), .video_border_palette(),
         .video_mode(), .video_resolution(), .video_vbank(), .video_scroll(),
         .video_offset(), .video_horizontal_offset(), .video_blink(),
-        .sd_drive_present(3'd0), .sd_fdc_done_toggle(1'b0),
+        .sd_drive_present(2'd0), .sd_fdc_done_toggle(1'b0),
         .sd_fdc_success(1'b0), .sd_fdc_write_done_toggle(1'b0),
         .sd_fdc_write_success(1'b0), .sd_fdc_data(8'd0),
         .sd_fdc_buffer_address(), .sd_fdc_drive(), .sd_fdc_track(),

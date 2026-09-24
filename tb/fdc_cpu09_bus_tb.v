@@ -34,7 +34,7 @@ module fdc_cpu09_bus_tb;
     coco3_fdc fdc_i (
         .clock(clock), .reset(reset), .io_read(io_read), .io_write(io_write),
         .address(address), .write_data(write_data), .read_data(fdc_read_data),
-        .nmi(nmi), .backend_present(3'b001), .backend_done_toggle(done_toggle),
+        .nmi(nmi), .backend_present(2'b01), .backend_done_toggle(done_toggle),
         .backend_success(1'b1), .backend_data(owned_buffer_data),
         .backend_buffer_address(buffer_address), .backend_drive(backend_drive),
         .backend_track(backend_track), .backend_sector(backend_sector),

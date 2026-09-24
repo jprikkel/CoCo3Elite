@@ -42,7 +42,7 @@ module manager_sd_mmio #(
     input wire [7:0] fdc_sector, input wire [7:0] fdc_last_type1, input wire [31:0] fdc_debug_word, input wire [31:0] fdc_completed_debug_word, input wire fdc_read_complete_toggle, input wire fdc_write_complete_toggle, input wire fdc_request_toggle,
     input wire [7:0] fdc_buffer_address, output wire [7:0] fdc_buffer_data,
     input wire fdc_write_strobe, input wire [7:0] fdc_write_data,
-    input wire [9:0] menu_key_state,
+    input wire [13:0] menu_key_state,
     input wire [10:0] osd_char_address,
     output wire [7:0] osd_char_data,
     input wire [11:0] osd_preview_read_address,
@@ -116,7 +116,7 @@ module manager_sd_mmio #(
     input wire video_capture_done_toggle, input wire video_capture_busy,
     output reg fdc_done_toggle, output reg fdc_success,
     output reg fdc_write_done_toggle, output reg fdc_write_success,
-    output reg [2:0] fdc_present, output reg manager_ready
+    output reg [1:0] fdc_present, output reg manager_ready
     ,output reg [14:0] cartridge_address, output reg [7:0] cartridge_data,
     output reg cartridge_write, output reg cartridge_enabled, output reg cartridge_launch,
     input wire bin_fifo_pop, input wire bin_loader_done, input wire bin_cancel,
@@ -931,7 +931,7 @@ module manager_sd_mmio #(
                     fdc_write_done_toggle <= fdc_write_complete_toggle;
                     axi_bvalid <= 1'b1;
                 end else if (write_address == MOUNT_STATUS) begin
-                    fdc_present <= write_data[2:0];
+                    fdc_present <= write_data[1:0];
                     manager_ready <= write_data[8];
                     axi_bvalid <= 1'b1;
                 end else begin
@@ -963,12 +963,15 @@ module manager_sd_mmio #(
                     SPI_CTRL: axi_rdata <= {16'b0, spi_divider, 7'b0, sd_cs_n};
                     SPI_XFER: axi_rdata <= {31'b0, spi_busy};
                     SPI_DATA: axi_rdata <= {24'b0, spi_rx};
-                    FDC_STATE: axi_rdata <= {19'b0, fdc_write_complete_toggle, fdc_read_complete_toggle, fdc_present, 6'b0,
+                    // Preserve the documented event-bit positions after
+                    // reducing the present mask from three drives to two:
+                    // write complete=12, read complete=11, present=9:8.
+                    FDC_STATE: axi_rdata <= {19'b0, fdc_write_complete_toggle, fdc_read_complete_toggle, 1'b0, fdc_present, 6'b0,
                                                fdc_done_toggle, fdc_request_toggle};
                     FDC_INFO: axi_rdata <= {fdc_last_type1, fdc_track,
                                               fdc_sector, 5'b0, fdc_side,
                                               fdc_drive};
-                    MOUNT_STATUS: axi_rdata <= {23'b0, manager_ready, 5'b0, fdc_present};
+                    MOUNT_STATUS: axi_rdata <= {23'b0, manager_ready, 6'b0, fdc_present};
                     FDC_BUFFER_PEEK: axi_rdata <= {24'b0, fdc_buffer_data};
                     FDC_DEBUG_WORD: axi_rdata <= fdc_debug_word;
                     FDC_COMPLETED_DEBUG_WORD: axi_rdata <= fdc_completed_debug_word;
@@ -1056,7 +1059,7 @@ module manager_sd_mmio #(
                             physical_floppy_decode_cache_data};
                     UART_DIVISOR:
                         axi_rdata <= {16'b0, uart_clks_per_bit};
-                    MENU_KEY_STATE: axi_rdata <= {22'b0, menu_key_state};
+                    MENU_KEY_STATE: axi_rdata <= {18'b0, menu_key_state};
                     OSD_FONT_STYLE: axi_rdata <= {30'b0, osd_font_style};
                     VIDEO_SETTINGS: axi_rdata <= {23'b0, coco2_palette[3],
                         artifact_mode[2], coco2_palette[2:0],

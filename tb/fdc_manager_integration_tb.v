@@ -22,14 +22,18 @@ module fdc_manager_integration_tb;
     wire nmi,request_toggle,done_toggle,success;
     wire write_done_toggle,write_success,write_strobe,write_complete_toggle;
     wire [1:0] backend_drive;
+    wire backend_side;
     wire [7:0] backend_track,backend_sector,backend_last_type1;
     wire [31:0] backend_debug_word,backend_completed_debug_word;
     wire backend_read_complete_toggle;
-    wire [2:0] present;
+    wire [1:0] present;
     integer n;
     reg [7:0] value;
 
-    manager_sd_mmio #(.UART_CLKS_PER_BIT(2)) manager_i(
+    // A compact full-image cache is enough to cover track 0 sectors 1-4 and
+    // lets this regression exercise the same cached-D0/paged-D1 mux used by
+    // hardware without streaming an entire 161280-byte image in simulation.
+    manager_sd_mmio #(.UART_CLKS_PER_BIT(2),.DISK_CACHE_BYTES(1024)) manager_i(
         .clock(clock),.reset(reset),
         .axi_awvalid(awvalid),.axi_awready(awready),.axi_awaddr(awaddr),
         .axi_wvalid(wvalid),.axi_wready(wready),.axi_wdata(wdata),.axi_wstrb(4'hf),
@@ -37,7 +41,8 @@ module fdc_manager_integration_tb;
         .axi_arvalid(arvalid),.axi_arready(arready),.axi_araddr(araddr),
         .axi_rvalid(rvalid),.axi_rready(rready),.axi_rdata(rdata),.axi_rresp(rresp),
         .uart_tx(),.sd_cs_n(),.sd_sck(),.sd_mosi(),.sd_miso(1'b1),
-        .fdc_drive(backend_drive),.fdc_track(backend_track),.fdc_sector(backend_sector),
+        .fdc_drive(backend_drive),.fdc_side(backend_side),
+        .fdc_track(backend_track),.fdc_sector(backend_sector),
         .fdc_last_type1(backend_last_type1),.fdc_debug_word(backend_debug_word),
         .fdc_completed_debug_word(backend_completed_debug_word),
         .fdc_read_complete_toggle(backend_read_complete_toggle),
@@ -56,6 +61,7 @@ module fdc_manager_integration_tb;
         .backend_success(success),.backend_write_done_toggle(write_done_toggle),
         .backend_write_success(write_success),.backend_data(buffer_data),
         .backend_buffer_address(buffer_address),.backend_drive(backend_drive),
+        .backend_side(backend_side),
         .backend_track(backend_track),.backend_sector(backend_sector),
         .backend_last_type1(backend_last_type1),.backend_debug_word(backend_debug_word),
         .backend_completed_debug_word(backend_completed_debug_word),
@@ -97,6 +103,43 @@ module fdc_manager_integration_tb;
             axi_write(32'h80000210,1);
             while(done_toggle!==request_toggle)@(posedge clock);
             if(!success)$fatal(1,"manager rejected complete sector");
+            // Let the FDC observe the manager's toggle/success pair before
+            // the test samples its status register.
+            @(posedge clock);
+        end
+    endtask
+    task load_drive0_cache;
+        begin
+            axi_write(32'h80000230,0);
+            for(n=0;n<1024;n=n+1)begin
+                if(n<256)
+                    axi_write(32'h80000234,n[7:0]^8'ha5);
+                else if(n<512)
+                    axi_write(32'h80000234,n[7:0]^8'h5a);
+                else
+                    axi_write(32'h80000234,0);
+            end
+            axi_write(32'h80000238,1024);
+            if(!manager_i.disk_cache_ready)
+                $fatal(1,"drive-0 cache did not commit: bytes=%0d ready=%0b",
+                       manager_i.disk_cache_write_address,
+                       manager_i.disk_cache_ready);
+        end
+    endtask
+    task acknowledge_cached_sector;
+        begin
+            if(!manager_i.disk_cache_fdc_valid)
+                $fatal(1,"cached sector not selected: drive=%0d track=%0d sector=%0d ready=%0b bytes=%0d",
+                       backend_drive,backend_track,backend_sector,
+                       manager_i.disk_cache_ready,manager_i.disk_cache_image_bytes);
+            axi_write(32'h80000210,1);
+            while(done_toggle!==request_toggle)@(posedge clock);
+            if(!success)$fatal(1,"manager rejected cached drive-0 sector");
+            repeat(2)@(posedge clock);
+            if(fdc_i.status!==8'h03)
+                $fatal(1,"FDC did not accept cached sector: status=%02h waiting=%0b done=%0b request=%0b success=%0b",
+                       fdc_i.status,fdc_i.read_waiting,done_toggle,
+                       request_toggle,success);
         end
     endtask
     task consume_sector;
@@ -118,23 +161,49 @@ module fdc_manager_integration_tb;
     end
     initial begin
         repeat(5)@(posedge clock);reset=0;
-        axi_write(32'h80000214,32'h00000101);
+        load_drive0_cache();
+        axi_write(32'h80000214,32'h00000103);
         fdc_write(16'hff40,8'h09);
-        fdc_write(16'hff49,8'h11);
+        fdc_write(16'hff49,8'h00);
 
+        // Read cached D0, switch to demand-paged D1, then return to D0. The
+        // second cached read proves that mounting/using D1 cannot invalidate
+        // or redirect the complete D0 image.
+        fdc_write(16'hff4a,8'h01);
+        fdc_write(16'hff48,8'h80);
+        while(done_toggle===request_toggle)@(posedge clock);
+        acknowledge_cached_sector();
+        consume_sector(8'ha5);
+
+        fdc_write(16'hff40,8'h0a);
+        fdc_write(16'hff4a,8'h01);
+        fdc_write(16'hff48,8'h80);
+        while(done_toggle===request_toggle)@(posedge clock);
+        if(backend_drive!==2'd1)$fatal(1,"drive-1 latch decoded as %0d",backend_drive);
+        publish_sector(8'h3c);
+        consume_sector(8'h3c);
+
+        fdc_write(16'hff40,8'h09);
         fdc_write(16'hff4a,8'h02);
         fdc_write(16'hff48,8'h80);
         while(done_toggle===request_toggle)@(posedge clock);
-        publish_sector(8'ha5);
-        consume_sector(8'ha5);
+        if(backend_drive!==2'd0)$fatal(1,"drive-0 latch decoded as %0d",backend_drive);
+        acknowledge_cached_sector();
+        consume_sector(8'h5a);
 
+        // If the full-image cache loses readiness while the D0 descriptor is
+        // still present, firmware now fills the owned sector bank instead of
+        // issuing an optimistic cache ACK. Model that fallback explicitly.
+        axi_write(32'h80000230,0);
         fdc_write(16'hff4a,8'h03);
         fdc_write(16'hff48,8'h80);
         while(done_toggle===request_toggle)@(posedge clock);
-        publish_sector(8'h5a);
-        consume_sector(8'h5a);
+        if(manager_i.disk_cache_fdc_valid)
+            $fatal(1,"drive-0 cache remained valid after reset");
+        publish_sector(8'he7);
+        consume_sector(8'he7);
 
-        $display("PASS: manager/FDC publishes distinct back-to-back GAT and directory sectors");
+        $display("PASS: cached D0 survives D1 and falls back to owned paging");
         $finish;
     end
 endmodule

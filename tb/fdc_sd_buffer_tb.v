@@ -14,7 +14,7 @@ module fdc_sd_buffer_tb;
     always #5 clock=~clock;
     // The firmware fills this owned buffer completely before acknowledging.
     always @* buffer_data = buffer[buffer_address];
-    coco3_fdc dut(.clock(clock),.reset(reset),.io_read(io_read),.io_write(io_write),.address(address),.write_data(write_data),.read_data(read_data),.nmi(nmi),.backend_present(3'b001),.backend_done_toggle(done_toggle),.backend_success(success),.backend_data(buffer_data),.backend_buffer_address(buffer_address),.backend_drive(drive),.backend_track(track),.backend_sector(sector),.backend_request_toggle(request_toggle));
+    coco3_fdc dut(.clock(clock),.reset(reset),.io_read(io_read),.io_write(io_write),.address(address),.write_data(write_data),.read_data(read_data),.nmi(nmi),.backend_present(2'b01),.backend_done_toggle(done_toggle),.backend_success(success),.backend_data(buffer_data),.backend_buffer_address(buffer_address),.backend_drive(drive),.backend_track(track),.backend_sector(sector),.backend_request_toggle(request_toggle));
     task wr(input[15:0] a,input[7:0] d);begin @(negedge clock);address=a;write_data=d;io_write=1;@(negedge clock);io_write=0;end endtask
     // The 6809 consumes FF4B on falling E; the FDC service edge that
     // advances its byte address follows it.  Sample before that service edge.

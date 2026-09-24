@@ -41,7 +41,7 @@ module coco3_banked_bin_loader_tb;
         .video_read_data(), .audio_dac(), .video_vdg_control(), .video_css(),
         .video_palette(), .video_border_palette(), .video_mode(),
         .video_resolution(), .video_vbank(), .video_scroll(), .video_offset(),
-        .video_horizontal_offset(), .video_blink(), .sd_drive_present(3'b0),
+        .video_horizontal_offset(), .video_blink(), .sd_drive_present(2'b0),
         .sd_fdc_done_toggle(1'b0), .sd_fdc_success(1'b0),
         .sd_fdc_write_done_toggle(1'b0), .sd_fdc_write_success(1'b0),
         .sd_fdc_data(8'b0), .sd_fdc_buffer_address(), .sd_fdc_drive(),

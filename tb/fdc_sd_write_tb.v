@@ -16,7 +16,7 @@ module fdc_sd_write_tb;
     always @(posedge clock) if(backend_write_strobe) captured[buffer_address] <= backend_write_data;
     coco3_fdc dut(
         .clock(clock),.reset(reset),.io_read(io_read),.io_write(io_write),.address(address),.write_data(write_data),
-        .read_data(read_data),.nmi(nmi),.backend_present(3'b001),.backend_done_toggle(1'b0),.backend_success(1'b0),
+        .read_data(read_data),.nmi(nmi),.backend_present(2'b01),.backend_done_toggle(1'b0),.backend_success(1'b0),
         .backend_write_done_toggle(write_done_toggle),.backend_write_success(write_success),.backend_data(8'h00),
         .backend_buffer_address(buffer_address),.backend_drive(drive),.backend_track(track),.backend_sector(sector),
         .backend_write_strobe(backend_write_strobe),.backend_write_data(backend_write_data),

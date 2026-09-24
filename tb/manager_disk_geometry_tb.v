@@ -21,7 +21,7 @@ module manager_disk_geometry_tb;
         .fdc_request_toggle(1'b0),
         .fdc_buffer_address(byte_address), .fdc_buffer_data(fdc_data),
         .fdc_write_strobe(1'b0), .fdc_write_data(8'b0),
-        .menu_key_state(10'b0), .osd_char_address(11'b0),
+        .menu_key_state(14'b0), .osd_char_address(11'b0),
         .osd_preview_read_address(12'b0),
         .debug_cpu_pc(16'b0), .debug_gime_init0(8'b0),
         .debug_gime_init1(8'b0), .debug_video_mode(8'b0),

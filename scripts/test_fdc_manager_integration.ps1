@@ -19,7 +19,7 @@ try {
         fdc_manager_integration_tb_sim -runall 2>&1
     $output | Write-Host
     if ($LASTEXITCODE -or ($output -join "`n") -notmatch
-        'PASS: manager/FDC publishes distinct back-to-back') {
+        'PASS: cached D0 survives D1 and falls back to owned paging') {
         throw 'xsim failed'
     }
 } finally {

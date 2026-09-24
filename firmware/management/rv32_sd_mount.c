@@ -88,6 +88,15 @@ void *memcpy(void *dst,const void *src,unsigned long n){unsigned char *d=dst;con
 #define KEY_ENTER 8u
 #define KEY_ESCAPE 16u
 #define KEY_F11 32u
+#define KEY_LEFT 64u
+#define KEY_RIGHT 128u
+#define KEY_TAB 256u
+#define KEY_CONTROL 512u
+#define KEY_1 1024u
+#define KEY_2 2048u
+#define KEY_3 4096u
+#define KEY_4 8192u
+#define VIRTUAL_DRIVE_COUNT 2u
 #define MAX_DSK_FILES 32u
 #define MAX_NAME 256u
 #define OSD_COLS 72u
@@ -127,7 +136,7 @@ static uint8_t sector[512];
 struct disk { char name[MAX_NAME]; uint32_t cluster, size; };
 struct browser_entry { char name[MAX_NAME]; uint32_t cluster, size; uint8_t directory, parent, cartridge, binary; };
 static struct browser_entry browser_entries[MAX_DSK_FILES];
-static struct disk mounted_disk;
+static struct disk mounted_disks[VIRTUAL_DRIVE_COUNT];
 static struct disk pending_bin;
 static uint8_t bin_pending;
 static uint32_t bin_stream_skip,bin_stream_bytes;
@@ -144,10 +153,26 @@ static char serial_command[64];
 static uint8_t serial_command_length;
 static uint8_t trace_enabled;
 static uint32_t physical_floppy_control=0x18u;
-static uint8_t physical_drive0;
+// The single physical mechanism can be routed to either supported CoCo drive.
+// 0xff means that it is available to the manager but not currently mounted.
+static uint8_t physical_drive_slot=0xffu;
 static uint8_t physical_track_known;
 static uint8_t physical_track;
 static uint8_t physical_decode_valid;
+static uint8_t selected_drive;
+static uint8_t browser_source;
+static uint8_t source_focus;
+static uint8_t saved_menu_selection[VIRTUAL_DRIVE_COUNT];
+static uint8_t saved_menu_top[VIRTUAL_DRIVE_COUNT];
+
+enum {
+    BROWSER_SOURCE_SD,
+    // The current Adafruit FeatherWing routes its one select output to the
+    // Shugart DS1 line (IDC pin 12). Drive 0/1 are mount destinations, not
+    // browser sources, so do not duplicate them in the Source selector.
+    BROWSER_SOURCE_FLOPPY_DS1,
+    BROWSER_SOURCE_COUNT
+};
 
 struct browser_metadata {
     char title[48],description[128];
@@ -175,6 +200,7 @@ static void serial_capture_flux_bulk(uint8_t indexed);
 static int physical_read_sector(uint8_t track,uint8_t side,uint8_t disk_sector,uint8_t publish);
 static void serial_apply_keys(void){SERIAL_KEY_LO=serial_key_lo;SERIAL_KEY_HI=serial_key_hi;SERIAL_KEY_CONTROL=(uint32_t)serial_shift|((uint32_t)serial_shift_override<<1);SERIAL_FUNCTION_KEYS=serial_function_keys;}
 static void serial_release_all(void){serial_key_lo=0;serial_key_hi=0;serial_shift=0;serial_shift_override=0;serial_function_keys=0;SERIAL_KEY_CONTROL=0x100u;SERIAL_FUNCTION_KEYS=0;}
+static uint8_t disk_present_mask(void){uint8_t mask=0;for(uint8_t drive=0;drive<VIRTUAL_DRIVE_COUNT;drive++)if(mounted_disks[drive].cluster)mask|=(uint8_t)(1u<<drive);if(physical_drive_slot<VIRTUAL_DRIVE_COUNT)mask|=(uint8_t)(1u<<physical_drive_slot);return mask;}
 static void serial_browser_root(void){current_directory=root_cluster;parent_directory=root_cluster;directory_depth=0;current_path[0]='/';current_path[1]=0;puts("OK ROOT\r\n");}
 static void serial_reply_status(void){uint32_t cpu=DEBUG_CPU_STATUS,video=DEBUG_VIDEO_STATUS;puts("STATUS PC=");hex((uint8_t)(cpu>>8));hex((uint8_t)cpu);puts(" I0=");hex((uint8_t)(video>>24));puts(" I1=");hex((uint8_t)(video>>16));puts(" VM=");hex((uint8_t)(video>>8));puts(" VR=");hex((uint8_t)video);puts("\r\n");}
 static void floppy_write_control(void){PHYSICAL_FLOPPY_CONTROL=physical_floppy_control;}
@@ -297,8 +323,8 @@ static void serial_execute_command(void){
     else if(equal(serial_command,"FLOPPY SIDE 0")){physical_decode_valid=0;physical_floppy_control&=~16u;floppy_write_control();puts("OK FLOPPY SIDE 0\r\n");}
     else if(equal(serial_command,"FLOPPY SIDE 1")){physical_decode_valid=0;physical_floppy_control|=16u;floppy_write_control();puts("OK FLOPPY SIDE 1\r\n");}
     else if(equal(serial_command,"FLOPPY STEP")){uint32_t status=PHYSICAL_FLOPPY_STATUS;physical_track_known=0;physical_decode_valid=0;if(!(status&8u))puts("ERR FLOPPY DISABLED\r\n");else if(!(status&16u))puts("ERR FLOPPY MOTOR OFF\r\n");else if(status&32u)puts("ERR FLOPPY BUSY\r\n");else{floppy_event(32u);puts("OK FLOPPY STEP\r\n");}}
-    else if(equal(serial_command,"FLOPPY MOUNT")){physical_drive0=1u;physical_track_known=0;physical_decode_valid=0;MOUNT_STATUS=0x101u;puts("OK FLOPPY MOUNT D0 READ ONLY\r\n");}
-    else if(equal(serial_command,"FLOPPY UNMOUNT")){physical_drive0=0u;physical_track_known=0;physical_decode_valid=0;physical_floppy_control&=~1u;floppy_write_control();MOUNT_STATUS=card_online?0x100u:0u;puts("OK FLOPPY UNMOUNT\r\n");}
+    else if(equal(serial_command,"FLOPPY MOUNT")){physical_drive_slot=0u;physical_track_known=0;physical_decode_valid=0;MOUNT_STATUS=0x100u|disk_present_mask();puts("OK FLOPPY MOUNT D0 READ ONLY\r\n");}
+    else if(equal(serial_command,"FLOPPY UNMOUNT")){physical_drive_slot=0xffu;physical_track_known=0;physical_decode_valid=0;physical_floppy_control&=~1u;floppy_write_control();MOUNT_STATUS=(card_online?0x100u:0u)|disk_present_mask();puts("OK FLOPPY UNMOUNT\r\n");}
     else if(parse_floppy_read(&floppy_track,&floppy_sector)){
         puts("FLOPPY SECTOR T=");hex(floppy_track);puts(" S=");hex(floppy_sector);puts(" DATA=");
         if(physical_read_sector(floppy_track,0u,floppy_sector,0u))puts("ERR\r\n");else puts(" OK\r\n");
@@ -354,7 +380,8 @@ static void capture_sidecar_keys(void){
         uint32_t pressed=keys&~sidecar_key_previous;
         if((pressed&KEY_UP)&&sidecar_up_pending!=0xffu)sidecar_up_pending++;
         if((pressed&KEY_DOWN)&&sidecar_down_pending!=0xffu)sidecar_down_pending++;
-        sidecar_key_pending|=pressed&(KEY_ENTER|KEY_ESCAPE|KEY_F12);
+        sidecar_key_pending|=pressed&(KEY_ENTER|KEY_ESCAPE|KEY_F12|KEY_LEFT|
+                                      KEY_TAB|KEY_1|KEY_2);
     }
     sidecar_key_previous=keys;
 }
@@ -496,7 +523,14 @@ static int init_card(void) {
     if(!block_addressed && command(16,512)!=0)return 8;
     deselect();spi_divider=8u;SPI_CTRL=((uint32_t)spi_divider<<8)|1u;return 0;
 }
-static void media_lost(void){card_online=0;browser_count=0;mounted_disk.cluster=0;DISK_CACHE_RESET=0;OSD_PREVIEW_CONTROL=0;selected_preview=0;puts("SD OFFLINE\r\n");MOUNT_STATUS=0;}
+static void clear_disk(struct disk *disk){disk->name[0]=0;disk->cluster=0;disk->size=0;}
+static void media_lost(void){
+    card_online=0;browser_count=0;
+    for(uint8_t drive=0;drive<VIRTUAL_DRIVE_COUNT;drive++)clear_disk(&mounted_disks[drive]);
+    DISK_CACHE_RESET=0;OSD_PREVIEW_CONTROL=0;selected_preview=0;
+    puts("SD OFFLINE\r\n");MOUNT_STATUS=physical_drive_slot<VIRTUAL_DRIVE_COUNT?
+        (0x100u|(1u<<physical_drive_slot)):0;
+}
 static int read_sector(uint32_t lba) {
     if(!card_online)return 0x7f;
     if(!block_addressed && lba>0x007fffffu)return 4;
@@ -707,7 +741,9 @@ static int mount_filesystem(void) {
     // A card being present does not imply that a disk is mounted.  Defer the
     // directory scan and full-image cache load until the user opens F12 and
     // explicitly selects a DSK.
-    browser_count=0;mounted_disk.name[0]=0;mounted_disk.cluster=0;mounted_disk.size=0;DISK_CACHE_RESET=0;
+    browser_count=0;
+    for(uint8_t drive=0;drive<VIRTUAL_DRIVE_COUNT;drive++)clear_disk(&mounted_disks[drive]);
+    browser_source=BROWSER_SOURCE_SD;DISK_CACHE_RESET=0;
     return 0;
 }
 // Load drive 0 into the shared full-image SDRAM cache. FAT32 and SD traffic
@@ -760,6 +796,21 @@ static int flush_decb_sector(const struct disk *d,uint8_t track,uint8_t side,uin
     if(read_sector(lba))return 2;
     for(uint16_t n=0;n<256;++n){FDC_BUFFER_DEBUG_ADDRESS=n;sector[half+n]=(uint8_t)FDC_WRITE_BUFFER_DEBUG_DATA;}
     return write_sector(lba)?3:0;
+}
+// Demand-paged drives use one of the manager's owned 256-byte sector banks.
+// The complete bank is filled before FDC_ACK publishes it to the CoCo, so an
+// in-progress FAT/SD read can never expose a partially replaced sector.
+static int read_decb_sector(const struct disk *d,uint8_t track,uint8_t side,uint8_t disk_sector){
+    uint32_t tracks=d->size==368640u?40u:35u;
+    uint32_t sides=d->size==161280u?1u:2u;
+    uint32_t offset,lba;uint16_t half;
+    if(track>=tracks||side>=sides||disk_sector<1u||disk_sector>18u)return 1;
+    offset=(((uint32_t)track*sides+side)*18u+(uint32_t)(disk_sector-1u))*256u;
+    half=(uint16_t)(offset&256u);
+    if(disk_lba(d,offset&~511u,&lba)||read_sector(lba))return 2;
+    FDC_BUFFER_RESET=0;
+    for(uint16_t n=0;n<256u;n++)FDC_BUFFER_DATA=sector[half+n];
+    return 0;
 }
 static void short_name(const struct disk *d,char *text){uint16_t n=0;while(d->name[n]&&n<MAX_NAME-1u){text[n]=d->name[n];n++;}text[n]=0;}
 static void osd_text(uint8_t row,uint8_t column,const char *text);
@@ -948,7 +999,8 @@ static const char *entry_action(const struct browser_entry *entry){
     if(entry->parent)return "Up one level";
     if(entry->directory)return "Enter to open";
     if(entry->cartridge||entry->binary)return "Ready to run";
-    if(entry->cluster==mounted_disk.cluster&&mounted_disk.cluster)return "Mounted D0";
+    if(entry->cluster==mounted_disks[selected_drive].cluster&&
+       mounted_disks[selected_drive].cluster)return "Mounted in selected drive";
     return "Ready to mount";
 }
 static void detail_pair(uint8_t row,const char *label,const char *value){
@@ -999,6 +1051,69 @@ static void draw_details(const struct browser_entry *entry){
     else if(!entry->directory)osd_text(14,OSD_DETAIL_COLUMN,"CRC on mount");
 }
 static uint8_t menu_selection,menu_top;
+static uint8_t source_available(uint8_t source){
+    if(source==BROWSER_SOURCE_SD)return card_online;
+    if(source==BROWSER_SOURCE_FLOPPY_DS1)return (PHYSICAL_FLOPPY_STATUS&8u)!=0;
+    return 0;
+}
+static const char *source_name(uint8_t source){
+    static const char *const names[]={"SDCard","Floppy DS1"};
+    return source<BROWSER_SOURCE_COUNT?names[source]:"Unavailable";
+}
+static const char *source_status(void){
+    if(browser_source==BROWSER_SOURCE_SD)return browser_count?
+        "Select DSK, CCC, BIN or directory":"No compatible DSK, CCC or BIN files";
+    return "Enter mounts Floppy DS1 read-only in active drive";
+}
+static void mount_physical_selected(void){
+    physical_drive_slot=selected_drive;
+    physical_track_known=0;physical_decode_valid=0;
+    MOUNT_STATUS=0x100u|disk_present_mask();
+    puts("MOUNT D");putc((char)('0'+selected_drive));
+    puts(" PHYSICAL READ ONLY\r\n");
+}
+static void save_drive_cursor(void){
+    saved_menu_selection[selected_drive]=menu_selection;
+    saved_menu_top[selected_drive]=menu_top;
+}
+static void restore_drive_cursor(void){
+    menu_selection=saved_menu_selection[selected_drive];
+    menu_top=saved_menu_top[selected_drive];
+    if(!browser_count){menu_selection=0;menu_top=0;return;}
+    if(menu_selection>=browser_count)menu_selection=browser_count-1u;
+    if(menu_top>=browser_count)menu_top=0;
+    if(mounted_disks[selected_drive].cluster)
+        for(uint8_t n=0;n<browser_count;n++)
+            if(browser_entries[n].cluster==mounted_disks[selected_drive].cluster){menu_selection=n;break;}
+}
+static void select_drive(uint8_t drive){
+    if(drive>=VIRTUAL_DRIVE_COUNT||drive==selected_drive)return;
+    save_drive_cursor();selected_drive=drive;restore_drive_cursor();clear_sidecars();
+}
+static int leave_directory(void){
+    uint16_t p=0;
+    if(browser_source!=BROWSER_SOURCE_SD||!directory_depth)return 0;
+    clear_sidecars();current_directory=directory_stack[--directory_depth];
+    parent_directory=directory_depth?directory_stack[directory_depth-1u]:root_cluster;
+    while(current_path[p]&&p<MAX_NAME)p++;
+    while(p>1u&&current_path[p-1u]!='/')p--;
+    if(p==1u)current_path[1]=0;else current_path[p-1u]=0;
+    if(scan_directory(current_directory))return 0;
+    menu_selection=0;menu_top=0;return 1;
+}
+static void select_source(int8_t direction){
+    uint8_t source=browser_source;
+    for(uint8_t count=0;count<BROWSER_SOURCE_COUNT;count++){
+        source=direction>0?(uint8_t)((source+1u)%BROWSER_SOURCE_COUNT):
+                           (uint8_t)((source+BROWSER_SOURCE_COUNT-1u)%BROWSER_SOURCE_COUNT);
+        if(source_available(source)){browser_source=source;break;}
+    }
+    clear_sidecars();menu_selection=0;menu_top=0;
+    if(browser_source==BROWSER_SOURCE_SD){
+        if(scan_directory(current_directory))browser_count=0;
+        restore_drive_cursor();
+    }else browser_count=0;
+}
 static void normalize_menu_top(void){
     if(menu_selection<menu_top)menu_top=menu_selection;
     if(menu_selection>=menu_top+OSD_FILE_ROWS)menu_top=menu_selection-OSD_FILE_ROWS+1u;
@@ -1011,7 +1126,7 @@ static void draw_file_list(void){
         if(index>=browser_count)break;
         entry_line(&browser_entries[index],line);
         osd_text(OSD_FIRST_FILE_ROW+row,1,
-                 browser_entries[index].cluster==mounted_disk.cluster?"*":" ");
+                 browser_entries[index].cluster==mounted_disks[selected_drive].cluster?"*":" ");
         draw_entry_icon(OSD_FIRST_FILE_ROW+row,&browser_entries[index]);
         osd_text(OSD_FIRST_FILE_ROW+row,4,line);
     }
@@ -1025,39 +1140,44 @@ static void select_menu_entry(const char *status){
     normalize_menu_top();
     if(menu_top!=previous_top)draw_file_list();
     draw_status(status);
-    OSD_CONTROL=((uint32_t)(browser_count?(OSD_FIRST_FILE_ROW+menu_selection-menu_top):31u)<<8)|1u;
+    OSD_CONTROL=((uint32_t)(source_focus?5u:(browser_count?(OSD_FIRST_FILE_ROW+menu_selection-menu_top):31u))<<8)|1u;
 }
 static void draw_selected_details(const char *status){
     osd_fill(OSD_FIRST_FILE_ROW,23,OSD_DETAIL_COLUMN,OSD_COLS-2u,' ');
     if(browser_count)draw_details(&browser_entries[menu_selection]);
     draw_status(status);
-    OSD_CONTROL=((uint32_t)(browser_count?(OSD_FIRST_FILE_ROW+menu_selection-menu_top):31u)<<8)|1u;
+    OSD_CONTROL=((uint32_t)(source_focus?5u:(browser_count?(OSD_FIRST_FILE_ROW+menu_selection-menu_top):31u))<<8)|1u;
 }
 static void draw_menu(const char *status){
     char name[MAX_NAME];
     normalize_menu_top();
     osd_clear();osd_frame();
     osd_logo(1);osd_center(2,"Disk browser");
-    osd_text(4,2,"Drive 0:");short_name(&mounted_disk,name);osd_text_to(4,11,OSD_COLS-2u,name[0]?name:"<empty>");
-    osd_text(5,2,"Path:");osd_tail(5,8,OSD_COLS-10u,current_path);
+    osd_text(4,2,"Drive 0:");osd_char(4,8,(char)('0'+selected_drive));osd_char(4,9,':');
+    if(physical_drive_slot==selected_drive)osd_text_to(4,11,OSD_COLS-2u,"<Floppy DS1 read-only>");
+    else {short_name(&mounted_disks[selected_drive],name);osd_text_to(4,11,OSD_COLS-2u,name[0]?name:"<empty>");}
+    osd_text(5,2,"Source:");osd_text_to(5,10,26,source_name(browser_source));
+    if(browser_source==BROWSER_SOURCE_SD){osd_text(5,28,"Path:");osd_tail(5,34,OSD_COLS-36u,current_path);}
     draw_file_list();
     if(browser_count)draw_details(&browser_entries[menu_selection]);
     draw_status(status);
-    osd_center(26,"Up/down select   Enter mount/run   Esc/F12 exit");
-    OSD_CONTROL=((uint32_t)(browser_count?(OSD_FIRST_FILE_ROW+menu_selection-menu_top):31u)<<8)|1u;
+    osd_center(26,"1-2 drive   Tab source   Left back   Enter open/run");
+    OSD_CONTROL=((uint32_t)(source_focus?5u:(browser_count?(OSD_FIRST_FILE_ROW+menu_selection-menu_top):31u))<<8)|1u;
 }
 static int run_disk_menu(uint8_t *present){
     uint32_t previous,keys,pressed,sidecar_idle=0;
     char name[MAX_NAME];
     uint8_t scan_failed=0;
-    menu_selection=0;menu_top=0;browser_count=0;clear_sidecars();
-    draw_menu("Reading SD directory - please wait");
+    browser_count=0;source_focus=0;clear_sidecars();
+    if(!source_available(browser_source))browser_source=card_online?BROWSER_SOURCE_SD:BROWSER_SOURCE_FLOPPY_DS1;
+    draw_menu(browser_source==BROWSER_SOURCE_SD?"Reading SD directory - please wait":source_status());
     puts("MENU OPEN\r\n");
-    if(!card_online||scan_directory(current_directory)){
+    if(browser_source!=BROWSER_SOURCE_SD){
+        restore_drive_cursor();draw_menu(source_status());
+    }else if(!card_online||scan_directory(current_directory)){
         scan_failed=1;draw_menu("SD directory read failed - Esc/F12 to exit");
     }else{
-        for(uint8_t n=0;n<browser_count;++n)if(browser_entries[n].cluster==mounted_disk.cluster){menu_selection=n;break;}
-        draw_menu(browser_count?"Select DSK, CCC, BIN or directory":"No compatible DSK, CCC or BIN files");
+        restore_drive_cursor();draw_menu(source_status());
     }
     while(MENU_KEY_STATE&KEY_F12){serial_poll();}
     previous=MENU_KEY_STATE;
@@ -1068,24 +1188,44 @@ static int run_disk_menu(uint8_t *present){
         if(sidecar_down_pending){pressed|=KEY_DOWN;sidecar_down_pending--;}
         if(pressed&(KEY_ESCAPE|KEY_F12)){
             while(MENU_KEY_STATE&(KEY_ESCAPE|KEY_F12)){serial_poll();}
+            save_drive_cursor();
             OSD_PREVIEW_CONTROL=0;OSD_CONTROL=0;puts("MENU CLOSE\r\n");return scan_failed;
         }
-        if((pressed&KEY_UP)&&browser_count){
+        if(pressed&KEY_1){select_drive(0);draw_menu(source_status());continue;}
+        if(pressed&KEY_2){select_drive(1);draw_menu(source_status());continue;}
+        if(pressed&KEY_TAB){source_focus^=1u;draw_menu(source_focus?"Up/down changes source":"File browser selected");continue;}
+        if(source_focus&&(pressed&KEY_UP)){select_source(-1);draw_menu(source_status());continue;}
+        if(source_focus&&(pressed&KEY_DOWN)){select_source(1);draw_menu(source_status());continue;}
+        if(source_focus&&(pressed&KEY_ENTER)){
+            if(browser_source==BROWSER_SOURCE_FLOPPY_DS1){
+                mount_physical_selected();save_drive_cursor();
+                while(MENU_KEY_STATE&KEY_ENTER){serial_poll();}
+                OSD_PREVIEW_CONTROL=0;OSD_CONTROL=0;puts("MENU CLOSE\r\n");return 0;
+            }
+            draw_status("This source cannot be mounted directly");
+            continue;
+        }
+        if(!source_focus&&(pressed&KEY_LEFT)){
+            if(leave_directory())draw_menu(source_status());
+            else draw_status("Already at the top of this source");
+            continue;
+        }
+        if(!source_focus&&(pressed&KEY_UP)&&browser_count){
             sidecar_attempted=0;sidecar_idle=0;
             menu_selection=menu_selection?menu_selection-1u:browser_count-1u;
             select_menu_entry("Loading details...");
         }
-        if((pressed&KEY_DOWN)&&browser_count){
+        if(!source_focus&&(pressed&KEY_DOWN)&&browser_count){
             sidecar_attempted=0;sidecar_idle=0;
             menu_selection=(menu_selection+1u==browser_count)?0:menu_selection+1u;
             select_menu_entry("Loading details...");
         }
-        if((pressed&KEY_ENTER)&&browser_count){
+        if(!source_focus&&(pressed&KEY_ENTER)&&browser_count){
             if(browser_entries[menu_selection].directory){
                 clear_sidecars();sidecar_idle=0;
-                if(browser_entries[menu_selection].parent){if(directory_depth){current_directory=directory_stack[--directory_depth];parent_directory=directory_depth?directory_stack[directory_depth-1u]:root_cluster;uint16_t p=0;while(current_path[p]&&p<MAX_NAME)p++;while(p>1u&&current_path[p-1u]!='/')p--;if(p==1u)current_path[1]=0;else current_path[p-1u]=0;scan_directory(current_directory);}}
+                if(browser_entries[menu_selection].parent){(void)leave_directory();}
                 else {if(directory_depth<8u)directory_stack[directory_depth++]=current_directory;parent_directory=current_directory;current_directory=browser_entries[menu_selection].cluster;uint16_t p=0;while(current_path[p])p++;if(p>1&&current_path[p-1]!='/'){current_path[p++]='/';}for(uint16_t n=0;browser_entries[menu_selection].name[n]&&p<MAX_NAME-1u;n++)current_path[p++]=browser_entries[menu_selection].name[n];current_path[p]=0;scan_directory(current_directory);}
-                menu_selection=0;menu_top=0;draw_menu("Select a disk for drive 0");continue;
+                menu_selection=0;menu_top=0;draw_menu("Select a disk for the active drive");continue;
             }
             if(browser_entries[menu_selection].cartridge){
                 draw_menu("Loading cartridge - please wait");
@@ -1102,22 +1242,27 @@ static int run_disk_menu(uint8_t *present){
             struct disk candidate;
             for(uint16_t n=0;n<MAX_NAME;++n)candidate.name[n]=browser_entries[menu_selection].name[n];
             candidate.cluster=browser_entries[menu_selection].cluster;candidate.size=browser_entries[menu_selection].size;
-            draw_menu("Mounting drive 0 - please wait");
-            physical_drive0=0;physical_track_known=0;physical_decode_valid=0;
-            MOUNT_STATUS=0;
-            if(!load_disk_cache(&candidate)){
-                copy_disk(&mounted_disk,&candidate);*present=1;MOUNT_STATUS=0x101u;
-                short_name(&mounted_disk,name);puts("MOUNT D0 ");puts(name);puts(" CRC32 ");hex32(disk_cache_crc32);puts("\r\n");
+            draw_menu("Mounting selected drive - please wait");
+            if(physical_drive_slot==selected_drive){
+                physical_drive_slot=0xffu;physical_track_known=0;physical_decode_valid=0;
+                physical_floppy_control&=~1u;floppy_write_control();
+            }
+            *present&=(uint8_t)~(1u<<selected_drive);MOUNT_STATUS=0x100u|*present;
+            if(selected_drive!=0||!load_disk_cache(&candidate)){
+                copy_disk(&mounted_disks[selected_drive],&candidate);*present|=(uint8_t)(1u<<selected_drive);MOUNT_STATUS=0x100u|*present;
+                short_name(&mounted_disks[selected_drive],name);puts("MOUNT D");putc((char)('0'+selected_drive));putc(' ');puts(name);
+                if(selected_drive==0){puts(" CRC32 ");hex32(disk_cache_crc32);}puts("\r\n");
+                save_drive_cursor();
                 while(MENU_KEY_STATE&KEY_ENTER){serial_poll();}
                 OSD_PREVIEW_CONTROL=0;OSD_CONTROL=0;return 0;
             }
-            *present=0;MOUNT_STATUS=0x100u;
+            *present&=(uint8_t)~(1u<<selected_drive);clear_disk(&mounted_disks[selected_drive]);MOUNT_STATUS=0x100u|*present;
             draw_menu("Mount failed - select another disk");
         }
         // SD reads are deferred until the highlight has remained still. This
         // keeps cursor movement immediate even on slower cards and ensures a
         // held navigation key cannot repeatedly open sidecar files.
-        if(browser_count&&!sidecar_attempted&&!(keys&(KEY_UP|KEY_DOWN|KEY_ENTER))){
+        if(!source_focus&&browser_count&&!sidecar_attempted&&!(keys&(KEY_UP|KEY_DOWN|KEY_ENTER|KEY_LEFT))){
             if(++sidecar_idle>=100000u){
                 load_sidecars(&browser_entries[menu_selection]);
                 // If navigation arrived while the SD card was busy, leave the
@@ -1151,9 +1296,10 @@ int main(void){
             if(read_sector(0)){present=0;error=1;}
         }
         // A physical drive remains present even if the independent SD card is
-        // removed. Reassert D0 because media_lost() correctly clears SD-backed
-        // mounts but must not hide the selected real floppy.
-        if(physical_drive0)MOUNT_STATUS=0x101u;
+        // removed. Reassert whichever supported CoCo slot currently owns the
+        // mechanism; media_lost() clears only SD-backed image descriptors.
+        if(physical_drive_slot<VIRTUAL_DRIVE_COUNT)
+            MOUNT_STATUS=0x100u|present|(1u<<physical_drive_slot);
         uint32_t state=FDC_STATE;
         if(((state>>11)&1u)!=seen_complete){uint32_t word=FDC_COMPLETED_DEBUG_WORD;
             puts("FDC CPU ");hex((uint8_t)(word>>24));putc(' ');hex((uint8_t)(word>>16));putc(' ');hex((uint8_t)(word>>8));putc(' ');hex((uint8_t)word);puts("\r\n");
@@ -1161,19 +1307,29 @@ int main(void){
         if(((state>>12)&1u)!=seen_write){
             uint32_t info=FDC_INFO;uint8_t drive=info&3u,disk_sector=(info>>8)&0xffu,track=(info>>16)&0xffu;
             uint8_t side=(info>>2)&1u;
-            int ok=!physical_drive0&&card_online&&error==0&&drive==0&&
-                (present&1u)&&!flush_decb_sector(&mounted_disk,track,side,disk_sector);
+            int ok=physical_drive_slot!=drive&&card_online&&error==0&&drive==0&&
+                (present&1u)&&!flush_decb_sector(&mounted_disks[0],track,side,disk_sector);
             puts(ok ? "FDC WRITE OK " : "FDC WRITE ERR ");hex(drive);putc(' ');hex(track);putc(' ');hex(disk_sector);puts("\r\n");
             FDC_WRITE_ACK=ok?1:0;seen_write=(state>>12)&1u;
         }
         if((state&1u)!=seen){uint32_t info=FDC_INFO;uint8_t drive=info&3u, disk_sector=(info>>8)&0xffu, track=(info>>16)&0xffu, type1=info>>24;
-            // D0 is already in the full-image cache. Future D1/D2 requests
-            // will populate the owned sector banks here instead.
-            int ok=drive==0&&(physical_drive0
-                ? !physical_read_sector(track,(info>>2)&1u,disk_sector,1u)
-                : (card_online&&error==0&&(present&1u)));
-            puts(ok ? (physical_drive0?"FDC PHYSICAL ":"FDC CACHE ") : "FDC ERR "); hex(drive);putc(' ');hex(track);putc(' ');hex(disk_sector);putc(' ');hex(type1);
-            if(ok&&!physical_drive0){puts(" BUF ");print_buffer_head();}
+            // D0 uses the full-image cache. D1 is demand-paged into an
+            // owned 256-byte bank and published atomically by FDC_ACK. Keep
+            // the FAT32 paging path as a D0 fallback: the descriptor-present
+            // bit and hardware cache-ready bit are separate state. If cache
+            // readiness is cleared, acknowledging from the absent cache makes
+            // the manager reject the request and Disk BASIC reports ?FS ERROR.
+            uint8_t cache_ready=drive==0&&((DISK_CACHE_STATUS&1u)!=0);
+            int ok;
+            if(drive<VIRTUAL_DRIVE_COUNT&&physical_drive_slot==drive)
+                ok=!physical_read_sector(track,(info>>2)&1u,disk_sector,1u);
+            else if(cache_ready)
+                ok=card_online&&error==0&&(present&1u);
+            else ok=drive<VIRTUAL_DRIVE_COUNT&&card_online&&error==0&&
+                    (present&(1u<<drive))&&
+                    !read_decb_sector(&mounted_disks[drive],track,(info>>2)&1u,disk_sector);
+            puts(ok ? (physical_drive_slot==drive?"FDC PHYSICAL ":cache_ready?"FDC CACHE ":"FDC PAGE ") : "FDC ERR "); hex(drive);putc(' ');hex(track);putc(' ');hex(disk_sector);putc(' ');hex(type1);
+            if(ok&&cache_ready){puts(" BUF ");print_buffer_head();}
             puts("\r\n");
             FDC_ACK=ok?1:0; seen=state&1u;
         }

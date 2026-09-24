@@ -99,7 +99,7 @@ module coco3_boot_machine #(
     output wire [15:0] video_offset,
     output wire [7:0]  video_horizontal_offset,
     output wire        video_blink,
-    input  wire [2:0]  sd_drive_present,
+    input  wire [1:0]  sd_drive_present,
     input  wire        sd_fdc_done_toggle,
     input  wire        sd_fdc_success,
     input  wire        sd_fdc_write_done_toggle,

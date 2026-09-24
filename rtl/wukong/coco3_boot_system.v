@@ -264,7 +264,7 @@ module coco3_boot_system #(
     wire manager_uart_tx, manager_uart_busy, manager_uart_claim;
     wire manager_ready, manager_done_toggle, manager_success;
     wire manager_write_done_toggle, manager_write_success;
-    wire [2:0] manager_drive_present;
+    wire [1:0] manager_drive_present;
     wire [1:0] manager_fdc_drive;
     wire manager_fdc_side;
     wire [7:0] manager_fdc_track, manager_fdc_sector, manager_fdc_last_type1, manager_fdc_data,
@@ -364,13 +364,26 @@ module coco3_boot_system #(
     wire [1:0] manager_artifact_palette;
     wire [3:0] manager_coco2_palette;
     wire [3:0] manager_text_color_theme;
-    wire [9:0] manager_menu_key_state = {
+    // The management overlay consumes raw J10 directions while it is open,
+    // independently of F7/F8's assignment to a CoCo joystick port. Numeric
+    // keys 1 and 2 select the supported browser target drives; 3 and 4 are
+    // carried in the interface for a future extension but ignored by firmware.
+    wire [13:0] manager_menu_key_state = {
+        effective_keyboard_keys[36], effective_keyboard_keys[35],
+        effective_keyboard_keys[34], effective_keyboard_keys[33],
         effective_keyboard_keys[52], effective_keyboard_keys[49],
-        effective_keyboard_keys[30], effective_keyboard_keys[29], keyboard_f11_sync[1],
-        effective_keyboard_keys[50], effective_keyboard_keys[48], effective_keyboard_keys[28],
-        effective_keyboard_keys[27], keyboard_f12_sync[1]};
-    wire [7:0] sd_status = {4'b1010, manager_ready, manager_drive_present};
-    wire [7:0] sd_detail = {5'b0, manager_drive_present};
+        effective_keyboard_keys[30],
+        effective_keyboard_keys[29] | physical_joystick_left,
+        keyboard_f11_sync[1], effective_keyboard_keys[50],
+        effective_keyboard_keys[48],
+        effective_keyboard_keys[28] | physical_joystick_down,
+        effective_keyboard_keys[27] | physical_joystick_up,
+        keyboard_f12_sync[1]};
+    // Preserve the established status signature/bit positions. Drives 0 and
+    // 1 are the intentionally supported virtual targets in this build.
+    wire [7:0] sd_status = {4'b1010, manager_ready, 1'b0,
+                            manager_drive_present};
+    wire [7:0] sd_detail = {6'b0, manager_drive_present};
     wire coco_uart_debug_tx;
     wire machine_sdram_clk, machine_sdram_cke, machine_sdram_cs_n;
     wire machine_sdram_ras_n, machine_sdram_cas_n, machine_sdram_we_n;

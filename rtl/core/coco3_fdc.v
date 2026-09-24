@@ -17,7 +17,7 @@ module coco3_fdc (
     // Firmware-backed SD transport.  These ports are unused by the optional
     // embedded-ROM test configuration, which remains a deterministic unit
     // test of the WD1773-visible behavior.
-    input  wire [2:0]  backend_present,
+    input  wire [1:0]  backend_present,
     input  wire        backend_done_toggle,
     input  wire        backend_success,
     input  wire        backend_write_done_toggle,
@@ -54,8 +54,7 @@ module coco3_fdc (
 
     wire drive0_selected = drive_latch[0];
     wire drive1_selected = drive_latch[1];
-    wire drive2_selected = drive_latch[2];
-    wire drive_selected = drive0_selected | drive1_selected | drive2_selected;
+    wire drive_selected = drive0_selected | drive1_selected;
     // Extended CoCo images can have 40 or 80 cylinders; the mounted image
     // backend checks its actual geometry before acknowledging a sector.
 `ifdef EMBEDDED_TEST_DISKS
@@ -302,7 +301,6 @@ module coco3_fdc (
                                 if (!drive_selected ||
                                     (drive0_selected && !backend_present[0]) ||
                                     (drive1_selected && !backend_present[1]) ||
-                                    (drive2_selected && !backend_present[2]) ||
                                     !valid_position) begin
                                     status <= !valid_position ? 8'h10 : 8'h80;
                                     read_active <= 1'b0;
@@ -311,8 +309,7 @@ module coco3_fdc (
                                     write_waiting <= 1'b0;
                                     nmi_pending <= 1'b1;
                                 end else begin
-                                    backend_drive <= drive0_selected ? 2'd0 :
-                                                     drive1_selected ? 2'd1 : 2'd2;
+                                    backend_drive <= drive0_selected ? 2'd0 : 2'd1;
                                     backend_track <= track;
                                     backend_sector <= sector;
                                     backend_request_toggle <= ~backend_request_toggle;
@@ -335,7 +332,6 @@ module coco3_fdc (
                                 if (!drive_selected || !drive0_selected ||
                                     (drive0_selected && !backend_present[0]) ||
                                     (drive1_selected && !backend_present[1]) ||
-                                    (drive2_selected && !backend_present[2]) ||
                                     !valid_position) begin
                                     status <= !valid_position ? 8'h10 :
                                               (!drive0_selected && drive_selected) ? 8'h40 : 8'h80;
@@ -345,8 +341,7 @@ module coco3_fdc (
                                     write_waiting <= 1'b0;
                                     nmi_pending <= 1'b1;
                                 end else begin
-                                    backend_drive <= drive0_selected ? 2'd0 :
-                                                     drive1_selected ? 2'd1 : 2'd2;
+                                    backend_drive <= drive0_selected ? 2'd0 : 2'd1;
                                     backend_track <= track;
                                     backend_sector <= sector;
                                     byte_index <= 8'h00;

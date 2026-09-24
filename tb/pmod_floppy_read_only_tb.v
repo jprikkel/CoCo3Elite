@@ -1,6 +1,7 @@
 `timescale 1ns/1ps
 
 module pmod_floppy_read_only_tb;
+    integer sample_index;
     reg clock = 1'b0;
     reg reset = 1'b1;
     reg motor_request = 1'b0;
@@ -180,22 +181,25 @@ module pmod_floppy_read_only_tb;
         capture_request_toggle = !capture_request_toggle;
         wait (capture_busy);
         index_n = 1'b0; settle; index_n = 1'b1; settle;
-        repeat (5) begin
+        repeat (4) begin
             read_data_n = 1'b0; settle;
             read_data_n = 1'b1; settle;
         end
         index_n = 1'b0; settle; index_n = 1'b1; settle;
         wait (!capture_busy); #1;
-        if (!capture_success || capture_flux_count !== 5 ||
-            capture_sample_count !== 4 || capture_truncated) begin
+        if (!capture_success || capture_flux_count !== 4 ||
+            capture_sample_count !== 3 || capture_truncated) begin
             $display("FAIL: indexed bulk flux capture is incorrect");
             $fatal;
         end
-        capture_sample_address = 0; settle;
-        if (capture_sample_data[7:0] == 0 ||
-            capture_sample_data[15:8] != 0) begin
-            $display("FAIL: indexed bulk BRAM did not return data");
-            $fatal;
+        for (sample_index = 0; sample_index < 3; sample_index = sample_index + 1) begin
+            capture_sample_address = sample_index; settle;
+            if (capture_sample_data[7:0] == 0 ||
+                capture_sample_data[15:8] != 0) begin
+                $display("FAIL: indexed packed bulk BRAM byte %0d did not return data",
+                         sample_index);
+                $fatal;
+            end
         end
 
         // A flipped disk can hide the index aperture. $ffff requests one
@@ -213,11 +217,14 @@ module pmod_floppy_read_only_tb;
             $display("FAIL: indexless bulk flux capture is incorrect");
             $fatal;
         end
-        capture_sample_address = 0; settle;
-        if (capture_sample_data[7:0] == 0 ||
-            capture_sample_data[15:8] != 0) begin
-            $display("FAIL: indexless compressed BRAM did not return data");
-            $fatal;
+        for (sample_index = 0; sample_index < 4; sample_index = sample_index + 1) begin
+            capture_sample_address = sample_index; settle;
+            if (capture_sample_data[7:0] == 0 ||
+                capture_sample_data[15:8] != 0) begin
+                $display("FAIL: indexless packed bulk BRAM byte %0d did not return data",
+                         sample_index);
+                $fatal;
+            end
         end
         motor_request = 1'b0;
         settle;
@@ -249,7 +256,7 @@ module pmod_floppy_read_only_tb;
         settle;
         read_data_n = 1'b0;
         settle;
-        if (read_transition_count !== 31) begin
+        if (read_transition_count !== 29) begin
             $display("FAIL: read-transition counter is incorrect");
             $fatal;
         end
