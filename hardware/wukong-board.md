@@ -29,7 +29,7 @@ PS/2 keyboard interface connected to PMOD J14.*
 | Onboard MicroSD | Implemented | Default FAT32 storage, DSK mounting/writeback, and BIN/CCC loading |
 | PMOD J13 | Optional | Alternate Digilent Pmod MicroSD target selected at build time |
 | Remaining PMOD connectors | Planned | External audio, joystick ADC, and optional I2C RTC modules |
-| CH340N USB-to-UART | Used | 115200-baud passive diagnostic console; see [USB serial diagnostics](serial-debug.md) |
+| CH340N USB-to-UART | Used | 460800-baud passive diagnostic console; see [USB serial diagnostics](serial-debug.md) |
 | User keys | Unassigned | Candidate reset, cold-start, or maintenance controls |
 | User LEDs | Unassigned | Candidate power, storage activity, keyboard, or diagnostic indicators |
 | 40-pin user I/O header | Reserved | Additional expansion after the PMOD assignments are established |

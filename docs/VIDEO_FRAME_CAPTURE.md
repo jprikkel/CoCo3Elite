@@ -31,7 +31,7 @@ The command writes three files under `build/test-output/screenshots/`:
   metadata.
 
 The FPGA sends a CRC32 after every frame. The script rejects a truncated or
-corrupted serial transfer. A capture takes roughly 30 to 40 seconds at 115200
+corrupted serial transfer. A capture takes roughly 8 to 10 seconds at 460800
 baud. The CoCo CPU is held while the stripes are captured and transferred so
 that one PNG does not combine unrelated frames; the RV32 manager and disk
 cache remain active.

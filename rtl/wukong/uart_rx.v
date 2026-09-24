@@ -6,16 +6,16 @@
 // complete byte with a valid stop bit.  Framing errors are reported separately
 // so the management firmware can discard a damaged command.
 module uart_rx #(
-    parameter integer CLKS_PER_BIT = 219
+    parameter integer CLKS_PER_BIT = 55
 ) (
     input  wire       clock,
     input  wire       reset,
+    input  wire [15:0] clks_per_bit,
     input  wire       rx,
     output reg  [7:0] data,
     output reg        data_valid,
     output reg        framing_error
 );
-    localparam integer HALF_BIT = CLKS_PER_BIT / 2;
     localparam [1:0] IDLE = 2'd0, START = 2'd1, DATA = 2'd2, STOP = 2'd3;
 
     reg [1:0] rx_sync;
@@ -44,14 +44,14 @@ module uart_rx #(
                     if (!rx_sync[1]) state <= START;
                 end
                 START: begin
-                    if (clock_count == HALF_BIT - 1) begin
+                    if (clock_count == (clks_per_bit >> 1) - 1'b1) begin
                         clock_count <= 0;
                         // Reject a short low-going glitch before receiving.
                         state <= rx_sync[1] ? IDLE : DATA;
                     end else clock_count <= clock_count + 1'b1;
                 end
                 DATA: begin
-                    if (clock_count == CLKS_PER_BIT - 1) begin
+                    if (clock_count == clks_per_bit - 1'b1) begin
                         clock_count <= 0;
                         shift[bit_index] <= rx_sync[1];
                         if (bit_index == 3'd7) state <= STOP;
@@ -59,7 +59,7 @@ module uart_rx #(
                     end else clock_count <= clock_count + 1'b1;
                 end
                 STOP: begin
-                    if (clock_count == CLKS_PER_BIT - 1) begin
+                    if (clock_count == clks_per_bit - 1'b1) begin
                         clock_count <= 0;
                         state <= IDLE;
                         if (rx_sync[1]) begin

@@ -9,7 +9,8 @@ module uart_rx_tb;
 
     always #5 clock = ~clock;
     uart_rx #(.CLKS_PER_BIT(10)) dut(
-        .clock(clock), .reset(reset), .rx(rx), .data(data),
+        .clock(clock), .reset(reset), .clks_per_bit(16'd10),
+        .rx(rx), .data(data),
         .data_valid(valid), .framing_error(framing_error));
 
     task send_byte(input [7:0] value, input good_stop);

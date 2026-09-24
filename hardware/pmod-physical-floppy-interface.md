@@ -188,8 +188,24 @@ spin-up, uses the direction selected at runtime with `FLOPPY DIR 0` or
 permits one guarded pulse at a time while the drive is active, and `FLOPPY
 SIDE 0/1` changes the side-select level. These runtime controls avoid rebuilding
 the bitstream while diagnosing older mechanisms. All write signals remain
-absent. It does not yet decode FM/MFM or connect a physical drive to the
-emulated FDC.
+absent.
+
+The next milestone is also implemented: the FPGA can capture one complete
+index-to-index revolution of raw read-data timing from either selected head.
+It stores a 1024-interval window in one 18 Kbit BRAM and computes complete-turn
+counts, minimum/maximum spacing, and an order-sensitive hash. The management
+firmware uploads buffered windows over the CH340N serial link at the normal
+460800 baud with a per-window CRC-32.
+`scripts/capture_physical_floppy_flux.ps1` reconstructs all windows and writes
+little-endian raw intervals, forward and reversed CSV views, and JSON metadata.
+See `docs/SERIAL_API.md` for the wire protocol and file formats.
+
+Hardware validation with the current Mitsumi/Newtronics D502 produced roughly
+47,390 transitions per revolution from its working lower/second head. Its
+known-faulty upper head produced only sparse transitions with saturated gaps;
+the side-select path works, but those samples are not usable disk data. The
+design does not yet decode FM/MFM or connect a physical drive to the emulated
+FDC.
 
 Write support is a separate future design. It requires at least `WG`, `WD`, and
 write-protect sensing, so it will require another connector or an active

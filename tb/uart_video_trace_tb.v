@@ -31,14 +31,14 @@ module uart_video_trace_tb;
   @(negedge clk); trace_snapshot_toggle=1;
   for(i=0;i<146;i=i+1) begin
    @(negedge tx);
-   repeat(328) @(posedge clk);
+   repeat(82) @(posedge clk);
    for(b=0;b<8;b=b+1) begin
     #1; received[b]=tx;
-    repeat(219) @(posedge clk);
+    repeat(55) @(posedge clk);
    end
    if(received!==expected[8*(145-i)+:8]) $fatal(1,"UART byte %0d got %h expected %h",i,received,expected[8*(145-i)+:8]);
   end
-  $display("PASS: UART trace defaults off and one-shot emits complete 146-byte PC/SD/video/MMU/SDRAM/cache-miss/joystick snapshot at 115200 baud");
+  $display("PASS: UART trace defaults off and one-shot emits complete 146-byte PC/SD/video/MMU/SDRAM/cache-miss/joystick snapshot at 460800 baud");
   $finish;
  end
  initial begin #6000000; $fatal(1,"UART timeout"); end

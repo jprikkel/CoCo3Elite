@@ -71,6 +71,7 @@ module wukong_manager_smoke_top #(
 
     uart_tx #(.CLKS_PER_BIT(UART_CLKS_PER_BIT)) uart_i (
         .clock(clk_50mhz), .reset(reset), .data(uart_data),
+        .clks_per_bit(UART_CLKS_PER_BIT),
         .start(uart_start), .tx(uart_tx), .busy(uart_busy)
     );
 

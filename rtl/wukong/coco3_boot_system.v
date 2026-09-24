@@ -25,11 +25,27 @@ module coco3_boot_system #(
     output wire physical_floppy_step_request_toggle,
     output wire physical_floppy_home_request_toggle,
     output wire physical_floppy_abort_request_toggle,
+    output wire physical_floppy_capture_request_toggle,
+    output wire [15:0] physical_floppy_capture_skip_count,
+    output wire [9:0] physical_floppy_capture_sample_address,
     input wire physical_floppy_motor_active,
     input wire physical_floppy_home_active,
     input wire physical_floppy_home_done_toggle,
     input wire physical_floppy_home_success,
     input wire [7:0] physical_floppy_home_step_count,
+    input wire physical_floppy_capture_busy,
+    input wire physical_floppy_capture_done_toggle,
+    input wire physical_floppy_capture_success,
+    input wire physical_floppy_capture_truncated,
+    input wire physical_floppy_capture_direction,
+    input wire physical_floppy_capture_side,
+    input wire [15:0] physical_floppy_capture_flux_count,
+    input wire [23:0] physical_floppy_capture_revolution_cycles,
+    input wire [15:0] physical_floppy_capture_min_interval,
+    input wire [15:0] physical_floppy_capture_max_interval,
+    input wire [31:0] physical_floppy_capture_hash,
+    input wire [10:0] physical_floppy_capture_sample_count,
+    input wire [15:0] physical_floppy_capture_sample_data,
     output wire hsync, output wire vsync, output wire video_enable,
     output wire [6:0] audio_dac,
     output wire narrow_video_mode,
@@ -421,11 +437,39 @@ module coco3_boot_system #(
             physical_floppy_home_request_toggle),
         .physical_floppy_abort_request_toggle(
             physical_floppy_abort_request_toggle),
+        .physical_floppy_capture_request_toggle(
+            physical_floppy_capture_request_toggle),
+        .physical_floppy_capture_skip_count(
+            physical_floppy_capture_skip_count),
+        .physical_floppy_capture_sample_address(
+            physical_floppy_capture_sample_address),
         .physical_floppy_motor_active(physical_floppy_motor_active),
         .physical_floppy_home_active(physical_floppy_home_active),
         .physical_floppy_home_done_toggle(physical_floppy_home_done_toggle),
         .physical_floppy_home_success(physical_floppy_home_success),
         .physical_floppy_home_step_count(physical_floppy_home_step_count),
+        .physical_floppy_capture_busy(physical_floppy_capture_busy),
+        .physical_floppy_capture_done_toggle(
+            physical_floppy_capture_done_toggle),
+        .physical_floppy_capture_success(physical_floppy_capture_success),
+        .physical_floppy_capture_truncated(
+            physical_floppy_capture_truncated),
+        .physical_floppy_capture_direction(
+            physical_floppy_capture_direction),
+        .physical_floppy_capture_side(physical_floppy_capture_side),
+        .physical_floppy_capture_flux_count(
+            physical_floppy_capture_flux_count),
+        .physical_floppy_capture_revolution_cycles(
+            physical_floppy_capture_revolution_cycles),
+        .physical_floppy_capture_min_interval(
+            physical_floppy_capture_min_interval),
+        .physical_floppy_capture_max_interval(
+            physical_floppy_capture_max_interval),
+        .physical_floppy_capture_hash(physical_floppy_capture_hash),
+        .physical_floppy_capture_sample_count(
+            physical_floppy_capture_sample_count),
+        .physical_floppy_capture_sample_data(
+            physical_floppy_capture_sample_data),
         .video_capture_request_toggle(video_capture_request_toggle),
         .video_capture_stripe(video_capture_stripe),
         .video_capture_read_address(video_capture_read_address),

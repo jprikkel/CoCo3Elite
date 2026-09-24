@@ -5,7 +5,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-$serial = [IO.Ports.SerialPort]::new($Port, 115200, 'None', 8, 'One')
+$serial = [IO.Ports.SerialPort]::new($Port, 460800, 'None', 8, 'One')
 $serial.ReadTimeout = 50
 $serial.WriteTimeout = 1000
 

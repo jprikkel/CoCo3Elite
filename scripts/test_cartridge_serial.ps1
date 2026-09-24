@@ -18,7 +18,7 @@ New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
 $safeName = $Name -replace '[^A-Za-z0-9._-]', '-'
 $tracePath = Join-Path $OutputDirectory "$safeName.log"
 
-$serial = [IO.Ports.SerialPort]::new($Port, 115200, 'None', 8, 'One')
+$serial = [IO.Ports.SerialPort]::new($Port, 460800, 'None', 8, 'One')
 $serial.Handshake = [IO.Ports.Handshake]::None
 $serial.NewLine = "`n"
 $serial.ReadTimeout = 80

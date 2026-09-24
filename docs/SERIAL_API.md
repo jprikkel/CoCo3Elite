@@ -12,7 +12,9 @@ This document describes the protocol implemented by
 
 - Port: the Wukong board's CH340N USB serial interface, normally `COM5` on the
   development machine.
-- Configuration: 115200 baud, 8 data bits, no parity, one stop bit (`8N1`).
+- Default configuration: 460800 baud, 8 data bits, no parity, one stop bit
+  (`8N1`). Management commands, diagnostic traces, frame captures, and raw
+  flux transfers all use this rate.
 - Flow control: none.
 - Requests: case-sensitive ASCII command lines terminated by CR, LF, or CRLF.
 - Normal responses: ASCII lines terminated by CRLF.
@@ -27,8 +29,9 @@ must therefore ignore unrelated lines while waiting for the expected response.
 Match complete prefixes such as `PONG`, `OK KEY`, or `STATUS PC=` instead of
 assuming that the next received line is the reply.
 
-`CAPTURE` is the exception: the manager claims the transmit pin for the entire
-binary transfer so diagnostic text cannot be inserted into the frame payload.
+`CAPTURE` and `FLUX` are exceptions: the manager claims the transmit pin for
+the entire binary transfer so diagnostic text cannot be inserted into a
+payload.
 
 ## Command summary
 
@@ -43,6 +46,7 @@ binary transfer so diagnostic text cannot be inserted into the frame payload.
 | `FLOPPY DIR 0` / `FLOPPY DIR 1` | `OK FLOPPY DIR n` | Set the electrical DIR level without rebuilding. |
 | `FLOPPY SIDE 0` / `FLOPPY SIDE 1` | `OK FLOPPY SIDE n` | Set the electrical side-select level without rebuilding. |
 | `FLOPPY STEP` | `OK FLOPPY STEP` | Issue one bounded STEP pulse while the motor/select interval is active. |
+| `FLUX nnnn` | `FLUX BEGIN ...`, binary intervals, `FLUX END ...` | Capture one indexed revolution and transfer one interval window at 460800 baud. |
 | `TRACE SNAP` | `OK TRACE SNAP`, then one `PC=... Q=...` line | Request one complete diagnostic snapshot. |
 | `TRACE ON` | `OK TRACE ON` | Start one complete diagnostic snapshot per second. |
 | `TRACE OFF` | `OK TRACE OFF` | Stop repeating snapshots (the power-on default). |
@@ -151,8 +155,51 @@ active. This allows cautious movement in either direction without another
 bitstream build. `FLOPPY HOME` waits 500 ms for spin-up, uses the currently
 selected DIR level, pulses STEP low for 20 us at 6 ms intervals, and stops on
 TRACK0 or after 85 pulses. The FPGA, not firmware, enforces the step limit and
-STOP path. All write signals remain absent, so this is still a wiring and
-head-motion probe rather than a sector reader.
+STOP path. All write signals remain absent, so this is still a wiring,
+head-motion, and raw-read diagnostic rather than a sector reader.
+
+### Raw physical-floppy flux capture
+
+`FLUX` records falling-edge intervals from the active-low read-data signal.
+Capture is index-aligned, clocked at exactly 25.2 MHz, and performed in FPGA
+logic before transmission. This decouples timing-sensitive sampling from UART
+latency. The FPGA stores up to 1024 16-bit intervals in one BRAM while also
+counting and hashing the complete revolution. The hexadecimal argument is the
+number of initial intervals to skip, allowing the host to reconstruct a long
+track from index-aligned windows captured on successive revolutions.
+
+The normal transfer form is:
+
+```text
+FLUX 0000
+FLUX BEGIN CLK=25200000 SIDE=1 DIR=1 OFFSET=0000 TOTAL=B91C COUNT=0400 CYCLES=004CCC1A MIN=0025 MAX=012C HASH=090D7215
+<COUNT little-endian uint16 interval values>
+FLUX END CRC32=1BB4938B
+```
+
+`CLK` is decimal; all other numeric response fields are hexadecimal. Each
+interval is a count of 25.2 MHz capture clocks. The CRC-32 covers only the
+binary payload, using the reflected polynomial `0xEDB88320`, initial value
+`0xFFFFFFFF`, and final XOR `0xFFFFFFFF`.
+
+The UART remains at 460800 throughout the request. Flux capture is still
+buffered because this link rate is not fast enough to carry every live
+read-data edge without loss.
+
+Use the host tool to capture all windows, validate every CRC, and write raw,
+forward, reverse, and metadata files:
+
+```powershell
+.\scripts\capture_physical_floppy_flux.ps1 -Port COM5 -Side 1 -Direction 1 -Name track00-side1
+```
+
+The `.flux16le` file contains little-endian 16-bit clock intervals. The two
+CSV files contain the same sequence in temporal and reversed temporal order,
+which is useful when comparing media read from the opposite head after it is
+physically flipped. The JSON sidecar records capture settings and every
+index-aligned chunk. Because the BRAM holds 1024 intervals, a reconstructed
+track combines matching offsets from successive revolutions; it is intended
+for diagnostics and decoder development, not archival imaging.
 
 For example, the following changes direction and issues exactly one step:
 

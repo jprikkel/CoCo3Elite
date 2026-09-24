@@ -206,7 +206,7 @@ F6 independently forces double speed for debugging and compatibility testing.
 The complete PC-to-CoCo key mapping and electrical connection are documented
 in [PS/2 Keyboard Interface](../hardware/pmod-keyboard-ps2-interface.md).
 
-The 115200-baud UART PC snapshot includes a `V=` field of 40 hex digits.
+The 460800-baud UART PC snapshot includes a `V=` field of 40 hex digits.
 From left to right it contains FF98 (2 digits), FF99 (2), FF9B (2),
 FF9D/FF9E (4), FF9F (2), the sixteen packed six-bit palette registers
 (24, palette 15 first and palette 0 last), and the current video RAM word (4).

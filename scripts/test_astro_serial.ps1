@@ -14,7 +14,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$serial = [IO.Ports.SerialPort]::new($Port, 115200, 'None', 8, 'One')
+$serial = [IO.Ports.SerialPort]::new($Port, 460800, 'None', 8, 'One')
 $serial.Handshake = [IO.Ports.Handshake]::None
 $serial.NewLine = "`n"
 $serial.ReadTimeout = 80

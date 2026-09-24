@@ -1,6 +1,6 @@
 param(
     [string]$Port = 'COM5',
-    [int]$BaudRate = 115200,
+    [int]$BaudRate = 460800,
     [string]$OutputDirectory = 'build\test-output\screenshots',
     [string]$Name = '',
     [string]$ReferencePng = '',

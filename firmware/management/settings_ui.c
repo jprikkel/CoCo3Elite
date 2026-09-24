@@ -83,7 +83,7 @@ static const struct setup_item page[CATEGORIES][MAX_OPTIONS] = {
      {"Drives 1-2", "Planned"}, {"Shugart drive", "Planned"}, {"", ""}},
     {{"8K CCC", "Enabled"}, {"Cold start", "Enabled"},
      {"Banked carts", "Planned"}, {"Hardware slot", "Planned"}, {"", ""}},
-    {{"Debug UART", "Enabled"}, {"Baud rate", "115200"},
+    {{"Debug UART", "Enabled"}, {"Baud rate", "460800"},
      {"File transfer", "Planned"}, {"Flow control", "None"}, {"", ""}},
     {{"Adapter", "Planned"}, {"DHCP", "Planned"},
      {"File service", "Planned"}, {"Remote console", "Planned"}, {"", ""}}

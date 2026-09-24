@@ -285,7 +285,7 @@ For hardware acceptance, verify:
 - `DIR`, `LOADM`, `RUN`, and disk writes operate on the selected image;
 - HDMI video is stable and both six-bit DAC and PIA PB1 single-bit sound are
   audible;
-- the UART diagnostic stream remains active at 115200 baud.
+- the UART diagnostic stream remains active at 460800 baud.
 
 Before removing the SD card, stop software that may be writing to the mounted
 image. A successful FDC write is acknowledged only after firmware flushes the

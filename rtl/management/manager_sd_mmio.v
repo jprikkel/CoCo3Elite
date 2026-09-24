@@ -77,11 +77,27 @@ module manager_sd_mmio #(
     output reg physical_floppy_step_request_toggle,
     output reg physical_floppy_home_request_toggle,
     output reg physical_floppy_abort_request_toggle,
+    output reg physical_floppy_capture_request_toggle,
+    output reg [15:0] physical_floppy_capture_skip_count,
+    output reg [9:0] physical_floppy_capture_sample_address,
     input wire physical_floppy_motor_active,
     input wire physical_floppy_home_active,
     input wire physical_floppy_home_done_toggle,
     input wire physical_floppy_home_success,
     input wire [7:0] physical_floppy_home_step_count,
+    input wire physical_floppy_capture_busy,
+    input wire physical_floppy_capture_done_toggle,
+    input wire physical_floppy_capture_success,
+    input wire physical_floppy_capture_truncated,
+    input wire physical_floppy_capture_direction,
+    input wire physical_floppy_capture_side,
+    input wire [15:0] physical_floppy_capture_flux_count,
+    input wire [23:0] physical_floppy_capture_revolution_cycles,
+    input wire [15:0] physical_floppy_capture_min_interval,
+    input wire [15:0] physical_floppy_capture_max_interval,
+    input wire [31:0] physical_floppy_capture_hash,
+    input wire [10:0] physical_floppy_capture_sample_count,
+    input wire [15:0] physical_floppy_capture_sample_data,
     output reg video_capture_request_toggle,
     output reg [2:0] video_capture_stripe,
     output reg [15:0] video_capture_read_address,
@@ -158,7 +174,17 @@ module manager_sd_mmio #(
                PHYSICAL_FLOPPY_STATUS = 32'h800002c4,
                PHYSICAL_FLOPPY_INDEX_COUNT = 32'h800002c8,
                PHYSICAL_FLOPPY_READ_COUNT = 32'h800002cc,
-               PHYSICAL_FLOPPY_CONTROL = 32'h800002d0;
+               PHYSICAL_FLOPPY_CONTROL = 32'h800002d0,
+               PHYSICAL_FLOPPY_CAPTURE_CONTROL = 32'h800002d4,
+               PHYSICAL_FLOPPY_CAPTURE_SKIP = 32'h800002d8,
+               PHYSICAL_FLOPPY_CAPTURE_STATUS = 32'h800002dc,
+               PHYSICAL_FLOPPY_CAPTURE_CYCLES = 32'h800002e0,
+               PHYSICAL_FLOPPY_CAPTURE_COUNTS = 32'h800002e4,
+               PHYSICAL_FLOPPY_CAPTURE_INTERVALS = 32'h800002e8,
+               PHYSICAL_FLOPPY_CAPTURE_HASH = 32'h800002ec,
+               PHYSICAL_FLOPPY_CAPTURE_ADDRESS = 32'h800002f0,
+               PHYSICAL_FLOPPY_CAPTURE_DATA = 32'h800002f4,
+               UART_DIVISOR = 32'h800002f8;
     reg have_address, have_data, transaction_active, await_spi, spi_seen_busy;
     reg [31:0] write_address, write_data;
     reg [7:0] spi_tx, spi_rx, spi_tx_shift, spi_rx_shift;
@@ -167,6 +193,7 @@ module manager_sd_mmio #(
     reg spi_busy, spi_start;
     reg [7:0] uart_data;
     reg uart_start;
+    reg [15:0] uart_clks_per_bit;
     wire [7:0] uart_rx_data;
     wire uart_rx_valid, uart_rx_framing_error;
     (* ram_style = "distributed" *) reg [7:0] uart_rx_fifo [0:15];
@@ -381,11 +408,13 @@ module manager_sd_mmio #(
 
     uart_tx #(.CLKS_PER_BIT(UART_CLKS_PER_BIT)) uart_i (
         .clock(clock), .reset(reset), .data(uart_data), .start(uart_start),
+        .clks_per_bit(uart_clks_per_bit),
         .tx(uart_tx), .busy(uart_busy)
     );
 
     uart_rx #(.CLKS_PER_BIT(UART_CLKS_PER_BIT)) uart_rx_i (
-        .clock(clock), .reset(reset), .rx(uart_rx), .data(uart_rx_data),
+        .clock(clock), .reset(reset), .clks_per_bit(uart_clks_per_bit),
+        .rx(uart_rx), .data(uart_rx_data),
         .data_valid(uart_rx_valid), .framing_error(uart_rx_framing_error)
     );
 
@@ -478,6 +507,7 @@ module manager_sd_mmio #(
             axi_bvalid <= 0; axi_rvalid <= 0; axi_rdata <= 0;
             sd_cs_n <= 1'b1; spi_divider <= 8'd64; spi_tx <= 8'hff;
             spi_start <= 0; uart_data <= 0; uart_start <= 0;
+            uart_clks_per_bit <= UART_CLKS_PER_BIT;
             fdc_buffer_write_address <= 0;
             fdc_buffer_debug_address <= 0;
             fdc_buffer_fill_count <= 0;
@@ -524,6 +554,9 @@ module manager_sd_mmio #(
             physical_floppy_step_request_toggle <= 1'b0;
             physical_floppy_home_request_toggle <= 1'b0;
             physical_floppy_abort_request_toggle <= 1'b0;
+            physical_floppy_capture_request_toggle <= 1'b0;
+            physical_floppy_capture_skip_count <= 16'b0;
+            physical_floppy_capture_sample_address <= 10'b0;
             uart_claim <= 1'b0;
             video_capture_request_toggle <= 1'b0;
             video_capture_stripe <= 3'b0;
@@ -764,6 +797,28 @@ module manager_sd_mmio #(
                         physical_floppy_step_request_toggle <=
                             ~physical_floppy_step_request_toggle;
                     axi_bvalid <= 1'b1;
+                end else if (write_address ==
+                             PHYSICAL_FLOPPY_CAPTURE_CONTROL) begin
+                    if (write_data[0])
+                        physical_floppy_capture_request_toggle <=
+                            ~physical_floppy_capture_request_toggle;
+                    axi_bvalid <= 1'b1;
+                end else if (write_address ==
+                             PHYSICAL_FLOPPY_CAPTURE_SKIP) begin
+                    physical_floppy_capture_skip_count <= write_data[15:0];
+                    axi_bvalid <= 1'b1;
+                end else if (write_address ==
+                             PHYSICAL_FLOPPY_CAPTURE_ADDRESS) begin
+                    physical_floppy_capture_sample_address <=
+                        write_data[9:0];
+                    axi_bvalid <= 1'b1;
+                end else if (write_address == UART_DIVISOR) begin
+                    // Firmware changes speed only while TX is idle. Keep the
+                    // legal range bounded so a bad command cannot wedge the
+                    // receiver permanently at a zero/one-clock bit period.
+                    if (!uart_busy && write_data[15:0] >= 16'd8)
+                        uart_clks_per_bit <= write_data[15:0];
+                    axi_bvalid <= 1'b1;
                 end else if (write_address == CARTRIDGE_ADDRESS) begin
                     cartridge_address <= write_data[14:0];
                     axi_bvalid <= 1'b1;
@@ -921,6 +976,38 @@ module manager_sd_mmio #(
                                       physical_floppy_abort_request_toggle,
                                       physical_floppy_home_request_toggle,
                                       physical_floppy_motor_request};
+                    PHYSICAL_FLOPPY_CAPTURE_CONTROL:
+                        axi_rdata <= {31'b0,
+                            physical_floppy_capture_request_toggle};
+                    PHYSICAL_FLOPPY_CAPTURE_SKIP:
+                        axi_rdata <= {16'b0,
+                            physical_floppy_capture_skip_count};
+                    PHYSICAL_FLOPPY_CAPTURE_STATUS: axi_rdata <= {
+                        26'b0, physical_floppy_capture_side,
+                        physical_floppy_capture_direction,
+                        physical_floppy_capture_truncated,
+                        physical_floppy_capture_success,
+                        physical_floppy_capture_busy,
+                        physical_floppy_capture_done_toggle};
+                    PHYSICAL_FLOPPY_CAPTURE_CYCLES:
+                        axi_rdata <= {8'b0,
+                            physical_floppy_capture_revolution_cycles};
+                    PHYSICAL_FLOPPY_CAPTURE_COUNTS:
+                        axi_rdata <= {physical_floppy_capture_flux_count,
+                            5'b0, physical_floppy_capture_sample_count};
+                    PHYSICAL_FLOPPY_CAPTURE_INTERVALS:
+                        axi_rdata <= {physical_floppy_capture_max_interval,
+                            physical_floppy_capture_min_interval};
+                    PHYSICAL_FLOPPY_CAPTURE_HASH:
+                        axi_rdata <= physical_floppy_capture_hash;
+                    PHYSICAL_FLOPPY_CAPTURE_ADDRESS:
+                        axi_rdata <= {22'b0,
+                            physical_floppy_capture_sample_address};
+                    PHYSICAL_FLOPPY_CAPTURE_DATA:
+                        axi_rdata <= {16'b0,
+                            physical_floppy_capture_sample_data};
+                    UART_DIVISOR:
+                        axi_rdata <= {16'b0, uart_clks_per_bit};
                     MENU_KEY_STATE: axi_rdata <= {22'b0, menu_key_state};
                     OSD_FONT_STYLE: axi_rdata <= {30'b0, osd_font_style};
                     VIDEO_SETTINGS: axi_rdata <= {23'b0, coco2_palette[3],

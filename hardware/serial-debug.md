@@ -11,10 +11,10 @@ keyboard injection, reset control, and video-capture format are documented in
 [Serial API](../docs/SERIAL_API.md).
 
 Connect the board's Mini-USB serial connector and open its Windows COM port at
-**115200 baud, 8 data bits, no parity, 1 stop bit, no flow control**. For COM3:
+**460800 baud, 8 data bits, no parity, 1 stop bit, no flow control**. For COM3:
 
 ```powershell
-.\tools\putty\putty.exe -serial COM3 -sercfg 115200,8,n,1,N
+.\tools\putty\putty.exe -serial COM3 -sercfg 460800,8,n,1,N
 ```
 
 For a bounded non-interactive trace capture (currently detected board:

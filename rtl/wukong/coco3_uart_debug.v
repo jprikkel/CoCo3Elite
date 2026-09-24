@@ -203,8 +203,9 @@ module coco3_uart_debug (
         end
     endfunction
 
-    uart_tx #(.CLKS_PER_BIT(219)) transmitter_i (
+    uart_tx #(.CLKS_PER_BIT(55)) transmitter_i (
         .clock(clock), .reset(reset), .data(tx_data), .start(tx_start),
+        .clks_per_bit(16'd55),
         .tx(uart_tx_o), .busy(tx_busy)
     );
 

@@ -9,6 +9,9 @@ module pmod_floppy_read_only_tb;
     reg step_request_toggle = 1'b0;
     reg home_request_toggle = 1'b0;
     reg abort_request_toggle = 1'b0;
+    reg capture_request_toggle = 1'b0;
+    reg [15:0] capture_skip_count = 16'b0;
+    reg [9:0] capture_sample_address = 10'b0;
     reg read_data_n = 1'b1;
     reg track_zero_n = 1'b1;
     reg index_n = 1'b1;
@@ -18,13 +21,21 @@ module pmod_floppy_read_only_tb;
     wire [7:0] home_step_count;
     wire [2:0] input_status;
     wire [31:0] index_pulse_count, read_transition_count;
+    wire capture_busy, capture_done_toggle, capture_success;
+    wire capture_truncated, capture_direction, capture_side;
+    wire [15:0] capture_flux_count, capture_min_interval;
+    wire [15:0] capture_max_interval, capture_sample_data;
+    wire [23:0] capture_revolution_cycles;
+    wire [31:0] capture_hash;
+    wire [10:0] capture_sample_count;
 
     always #5 clock = !clock;
 
     pmod_floppy_read_only #(
-        .MOTOR_MAX_CYCLES(40), .HOME_SPINUP_CYCLES(2),
+        .MOTOR_MAX_CYCLES(200), .HOME_SPINUP_CYCLES(2),
         .HOME_DIRECTION_SETUP_CYCLES(2), .STEP_LOW_CYCLES(2),
-        .STEP_INTERVAL_CYCLES(3), .HOME_MAX_STEPS(4)
+        .STEP_INTERVAL_CYCLES(3), .HOME_MAX_STEPS(4),
+        .CAPTURE_MAX_CYCLES(100)
     ) dut (
         .clock(clock), .reset(reset),
         .motor_request(motor_request),
@@ -33,6 +44,9 @@ module pmod_floppy_read_only_tb;
         .step_request_toggle(step_request_toggle),
         .home_request_toggle(home_request_toggle),
         .abort_request_toggle(abort_request_toggle),
+        .capture_request_toggle(capture_request_toggle),
+        .capture_skip_count(capture_skip_count),
+        .capture_sample_address(capture_sample_address),
         .read_data_n(read_data_n), .track_zero_n(track_zero_n),
         .index_n(index_n), .drive_select_n(drive_select_n),
         .motor_enable_n(motor_enable_n), .direction(direction),
@@ -42,7 +56,20 @@ module pmod_floppy_read_only_tb;
         .home_success(home_success), .home_step_count(home_step_count),
         .input_status(input_status),
         .index_pulse_count(index_pulse_count),
-        .read_transition_count(read_transition_count)
+        .read_transition_count(read_transition_count),
+        .capture_busy(capture_busy),
+        .capture_done_toggle(capture_done_toggle),
+        .capture_success(capture_success),
+        .capture_truncated(capture_truncated),
+        .capture_direction(capture_direction),
+        .capture_side(capture_side),
+        .capture_flux_count(capture_flux_count),
+        .capture_revolution_cycles(capture_revolution_cycles),
+        .capture_min_interval(capture_min_interval),
+        .capture_max_interval(capture_max_interval),
+        .capture_hash(capture_hash),
+        .capture_sample_count(capture_sample_count),
+        .capture_sample_data(capture_sample_data)
     );
 
     task settle;
@@ -93,7 +120,7 @@ module pmod_floppy_read_only_tb;
             $display("FAIL: runtime direction/side control did not restore");
             $fatal;
         end
-        repeat (41) @(posedge clock); #1;
+        repeat (201) @(posedge clock); #1;
         if (motor_active || !drive_select_n || !motor_enable_n) begin
             $display("FAIL: hardware motor watchdog did not expire safely");
             $fatal;
@@ -104,6 +131,32 @@ module pmod_floppy_read_only_tb;
         wait (motor_active); #1;
         if (!motor_active) begin
             $display("FAIL: motor did not restart after request release");
+            $fatal;
+        end
+
+        // Capture exact falling-edge intervals from one index-bounded turn.
+        // Four flux pulses produce three measured intervals because the first
+        // pulse establishes the reference timestamp.
+        capture_request_toggle = !capture_request_toggle;
+        wait (capture_busy);
+        index_n = 1'b0; settle; index_n = 1'b1; settle;
+        repeat (4) begin
+            read_data_n = 1'b0; settle;
+            read_data_n = 1'b1; settle;
+        end
+        index_n = 1'b0; settle; index_n = 1'b1; settle;
+        wait (!capture_busy); #1;
+        if (!capture_success || capture_flux_count !== 4 ||
+            capture_sample_count !== 3 || capture_truncated ||
+            capture_min_interval == 0 ||
+            capture_max_interval < capture_min_interval ||
+            capture_hash == 32'h811c9dc5) begin
+            $display("FAIL: indexed flux capture statistics are incorrect");
+            $fatal;
+        end
+        capture_sample_address = 0; settle;
+        if (capture_sample_data == 0) begin
+            $display("FAIL: indexed flux capture BRAM did not return data");
             $fatal;
         end
         motor_request = 1'b0;
@@ -124,8 +177,9 @@ module pmod_floppy_read_only_tb;
         settle;
         index_n = 1'b1;
         settle;
-        if (index_pulse_count !== 1 || input_status[0] !== 1'b0) begin
-            $display("FAIL: index pulse counter is incorrect");
+        if (index_pulse_count !== 3 || input_status[0] !== 1'b0) begin
+            $display("FAIL: index pulse counter is incorrect count=%0d status=%b",
+                     index_pulse_count, input_status);
             $fatal;
         end
 
@@ -135,7 +189,7 @@ module pmod_floppy_read_only_tb;
         settle;
         read_data_n = 1'b0;
         settle;
-        if (read_transition_count !== 3) begin
+        if (read_transition_count !== 11) begin
             $display("FAIL: read-transition counter is incorrect");
             $fatal;
         end

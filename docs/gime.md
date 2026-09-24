@@ -146,7 +146,7 @@ after its cold frame, warm frames must complete without visible cache misses.
 
 ## Hardware diagnostics
 
-The 115200-baud serial trace exposes the state needed to compare a working DSK
+The 460800-baud serial trace exposes the state needed to compare a working DSK
 launch with a direct BIN or cartridge launch:
 
 - `I0` and `I1`: `$FF90` and `$FF91`.

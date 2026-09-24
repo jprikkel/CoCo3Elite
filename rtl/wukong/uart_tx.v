@@ -2,10 +2,11 @@
 
 // Minimal 8-N-1 transmitter for the Wukong diagnostic console.
 module uart_tx #(
-    parameter integer CLKS_PER_BIT = 219
+    parameter integer CLKS_PER_BIT = 55
 ) (
     input  wire       clock,
     input  wire       reset,
+    input  wire [15:0] clks_per_bit,
     input  wire [7:0] data,
     input  wire       start,
     output reg        tx,
@@ -31,7 +32,7 @@ module uart_tx #(
                 clock_count <= 16'd0;
                 bit_index <= 4'd0;
             end
-        end else if (clock_count == CLKS_PER_BIT - 1) begin
+        end else if (clock_count == clks_per_bit - 1'b1) begin
             clock_count <= 16'd0;
             if (bit_index == 4'd9) begin
                 tx <= 1'b1;

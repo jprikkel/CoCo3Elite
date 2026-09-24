@@ -13,7 +13,8 @@ module pmod_floppy_read_only #(
     parameter integer HOME_DIRECTION_SETUP_CYCLES = 504000,
     parameter integer STEP_LOW_CYCLES = 504,
     parameter integer STEP_INTERVAL_CYCLES = 151200,
-    parameter integer HOME_MAX_STEPS = 85
+    parameter integer HOME_MAX_STEPS = 85,
+    parameter integer CAPTURE_MAX_CYCLES = 7560000
 ) (
     input  wire        clock,
     input  wire        reset,
@@ -23,6 +24,9 @@ module pmod_floppy_read_only #(
     input  wire        step_request_toggle,
     input  wire        home_request_toggle,
     input  wire        abort_request_toggle,
+    input  wire        capture_request_toggle,
+    input  wire [15:0] capture_skip_count,
+    input  wire [9:0]  capture_sample_address,
     input  wire        read_data_n,
     input  wire        track_zero_n,
     input  wire        index_n,
@@ -38,7 +42,20 @@ module pmod_floppy_read_only #(
     output reg  [7:0]  home_step_count,
     output wire [2:0]  input_status,
     output reg  [31:0] index_pulse_count,
-    output reg  [31:0] read_transition_count
+    output reg  [31:0] read_transition_count,
+    output reg         capture_busy,
+    output reg         capture_done_toggle,
+    output reg         capture_success,
+    output reg         capture_truncated,
+    output reg         capture_direction,
+    output reg         capture_side,
+    output reg  [15:0] capture_flux_count,
+    output reg  [23:0] capture_revolution_cycles,
+    output reg  [15:0] capture_min_interval,
+    output reg  [15:0] capture_max_interval,
+    output reg  [31:0] capture_hash,
+    output reg  [10:0] capture_sample_count,
+    output reg  [15:0] capture_sample_data
 );
     (* ASYNC_REG = "TRUE" *) reg [2:0] input_meta;
     (* ASYNC_REG = "TRUE" *) reg [2:0] input_sync;
@@ -52,12 +69,29 @@ module pmod_floppy_read_only #(
     reg [31:0] manual_step_timer;
     reg manual_step_active;
     reg [2:0] home_state;
+    reg capture_request_meta;
+    reg capture_request_sync;
+    reg capture_request_previous;
+    reg [1:0] capture_state;
+    reg [31:0] capture_timer;
+    reg [15:0] capture_interval_timer;
+    reg [15:0] capture_interval_index;
+    reg capture_have_flux;
+    (* ram_style = "block" *) reg [15:0] capture_samples [0:1023];
+    wire index_active_edge = input_previous[0] && !input_sync[0];
+    wire flux_active_edge = input_previous[2] && !input_sync[2];
+    wire [15:0] capture_current_interval =
+        capture_interval_timer == 16'hffff
+        ? 16'hffff : capture_interval_timer + 1'b1;
 
     localparam [2:0] HOME_IDLE = 3'd0,
                      HOME_SPINUP = 3'd1,
                      HOME_DIRECTION_SETUP = 3'd2,
                      HOME_STEP_LOW = 3'd3,
                      HOME_STEP_INTERVAL = 3'd4;
+    localparam [1:0] CAPTURE_IDLE = 2'd0,
+                     CAPTURE_WAIT_INDEX = 2'd1,
+                     CAPTURE_REVOLUTION = 2'd2;
 
     // Select, motor, and step are active low. Direction and side are runtime
     // controls so drive mechanics and cable wiring can be diagnosed over the
@@ -93,6 +127,27 @@ module pmod_floppy_read_only #(
             home_step_count <= 8'b0;
             index_pulse_count <= 32'b0;
             read_transition_count <= 32'b0;
+            capture_request_meta <= 1'b0;
+            capture_request_sync <= 1'b0;
+            capture_request_previous <= 1'b0;
+            capture_state <= CAPTURE_IDLE;
+            capture_timer <= 32'b0;
+            capture_interval_timer <= 16'b0;
+            capture_interval_index <= 16'b0;
+            capture_have_flux <= 1'b0;
+            capture_busy <= 1'b0;
+            capture_done_toggle <= 1'b0;
+            capture_success <= 1'b0;
+            capture_truncated <= 1'b0;
+            capture_direction <= 1'b1;
+            capture_side <= 1'b1;
+            capture_flux_count <= 16'b0;
+            capture_revolution_cycles <= 24'b0;
+            capture_min_interval <= 16'hffff;
+            capture_max_interval <= 16'b0;
+            capture_hash <= 32'h811c9dc5;
+            capture_sample_count <= 11'b0;
+            capture_sample_data <= 16'b0;
         end else begin
             input_meta <= {read_data_n, track_zero_n, index_n};
             input_sync <= input_meta;
@@ -103,6 +158,10 @@ module pmod_floppy_read_only #(
                              home_request_toggle, motor_request};
             control_sync <= control_meta;
             control_previous <= control_sync;
+            capture_request_meta <= capture_request_toggle;
+            capture_request_sync <= capture_request_meta;
+            capture_request_previous <= capture_request_sync;
+            capture_sample_data <= capture_samples[capture_sample_address];
 
             // Abort is an event rather than a firmware-dependent level. It
             // immediately removes select, motor, and STEP even if firmware
@@ -119,8 +178,14 @@ module pmod_floppy_read_only #(
                 motor_watchdog <= 32'b0;
                 manual_step_active <= 1'b0;
                 manual_step_timer <= 32'b0;
+                if (capture_busy) begin
+                    capture_busy <= 1'b0;
+                    capture_success <= 1'b0;
+                    capture_done_toggle <= ~capture_done_toggle;
+                end
+                capture_state <= CAPTURE_IDLE;
             end else if ((control_sync[1] != control_previous[1]) &&
-                         !home_active) begin
+                         !home_active && !capture_busy) begin
                 home_active <= 1'b1;
                 home_success <= 1'b0;
                 home_step_count <= 8'b0;
@@ -210,6 +275,127 @@ module pmod_floppy_read_only #(
                 end
             end
 
+            // Capture one complete revolution of active-low read-data pulse
+            // timing.  Keep a compact exact prefix for diagnostics and fold
+            // every interval into summary statistics and an order-sensitive
+            // signature.  This works for either head; host software may also
+            // reverse the interval prefix when examining physically flipped
+            // media.
+            if (control_sync[2] != control_previous[2]) begin
+                capture_busy <= 1'b0;
+                capture_success <= 1'b0;
+                capture_state <= CAPTURE_IDLE;
+            end else if ((capture_request_sync != capture_request_previous) &&
+                !capture_busy && !home_active && control_sync[0]) begin
+                capture_busy <= 1'b1;
+                capture_success <= 1'b0;
+                capture_truncated <= 1'b0;
+                capture_direction <= control_sync[3];
+                capture_side <= control_sync[4];
+                capture_flux_count <= 16'b0;
+                capture_revolution_cycles <= 24'b0;
+                capture_min_interval <= 16'hffff;
+                capture_max_interval <= 16'b0;
+                capture_hash <= 32'h811c9dc5;
+                capture_sample_count <= 11'b0;
+                capture_interval_timer <= 16'b0;
+                capture_interval_index <= 16'b0;
+                capture_have_flux <= 1'b0;
+                capture_state <= CAPTURE_WAIT_INDEX;
+                capture_timer <= CAPTURE_MAX_CYCLES - 1;
+            end else if (capture_busy) begin
+                if (!motor_active || !control_sync[0]) begin
+                    capture_busy <= 1'b0;
+                    capture_success <= 1'b0;
+                    capture_done_toggle <= ~capture_done_toggle;
+                    capture_state <= CAPTURE_IDLE;
+                end else begin
+                    case (capture_state)
+                        CAPTURE_WAIT_INDEX: begin
+                            if (capture_timer == 0) begin
+                                capture_busy <= 1'b0;
+                                capture_success <= 1'b0;
+                                capture_done_toggle <= ~capture_done_toggle;
+                                capture_state <= CAPTURE_IDLE;
+                            end else if (index_active_edge) begin
+                                capture_state <= CAPTURE_REVOLUTION;
+                                capture_timer <= CAPTURE_MAX_CYCLES - 1;
+                                capture_revolution_cycles <= 24'b0;
+                                capture_interval_timer <= 16'b0;
+                                capture_interval_index <= 16'b0;
+                                capture_have_flux <= 1'b0;
+                            end else
+                                capture_timer <= capture_timer - 1'b1;
+                        end
+                        CAPTURE_REVOLUTION: begin
+                            if (index_active_edge) begin
+                                capture_busy <= 1'b0;
+                                capture_success <= capture_flux_count != 0;
+                                capture_done_toggle <= ~capture_done_toggle;
+                                capture_state <= CAPTURE_IDLE;
+                            end else if (capture_timer == 0) begin
+                                capture_busy <= 1'b0;
+                                capture_success <= 1'b0;
+                                capture_done_toggle <= ~capture_done_toggle;
+                                capture_state <= CAPTURE_IDLE;
+                            end else begin
+                                capture_timer <= capture_timer - 1'b1;
+                                if (capture_revolution_cycles != 24'hffffff)
+                                    capture_revolution_cycles <=
+                                        capture_revolution_cycles + 1'b1;
+                                if (capture_interval_timer != 16'hffff)
+                                    capture_interval_timer <=
+                                        capture_interval_timer + 1'b1;
+                                if (flux_active_edge) begin
+                                    if (capture_flux_count != 16'hffff)
+                                        capture_flux_count <=
+                                            capture_flux_count + 1'b1;
+                                    else
+                                        capture_truncated <= 1'b1;
+                                    if (capture_have_flux) begin
+                                        if (capture_interval_index >=
+                                            capture_skip_count &&
+                                            capture_sample_count < 11'd1024) begin
+                                            capture_samples[
+                                                capture_sample_count[9:0]] <=
+                                                capture_current_interval;
+                                            capture_sample_count <=
+                                                capture_sample_count + 1'b1;
+                                        end else if (capture_interval_index >=
+                                                     capture_skip_count)
+                                            capture_truncated <= 1'b1;
+                                        if (capture_interval_index != 16'hffff)
+                                            capture_interval_index <=
+                                                capture_interval_index + 1'b1;
+                                        if (capture_current_interval <
+                                            capture_min_interval)
+                                            capture_min_interval <=
+                                                capture_current_interval;
+                                        if (capture_current_interval >
+                                            capture_max_interval)
+                                            capture_max_interval <=
+                                                capture_current_interval;
+                                        capture_hash <=
+                                            {capture_hash[24:0],
+                                             capture_hash[31:25]} ^
+                                            {16'b0,
+                                             capture_current_interval};
+                                    end else
+                                        capture_have_flux <= 1'b1;
+                                    capture_interval_timer <= 16'b0;
+                                end
+                            end
+                        end
+                        default: begin
+                            capture_busy <= 1'b0;
+                            capture_success <= 1'b0;
+                            capture_done_toggle <= ~capture_done_toggle;
+                            capture_state <= CAPTURE_IDLE;
+                        end
+                    endcase
+                end
+            end
+
             // A serial STEP request produces one bounded active-low pulse.
             // It is accepted only while the drive is already selected and
             // never competes with the automatic HOME state machine.
@@ -218,7 +404,7 @@ module pmod_floppy_read_only #(
                 manual_step_timer <= 32'b0;
             end else if ((control_sync[5] != control_previous[5]) &&
                          motor_active && !home_active &&
-                         !manual_step_active) begin
+                         !capture_busy && !manual_step_active) begin
                 manual_step_active <= 1'b1;
                 manual_step_timer <= STEP_LOW_CYCLES - 1;
             end else if (manual_step_active) begin
@@ -230,7 +416,7 @@ module pmod_floppy_read_only #(
 
             if (synchronization_valid[1]) begin
                 // Index is an active-low pulse; count its leading edge.
-                if (input_previous[0] && !input_sync[0] &&
+                if (index_active_edge &&
                     index_pulse_count != 32'hffffffff)
                     index_pulse_count <= index_pulse_count + 1'b1;
 

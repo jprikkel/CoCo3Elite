@@ -78,11 +78,27 @@ module wukong_top (
     wire physical_floppy_step_request_toggle;
     wire physical_floppy_home_request_toggle;
     wire physical_floppy_abort_request_toggle;
+    wire physical_floppy_capture_request_toggle;
+    wire [15:0] physical_floppy_capture_skip_count;
+    wire [9:0] physical_floppy_capture_sample_address;
     wire physical_floppy_motor_active;
     wire physical_floppy_home_active;
     wire physical_floppy_home_done_toggle;
     wire physical_floppy_home_success;
     wire [7:0] physical_floppy_home_step_count;
+    wire physical_floppy_capture_busy;
+    wire physical_floppy_capture_done_toggle;
+    wire physical_floppy_capture_success;
+    wire physical_floppy_capture_truncated;
+    wire physical_floppy_capture_direction;
+    wire physical_floppy_capture_side;
+    wire [15:0] physical_floppy_capture_flux_count;
+    wire [23:0] physical_floppy_capture_revolution_cycles;
+    wire [15:0] physical_floppy_capture_min_interval;
+    wire [15:0] physical_floppy_capture_max_interval;
+    wire [31:0] physical_floppy_capture_hash;
+    wire [10:0] physical_floppy_capture_sample_count;
+    wire [15:0] physical_floppy_capture_sample_data;
 
     wukong_clocking clocking_i (
         .clk_50mhz    (clk_50mhz),
@@ -115,6 +131,9 @@ module wukong_top (
         .step_request_toggle(physical_floppy_step_request_toggle),
         .home_request_toggle(physical_floppy_home_request_toggle),
         .abort_request_toggle(physical_floppy_abort_request_toggle),
+        .capture_request_toggle(physical_floppy_capture_request_toggle),
+        .capture_skip_count(physical_floppy_capture_skip_count),
+        .capture_sample_address(physical_floppy_capture_sample_address),
         .read_data_n(floppy_read_data_n),
         .track_zero_n(floppy_track_zero_n), .index_n(floppy_index_n),
         .drive_select_n(floppy_select_n),
@@ -128,7 +147,21 @@ module wukong_top (
         .home_step_count(physical_floppy_home_step_count),
         .input_status(physical_floppy_status),
         .index_pulse_count(physical_floppy_index_count),
-        .read_transition_count(physical_floppy_read_transition_count)
+        .read_transition_count(physical_floppy_read_transition_count),
+        .capture_busy(physical_floppy_capture_busy),
+        .capture_done_toggle(physical_floppy_capture_done_toggle),
+        .capture_success(physical_floppy_capture_success),
+        .capture_truncated(physical_floppy_capture_truncated),
+        .capture_direction(physical_floppy_capture_direction),
+        .capture_side(physical_floppy_capture_side),
+        .capture_flux_count(physical_floppy_capture_flux_count),
+        .capture_revolution_cycles(
+            physical_floppy_capture_revolution_cycles),
+        .capture_min_interval(physical_floppy_capture_min_interval),
+        .capture_max_interval(physical_floppy_capture_max_interval),
+        .capture_hash(physical_floppy_capture_hash),
+        .capture_sample_count(physical_floppy_capture_sample_count),
+        .capture_sample_data(physical_floppy_capture_sample_data)
     );
 `else
     assign physical_floppy_present = 1'b0;
@@ -140,6 +173,19 @@ module wukong_top (
     assign physical_floppy_home_done_toggle = 1'b0;
     assign physical_floppy_home_success = 1'b0;
     assign physical_floppy_home_step_count = 8'b0;
+    assign physical_floppy_capture_busy = 1'b0;
+    assign physical_floppy_capture_done_toggle = 1'b0;
+    assign physical_floppy_capture_success = 1'b0;
+    assign physical_floppy_capture_truncated = 1'b0;
+    assign physical_floppy_capture_direction = 1'b0;
+    assign physical_floppy_capture_side = 1'b0;
+    assign physical_floppy_capture_flux_count = 16'b0;
+    assign physical_floppy_capture_revolution_cycles = 24'b0;
+    assign physical_floppy_capture_min_interval = 16'b0;
+    assign physical_floppy_capture_max_interval = 16'b0;
+    assign physical_floppy_capture_hash = 32'b0;
+    assign physical_floppy_capture_sample_count = 11'b0;
+    assign physical_floppy_capture_sample_data = 16'b0;
 `endif
 
 `ifdef HDMI_TEST_PATTERN
@@ -266,11 +312,39 @@ module wukong_top (
             physical_floppy_home_request_toggle),
         .physical_floppy_abort_request_toggle(
             physical_floppy_abort_request_toggle),
+        .physical_floppy_capture_request_toggle(
+            physical_floppy_capture_request_toggle),
+        .physical_floppy_capture_skip_count(
+            physical_floppy_capture_skip_count),
+        .physical_floppy_capture_sample_address(
+            physical_floppy_capture_sample_address),
         .physical_floppy_motor_active(physical_floppy_motor_active),
         .physical_floppy_home_active(physical_floppy_home_active),
         .physical_floppy_home_done_toggle(physical_floppy_home_done_toggle),
         .physical_floppy_home_success(physical_floppy_home_success),
         .physical_floppy_home_step_count(physical_floppy_home_step_count),
+        .physical_floppy_capture_busy(physical_floppy_capture_busy),
+        .physical_floppy_capture_done_toggle(
+            physical_floppy_capture_done_toggle),
+        .physical_floppy_capture_success(physical_floppy_capture_success),
+        .physical_floppy_capture_truncated(
+            physical_floppy_capture_truncated),
+        .physical_floppy_capture_direction(
+            physical_floppy_capture_direction),
+        .physical_floppy_capture_side(physical_floppy_capture_side),
+        .physical_floppy_capture_flux_count(
+            physical_floppy_capture_flux_count),
+        .physical_floppy_capture_revolution_cycles(
+            physical_floppy_capture_revolution_cycles),
+        .physical_floppy_capture_min_interval(
+            physical_floppy_capture_min_interval),
+        .physical_floppy_capture_max_interval(
+            physical_floppy_capture_max_interval),
+        .physical_floppy_capture_hash(physical_floppy_capture_hash),
+        .physical_floppy_capture_sample_count(
+            physical_floppy_capture_sample_count),
+        .physical_floppy_capture_sample_data(
+            physical_floppy_capture_sample_data),
         .vsync(vsync), .video_enable(video_enable),
         .red(library_red), .green(library_green), .blue(library_blue),
         .audio_dac(audio_dac), .narrow_video_mode(narrow_video_mode),
