@@ -73,6 +73,74 @@ Do not connect the following FeatherWing header pins in this read-only cable:
 | `D11` | `Pr` | Leave open in the first prototype |
 | `D5` | `CH` | Leave open |
 
+## Proposed write-capable J13/J14 revision
+
+This section records the agreed wiring for the next hardware revision. It is a
+proposal until matching constraints, RTL safety interlocks, firmware, and
+write-path tests are implemented. The current read-only bitstream still drives
+J13 pin 8 as `SIDE`; **do not connect J13 pin 8 to the FeatherWing `CH` input
+while running that bitstream**.
+
+Move side select from J13 pin 8 to the unused second signal row on J14. This
+frees J13 pin 8 for media-change sensing and leaves three J14 signals for the
+write interface:
+
+| Connector pin | FPGA pin | Direction at FPGA | Feather label / signal | Feather pad | Floppy IDC pin | Function |
+| --- | --- | --- | --- | ---: | ---: | --- |
+| J13 pin 8 | N23 | Input | `D5` / `CH` | 19 | 34 | Media-change/ready indication; latch and invalidate cached data |
+| J14 pin 7 | N24 | Output | `D6` / `Sid` | 20 | 32 | Side/head select moved from J13 pin 8 |
+| J14 pin 8 | P24 | Output | `D12` / `WG` | 24 | 24 | Write gate, active low |
+| J14 pin 9 | R22 | Output | `D13` / `WD` | 25 | 22 | Encoded write-data transitions |
+| J14 pin 10 | T23 | Input | `D11` / `Pr` | 23 | 28 | Write-protect sense, active low |
+
+J14 pins 1 and 3 remain PS/2 data and clock. J14 pins 7 through 10 are
+otherwise unused in the current design. Connect J14 pin 11 to the common
+FeatherWing/Wukong ground; the FeatherWing remains powered from the existing
+3.3 V connection. All five signals above must pass through the FeatherWing's
+host-side 3.3 V interface and its drive-side level translators. Never connect
+the raw IDC signals directly to an Artix-7 pin.
+
+Keep the FeatherWing write-enable switch at **`NoWr`** until a write-capable
+bitstream has passed simulation and write-gate safety tests. The eventual RTL
+must hold `WG` inactive during configuration, reset, drive deselection,
+write-protect, watchdog expiry, loss of index, and every aborted command.
+
+### Media-change cache policy
+
+The signal on IDC pin 34 is called `CH` by Adafruit and may be implemented as
+media change or ready depending on the drive. Synchronize it into the FPGA
+clock domain and latch every asserted change because some drives clear the
+indication after selection or a head step. A latched change must:
+
+1. abort any physical write and immediately deassert `WG`;
+2. invalidate the 4,608-byte decoded-track cache and its sector-valid bitmap;
+3. invalidate any pending FDC/shared sector buffer for physical drive 0;
+4. discard dirty cached data without writing it to newly inserted media; and
+5. require a fresh successful track read or explicit remount before returning
+   physical-floppy data.
+
+Do not rely on `CH` alone. Older mechanisms may expose READY semantics or an
+unreliable constant level on IDC pin 34. INDEX activity, motor timeout, failed
+CRC reads, and explicit mount/unmount remain required fallbacks.
+
+### Other Shugart signals
+
+No additional FPGA I/O is required for one selected CoCo double-density drive:
+
+- `DEN` (IDC pin 2) remains open. The FeatherWing pull-up selects double
+  density, which is correct for the current 250-kbit/s CoCo MFM path. It would
+  need an additional output only for future high-density media support.
+- The FeatherWing routes only `SELECT1` (IDC pin 12). A stock Tandy DS0 drive
+  still needs its jumper changed to DS1 or a passive pin-12-to-pin-10 reroute.
+  This does not require another FPGA signal for a single drive.
+- IDC pin 34 cannot simultaneously provide independent READY and DISK CHANGE
+  information; the connected mechanism determines its meaning.
+- Separate `SELECT0`, `SELECT2`, `SELECT3`, or additional motor controls are
+  needed only for multiple physical drives.
+- The tested FD-502 and FD-55BV mechanisms require no separate head-load or
+  write-fault signal beyond select, motor, index, write protect, and the
+  controls already listed.
+
 ## Power and electrical safety
 
 The Wukong PMOD pins and FeatherWing host side use 3.3 V logic. The

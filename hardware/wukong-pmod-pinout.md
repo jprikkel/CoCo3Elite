@@ -74,6 +74,23 @@ also uses J13 and is therefore mutually exclusive with the PMOD MicroSD build.
 Its passive interposer uses all eight J13 signal pins to connect one Adafruit
 Floppy FeatherWing while leaving write gate and write data disconnected.
 
+The documented write-capable revision moves floppy side select from J13 pin 8
+to J14 pin 7, then assigns the released J13 pin to media-change detection. The
+remaining unused J14-row signals carry the protected write interface:
+
+| Connector pin | FPGA pin | Proposed floppy signal |
+| ---: | --- | --- |
+| J13 pin 8 | N23 | Media change / ready input |
+| J14 pin 7 | N24 | Side select output |
+| J14 pin 8 | P24 | Write gate output |
+| J14 pin 9 | R22 | Write data output |
+| J14 pin 10 | T23 | Write-protect input |
+
+This allocation is not implemented by the current constraints or RTL. Do not
+rewire J13 pin 8 from side select to media change until a matching bitstream is
+loaded, and keep the FeatherWing switch at `NoWr` until write support is
+validated.
+
 J10 is assigned to one direct Atari/C64-style digital joystick:
 
 | J10 pin | FPGA pin | Function |
