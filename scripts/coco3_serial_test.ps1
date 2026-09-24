@@ -14,6 +14,7 @@ param(
     [ValidateRange(1,85)][int]$FloppySteps = 1,
     [ValidateRange(0,39)][int]$FloppyTrack = 17,
     [ValidateRange(1,18)][int]$FloppySector = 1,
+    [ValidateRange(3,30)][int]$ResponseTimeoutSeconds = 3,
     [ValidateRange(20,1000)][int]$KeyDelayMs = 70
 )
 
@@ -26,7 +27,7 @@ $serial.WriteTimeout = 1000
 function Send-ManagerCommand {
     param([Parameter(Mandatory)][string]$Line)
     $serial.Write("$Line`n")
-    $deadline = [DateTime]::UtcNow.AddSeconds(3)
+    $deadline = [DateTime]::UtcNow.AddSeconds($ResponseTimeoutSeconds)
     while ([DateTime]::UtcNow -lt $deadline) {
         try {
             $reply = $serial.ReadLine().Trim()

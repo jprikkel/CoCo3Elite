@@ -45,6 +45,11 @@ module coco3_fdc (
     reg [7:0] byte_index;
     reg       read_active;
     reg       read_waiting;
+    // Keep transport ownership independent from the WD1773-visible command
+    // state.  A physical seek/capture can outlast Disk BASIC's polling loop;
+    // FORCE INTERRUPT followed by a retry must not toggle the one-bit backend
+    // request a second time and alias it to the previous completion value.
+    reg       backend_request_outstanding;
     reg       write_active;
     reg       write_waiting;
     reg       first_data_access;
@@ -123,6 +128,7 @@ module coco3_fdc (
             byte_index <= 8'h00;
             read_active <= 1'b0;
             read_waiting <= 1'b0;
+            backend_request_outstanding <= 1'b0;
             write_active <= 1'b0;
             write_waiting <= 1'b0;
             first_data_access <= 1'b0;
@@ -143,16 +149,20 @@ module coco3_fdc (
             // The manager acknowledges by copying the request toggle after it
             // has filled its 256-byte buffer.  Disk BASIC polls status while
             // this is pending, exactly as it would wait for a real WD1773.
-            if (read_waiting && backend_done_toggle == backend_request_toggle) begin
-                read_waiting <= 1'b0;
-                if (backend_success) begin
-                    status <= 8'h03;
-                    read_active <= 1'b1;
-                    first_data_access <= 1'b1;
-                end else begin
-                    status <= 8'h10;
-                    read_active <= 1'b0;
-                    nmi_pending <= 1'b1;
+            if (backend_request_outstanding &&
+                backend_done_toggle == backend_request_toggle) begin
+                backend_request_outstanding <= 1'b0;
+                if (read_waiting) begin
+                    read_waiting <= 1'b0;
+                    if (backend_success) begin
+                        status <= 8'h03;
+                        read_active <= 1'b1;
+                        first_data_access <= 1'b1;
+                    end else begin
+                        status <= 8'h10;
+                        read_active <= 1'b0;
+                        nmi_pending <= 1'b1;
+                    end
                 end
             end
             // A write remains busy until firmware has copied the completed
@@ -309,10 +319,18 @@ module coco3_fdc (
                                     write_waiting <= 1'b0;
                                     nmi_pending <= 1'b1;
                                 end else begin
-                                    backend_drive <= drive0_selected ? 2'd0 : 2'd1;
-                                    backend_track <= track;
-                                    backend_sector <= sector;
-                                    backend_request_toggle <= ~backend_request_toggle;
+                                    // A retry while firmware is still seeking
+                                    // or decoding waits on the existing request.
+                                    // Re-toggling here can wrap the one-bit
+                                    // generation back to backend_done_toggle and
+                                    // falsely expose the preceding sector.
+                                    if (!backend_request_outstanding) begin
+                                        backend_drive <= drive0_selected ? 2'd0 : 2'd1;
+                                        backend_track <= track;
+                                        backend_sector <= sector;
+                                        backend_request_toggle <= ~backend_request_toggle;
+                                        backend_request_outstanding <= 1'b1;
+                                    end
                                     status <= 8'h01; // busy; manager will raise DRQ
                                     read_active <= 1'b0;
                                     read_waiting <= 1'b1;

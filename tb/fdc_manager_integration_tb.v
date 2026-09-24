@@ -180,8 +180,30 @@ module fdc_manager_integration_tb;
         fdc_write(16'hff48,8'h80);
         while(done_toggle===request_toggle)@(posedge clock);
         if(backend_drive!==2'd1)$fatal(1,"drive-1 latch decoded as %0d",backend_drive);
+        // A physical seek/decode is much slower than an SDRAM page. Disk
+        // BASIC can force-interrupt and retry while that transport request is
+        // still outstanding. The retry must remain attached to the original
+        // request generation; a second toggle would alias to the old done
+        // value and immediately serve the preceding sector.
+        fdc_write(16'hff48,8'hd0);
+        fdc_write(16'hff48,8'h80);
+        repeat(3)@(posedge clock);
+        if(request_toggle===done_toggle)
+            $fatal(1,"retry aliased an outstanding request to stale completion");
+        if(!fdc_i.read_waiting || fdc_i.read_active)
+            $fatal(1,"retry did not remain busy on the outstanding request");
         publish_sector(8'h3c);
         consume_sector(8'h3c);
+
+        // Match the physical-floppy directory-to-file transition: publish a
+        // different demand-paged sector immediately after the prior sector
+        // is consumed.  The first byte must come from this generation, not
+        // the directory bank that was selected previously.
+        fdc_write(16'hff4a,8'h02);
+        fdc_write(16'hff48,8'h80);
+        while(done_toggle===request_toggle)@(posedge clock);
+        publish_sector(8'hc3);
+        consume_sector(8'hc3);
 
         fdc_write(16'hff40,8'h09);
         fdc_write(16'hff4a,8'h02);

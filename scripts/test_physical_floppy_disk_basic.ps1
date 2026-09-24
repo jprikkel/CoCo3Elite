@@ -2,7 +2,9 @@ param(
     [string]$Port = 'COM5',
     [string]$BasicCommand = 'dir',
     [ValidateRange(3,60)][int]$CaptureSeconds = 15,
-    [ValidateRange(40,500)][int]$KeyDelayMs = 90
+    [ValidateRange(40,500)][int]$KeyDelayMs = 90,
+    [string]$ExpectedSectorPrefix = '',
+    [switch]$SkipMount
 )
 
 $ErrorActionPreference = 'Stop'
@@ -68,7 +70,7 @@ try {
     $serial.Open()
     Start-Sleep -Milliseconds 150
     Send-Command 'TRACE OFF' '^OK TRACE OFF'
-    Send-Command 'FLOPPY MOUNT' '^OK FLOPPY MOUNT'
+    if (-not $SkipMount) { Send-Command 'FLOPPY MOUNT' '^OK FLOPPY MOUNT' }
     foreach ($character in ($BasicCommand + "`r").ToCharArray()) { Press-Key $character }
 
     $deadline = [DateTime]::UtcNow.AddSeconds($CaptureSeconds)
@@ -85,6 +87,13 @@ try {
     $text = $transcript.ToString()
     if ($text -notmatch '(?m)^FDC PHYSICAL ') { throw 'No physical-floppy FDC reads were observed' }
     if ($text -match '(?m)^FDC ERR ') { throw 'Disk BASIC reported a physical-floppy FDC read failure' }
+    if ($ExpectedSectorPrefix) {
+        $expectedBytes = ($ExpectedSectorPrefix -split '\s+' |
+            Where-Object { $_ }) -join '\s+'
+        if ($text -notmatch ('(?m)^FDC CPU\s+' + $expectedBytes + '\s*$')) {
+            throw "Disk BASIC did not receive expected sector prefix '$ExpectedSectorPrefix'"
+        }
+    }
     Write-Host "PASS: Disk BASIC '$BasicCommand' used the physical read-only drive"
 } finally {
     if ($serial.IsOpen) {

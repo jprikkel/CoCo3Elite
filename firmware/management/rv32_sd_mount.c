@@ -132,6 +132,7 @@ static uint8_t block_addressed, sectors_per_cluster, spi_divider;
 static uint32_t disk_cache_crc32;
 static uint32_t fat_lba, first_data_lba;
 static uint8_t sector[512];
+static uint32_t physical_source_head,physical_buffer_head;
 
 struct disk { char name[MAX_NAME]; uint32_t cluster, size; };
 struct browser_entry { char name[MAX_NAME]; uint32_t cluster, size; uint8_t directory, parent, cartridge, binary; };
@@ -297,14 +298,30 @@ static int physical_read_sector(uint8_t track,uint8_t side,uint8_t disk_sector,u
         if(!(status&4u)||!(valid&(1u<<(disk_sector-1u))))return 1;
     }
     base=(uint16_t)(disk_sector-1u)*256u;
-    if(publish)FDC_BUFFER_RESET=0;
     for(uint16_t n=0;n<256u;++n){
         uint8_t value;
         PHYSICAL_FLOPPY_DECODE_ADDRESS=(uint32_t)(base+n);
         value=(uint8_t)PHYSICAL_FLOPPY_DECODE_DATA;
         value=(uint8_t)PHYSICAL_FLOPPY_DECODE_DATA;
-        if(publish)FDC_BUFFER_DATA=value;
+        if(publish)sector[n]=value;
         else if(n<16u){hex(value);if(n!=15u)putc(' ');}
+    }
+    if(publish){
+        // Snapshot a complete decoded sector before touching the manager's
+        // producer bank. This prevents the registered decoder read port and
+        // the AXI write stream from being interleaved across a track change.
+        physical_source_head=((uint32_t)sector[0]<<24)|
+            ((uint32_t)sector[1]<<16)|((uint32_t)sector[2]<<8)|sector[3];
+        FDC_BUFFER_RESET=0;
+        for(uint16_t n=0;n<256u;++n)FDC_BUFFER_DATA=sector[n];
+        physical_buffer_head=0;
+        for(uint8_t n=0;n<4u;++n){
+            uint8_t value;
+            FDC_BUFFER_DEBUG_ADDRESS=n;
+            value=(uint8_t)FDC_BUFFER_DEBUG_DATA;
+            value=(uint8_t)FDC_BUFFER_DEBUG_DATA;
+            physical_buffer_head=(physical_buffer_head<<8)|value;
+        }
     }
     return 0;
 }
@@ -323,7 +340,7 @@ static void serial_execute_command(void){
     else if(equal(serial_command,"FLOPPY SIDE 0")){physical_decode_valid=0;physical_floppy_control&=~16u;floppy_write_control();puts("OK FLOPPY SIDE 0\r\n");}
     else if(equal(serial_command,"FLOPPY SIDE 1")){physical_decode_valid=0;physical_floppy_control|=16u;floppy_write_control();puts("OK FLOPPY SIDE 1\r\n");}
     else if(equal(serial_command,"FLOPPY STEP")){uint32_t status=PHYSICAL_FLOPPY_STATUS;physical_track_known=0;physical_decode_valid=0;if(!(status&8u))puts("ERR FLOPPY DISABLED\r\n");else if(!(status&16u))puts("ERR FLOPPY MOTOR OFF\r\n");else if(status&32u)puts("ERR FLOPPY BUSY\r\n");else{floppy_event(32u);puts("OK FLOPPY STEP\r\n");}}
-    else if(equal(serial_command,"FLOPPY MOUNT")){physical_drive_slot=0u;physical_track_known=0;physical_decode_valid=0;MOUNT_STATUS=0x100u|disk_present_mask();puts("OK FLOPPY MOUNT D0 READ ONLY\r\n");}
+    else if(equal(serial_command,"FLOPPY MOUNT")){physical_drive_slot=0u;physical_track_known=0;physical_decode_valid=0;DISK_CACHE_RESET=0;MOUNT_STATUS=0x100u|disk_present_mask();puts("OK FLOPPY MOUNT D0 READ ONLY\r\n");}
     else if(equal(serial_command,"FLOPPY UNMOUNT")){physical_drive_slot=0xffu;physical_track_known=0;physical_decode_valid=0;physical_floppy_control&=~1u;floppy_write_control();MOUNT_STATUS=(card_online?0x100u:0u)|disk_present_mask();puts("OK FLOPPY UNMOUNT\r\n");}
     else if(parse_floppy_read(&floppy_track,&floppy_sector)){
         puts("FLOPPY SECTOR T=");hex(floppy_track);puts(" S=");hex(floppy_sector);puts(" DATA=");
@@ -1068,6 +1085,11 @@ static const char *source_status(void){
 static void mount_physical_selected(void){
     physical_drive_slot=selected_drive;
     physical_track_known=0;physical_decode_valid=0;
+    // The manager normally gives a ready full-image cache priority for D0.
+    // A physical D0 must instead consume the sector bank filled from flux;
+    // invalidate any older SD-backed image so it cannot shadow the drive.
+    // The retained FAT32 descriptor can still demand-page after unmount.
+    if(selected_drive==0u)DISK_CACHE_RESET=0;
     MOUNT_STATUS=0x100u|disk_present_mask();
     puts("MOUNT D");putc((char)('0'+selected_drive));
     puts(" PHYSICAL READ ONLY\r\n");
@@ -1329,6 +1351,16 @@ int main(void){
                     (present&(1u<<drive))&&
                     !read_decb_sector(&mounted_disks[drive],track,(info>>2)&1u,disk_sector);
             puts(ok ? (physical_drive_slot==drive?"FDC PHYSICAL ":cache_ready?"FDC CACHE ":"FDC PAGE ") : "FDC ERR "); hex(drive);putc(' ');hex(track);putc(' ');hex(disk_sector);putc(' ');hex(type1);
+            if(ok&&physical_drive_slot==drive){
+                puts(" SRC ");hex((uint8_t)(physical_source_head>>24));putc(' ');
+                hex((uint8_t)(physical_source_head>>16));putc(' ');
+                hex((uint8_t)(physical_source_head>>8));putc(' ');
+                hex((uint8_t)physical_source_head);
+                puts(" BUF ");hex((uint8_t)(physical_buffer_head>>24));putc(' ');
+                hex((uint8_t)(physical_buffer_head>>16));putc(' ');
+                hex((uint8_t)(physical_buffer_head>>8));putc(' ');
+                hex((uint8_t)physical_buffer_head);
+            }
             if(ok&&cache_ready){puts(" BUF ");print_buffer_head();}
             puts("\r\n");
             FDC_ACK=ok?1:0; seen=state&1u;
