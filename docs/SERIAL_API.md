@@ -46,6 +46,9 @@ payload.
 | `FLOPPY DIR 0` / `FLOPPY DIR 1` | `OK FLOPPY DIR n` | Set the electrical DIR level without rebuilding. |
 | `FLOPPY SIDE 0` / `FLOPPY SIDE 1` | `OK FLOPPY SIDE n` | Set the electrical side-select level without rebuilding. |
 | `FLOPPY STEP` | `OK FLOPPY STEP` | Issue one bounded STEP pulse while the motor/select interval is active. |
+| `FLOPPY READ tt ss` | `FLOPPY SECTOR T=tt S=ss DATA=... OK` | Seek, decode, and report the first 16 bytes of one DECB sector (`tt` and `ss` are hex). |
+| `FLOPPY MOUNT` | `OK FLOPPY MOUNT D0 READ ONLY` | Route Disk BASIC drive 0 to the physical read-only drive. |
+| `FLOPPY UNMOUNT` | `OK FLOPPY UNMOUNT` | Disconnect the physical backend from Disk BASIC drive 0. |
 | `FLUX nnnn` | `FLUX BEGIN ...`, binary intervals, `FLUX END ...` | Capture one indexed revolution and transfer one interval window at 460800 baud. |
 | `FLUX TRACK` | `FLUX BULK BEGIN ... INDEXED=1`, binary intervals, `FLUX BULK END ...` | Capture and transfer one complete index-to-index revolution. |
 | `FLUX BULK` | `FLUX BULK BEGIN ... INDEXED=0`, binary intervals, `FLUX BULK END ...` | Capture a timed 205 ms window when an index pulse is unavailable. |
@@ -157,8 +160,54 @@ active. This allows cautious movement in either direction without another
 bitstream build. `FLOPPY HOME` waits 500 ms for spin-up, uses the currently
 selected DIR level, pulses STEP low for 20 us at 6 ms intervals, and stops on
 TRACK0 or after 85 pulses. The FPGA, not firmware, enforces the step limit and
-STOP path. All write signals remain absent, so this is still a wiring,
-head-motion, and raw-read diagnostic rather than a sector reader.
+STOP path. All write signals remain absent.
+
+The physical-floppy build also contains a hardware MFM track decoder and a
+4,608-byte cache for the 18 decoded 256-byte sectors. For example, hexadecimal
+track `11` is decimal track 17 and sector `03` is the first DECB directory
+sector:
+
+```text
+FLOPPY READ 11 03
+FLOPPY SECTOR T=11 S=03 DATA=50 52 4F 20 20 20 20 20 42 41 53 00 00 20 00 22 OK
+```
+
+The decoder requires valid ID and data CRCs. It retries one complete indexed
+revolution before returning `ERR`.
+
+### Physical drive as Disk BASIC drive 0
+
+`FLOPPY MOUNT` advertises a read-only drive 0 and routes FDC read-sector
+requests through the physical seek, capture, MFM decode, and sector cache.
+Normal Disk BASIC commands then work without copying the full disk into RAM:
+
+```text
+FLOPPY MOUNT
+```
+
+At the CoCo prompt, use the ordinary commands:
+
+```basic
+DIR
+RUN"PRO"
+LOADM"PROGRAM"
+EXEC
+```
+
+Writes deliberately fail while the physical backend is mounted. Use
+`FLOPPY UNMOUNT` to restore the normal SD-image drive-0 state. The tested TEAC
+occasionally ignored the first inward STEP following a direction reversal, so
+firmware implements inward seeks by re-homing and approaching the target in
+the proven outward direction. This is slower but deterministic for read-only
+media.
+
+The hardware regression helper mounts the drive, injects an unshifted Disk
+BASIC command, and rejects any `FDC ERR` response:
+
+```powershell
+.\scripts\test_physical_floppy_disk_basic.ps1 -Port COM5 -BasicCommand dir
+.\scripts\test_physical_floppy_disk_basic.ps1 -Port COM5 -BasicCommand 'run"pro"'
+```
 
 ### Raw physical-floppy flux capture
 
@@ -272,6 +321,9 @@ For example, the following changes direction and issues exactly one step:
 .\scripts\coco3_serial_test.ps1 -Port COM5 -Command FloppyStep -FloppySteps 1
 .\scripts\coco3_serial_test.ps1 -Port COM5 -Command Floppy
 .\scripts\coco3_serial_test.ps1 -Port COM5 -Command FloppyStop
+.\scripts\coco3_serial_test.ps1 -Port COM5 -Command FloppyRead -FloppyTrack 17 -FloppySector 3
+.\scripts\coco3_serial_test.ps1 -Port COM5 -Command FloppyMount
+.\scripts\coco3_serial_test.ps1 -Port COM5 -Command FloppyUnmount
 ```
 
 The Adafruit FeatherWing exposes the Shugart Select1 signal only. Selecting a

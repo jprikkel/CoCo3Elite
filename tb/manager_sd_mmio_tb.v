@@ -30,6 +30,17 @@ module manager_sd_mmio_tb;
     wire physical_floppy_step_request_toggle;
     wire physical_floppy_home_request_toggle;
     wire physical_floppy_abort_request_toggle;
+    wire physical_floppy_decode_request_toggle;
+    wire [12:0] physical_floppy_decode_cache_address;
+    reg physical_floppy_decode_busy = 1'b0;
+    reg physical_floppy_decode_done_toggle = 1'b1;
+    reg physical_floppy_decode_success = 1'b1;
+    reg [7:0] physical_floppy_decode_track = 8'h11;
+    reg physical_floppy_decode_side = 1'b1;
+    reg [17:0] physical_floppy_decode_sector_valid = 18'h3ffff;
+    reg [7:0] physical_floppy_decode_id_crc_errors = 8'h02;
+    reg [7:0] physical_floppy_decode_data_crc_errors = 8'h03;
+    reg [7:0] physical_floppy_decode_cache_data = 8'ha6;
     wire [14:0] cartridge_address;
     wire [7:0] cartridge_data;
     wire cartridge_write, cartridge_enabled, cartridge_launch;
@@ -141,6 +152,24 @@ module manager_sd_mmio_tb;
         .physical_floppy_home_done_toggle(physical_floppy_home_done_toggle),
         .physical_floppy_home_success(physical_floppy_home_success),
         .physical_floppy_home_step_count(physical_floppy_home_step_count),
+        .physical_floppy_decode_request_toggle(
+            physical_floppy_decode_request_toggle),
+        .physical_floppy_decode_cache_address(
+            physical_floppy_decode_cache_address),
+        .physical_floppy_decode_busy(physical_floppy_decode_busy),
+        .physical_floppy_decode_done_toggle(
+            physical_floppy_decode_done_toggle),
+        .physical_floppy_decode_success(physical_floppy_decode_success),
+        .physical_floppy_decode_track(physical_floppy_decode_track),
+        .physical_floppy_decode_side(physical_floppy_decode_side),
+        .physical_floppy_decode_sector_valid(
+            physical_floppy_decode_sector_valid),
+        .physical_floppy_decode_id_crc_errors(
+            physical_floppy_decode_id_crc_errors),
+        .physical_floppy_decode_data_crc_errors(
+            physical_floppy_decode_data_crc_errors),
+        .physical_floppy_decode_cache_data(
+            physical_floppy_decode_cache_data),
         .video_capture_request_toggle(video_capture_request_toggle),
         .video_capture_stripe(video_capture_stripe),
         .video_capture_read_address(video_capture_read_address),
@@ -252,6 +281,21 @@ module manager_sd_mmio_tb;
         read32(32'h800002d0, value);
         if (value[5:0] !== 6'b111110)
             $fatal(1, "physical floppy event readback mismatch: %h", value);
+        write32(32'h800002fc, 32'h00000001);
+        if (!physical_floppy_decode_request_toggle)
+            $fatal(1, "physical floppy decode event was not published");
+        write32(32'h80000308, 32'h00001123);
+        if (physical_floppy_decode_cache_address !== 13'h1123)
+            $fatal(1, "physical floppy decode address mismatch");
+        read32(32'h80000300, value);
+        if (value !== 32'h0203110d)
+            $fatal(1, "physical floppy decode status mismatch: %h", value);
+        read32(32'h80000304, value);
+        if (value[17:0] !== 18'h3ffff)
+            $fatal(1, "physical floppy sector bitmap mismatch: %h", value);
+        read32(32'h8000030c, value);
+        if (value[7:0] !== 8'ha6)
+            $fatal(1, "physical floppy decode data mismatch: %h", value);
         $display("checking video capture and UART ownership MMIO");
         write32(32'h800002a0, 1);
         if (!uart_claim) $fatal(1, "manager UART claim was not retained");

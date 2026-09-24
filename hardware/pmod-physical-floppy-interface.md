@@ -180,9 +180,9 @@ fragment is required.
 5. Capture raw read-data pulse intervals from one revolution and compare them
    against simulation fixtures.
 6. Add MFM decoding, address-mark detection, sector CRC, and a read-only sector
-   command.
+   command. **Complete.**
 7. Connect the physical backend to `coco3_fdc`, run `DIR`, and load files from
-   known-good media.
+   known-good media. **Complete for 35-track, single-sided DECB reads.**
 8. Validate reset, missing-media, reversed-cable, CRC-error, and motor-timeout
    recovery before enabling the backend in normal builds.
 
@@ -231,14 +231,32 @@ step, so this does not reserve RAM for an entire floppy image. To fit the track
 buffer, the optional physical-floppy bitstream omits serial video-frame capture
 while retaining the normal HDMI output. Ordinary builds are unaffected.
 
+The current read-only integration also decodes MFM in FPGA logic. A 4,608-byte
+sector cache holds one 18-sector track, and the RV32 firmware services the
+existing emulated FDC sector buffer from that cache. `FLOPPY MOUNT` maps the
+physical mechanism to Disk BASIC drive 0; writes are rejected. Hardware tests
+successfully ran `DIR`, read the `PRO.BAS` directory entry, crossed from track
+17 to its data on track 16, and issued `RUN"PRO"` through the normal CoCo FDC
+path. The saved TEAC track-16 and track-17 captures both decode byte-for-byte
+against the recovered DSK in simulation.
+
+The known-good recovered media is checked in under
+`disks/physical-floppy/` as `teac-fd55bv-pro-bas.dsk` and
+`teac-fd55bv-pro-bas.scp`. The DSK is the decoded 35-track, single-sided DECB
+image used by the captured-track regression; the SCP preserves the original
+full-disk flux capture for decoder and interoperability testing.
+
 Hardware validation with a working drive recovered a normal-orientation CoCo
 DECB disk in one revolution per track. All 35 tracks captured at approximately
 199.6 ms per revolution, and Greaseweazle decoded all 630 of 630 sectors into a
 161,280-byte DSK image. A known-faulty drive showed progressively poorer reads
 toward the inner tracks, demonstrating that CRC validation and missing-track
 reporting reject bad hardware data instead of silently producing an image.
-The FPGA does not yet decode FM/MFM or connect the physical drive directly to
-the emulated FDC; decoding currently happens on the host from the SCP capture.
+For reliability, inward seeks currently re-home and approach the target in the
+outward direction. The tested TEAC ignored the first inward STEP after one
+direction reversal; absolute HOME-to-track seeks and outward sequential steps
+were reliable. This policy is intentionally conservative and can be optimized
+after testing more mechanisms.
 
 Write support is a separate future design. It requires at least `WG`, `WD`, and
 write-protect sensing, so it will require another connector or an active

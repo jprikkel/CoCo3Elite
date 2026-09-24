@@ -99,6 +99,17 @@ module wukong_top (
     wire [31:0] physical_floppy_capture_hash;
     wire [15:0] physical_floppy_capture_sample_count;
     wire [15:0] physical_floppy_capture_sample_data;
+    wire physical_floppy_decode_request_toggle;
+    wire [12:0] physical_floppy_decode_cache_address;
+    wire physical_floppy_decode_busy;
+    wire physical_floppy_decode_done_toggle;
+    wire physical_floppy_decode_success;
+    wire [7:0] physical_floppy_decode_track;
+    wire physical_floppy_decode_side;
+    wire [17:0] physical_floppy_decode_sector_valid;
+    wire [7:0] physical_floppy_decode_id_crc_errors;
+    wire [7:0] physical_floppy_decode_data_crc_errors;
+    wire [7:0] physical_floppy_decode_cache_data;
 
     wukong_clocking clocking_i (
         .clk_50mhz    (clk_50mhz),
@@ -134,6 +145,8 @@ module wukong_top (
         .capture_request_toggle(physical_floppy_capture_request_toggle),
         .capture_skip_count(physical_floppy_capture_skip_count),
         .capture_sample_address(physical_floppy_capture_sample_address),
+        .decode_request_toggle(physical_floppy_decode_request_toggle),
+        .decode_cache_address(physical_floppy_decode_cache_address),
         .read_data_n(floppy_read_data_n),
         .track_zero_n(floppy_track_zero_n), .index_n(floppy_index_n),
         .drive_select_n(floppy_select_n),
@@ -161,7 +174,16 @@ module wukong_top (
         .capture_max_interval(physical_floppy_capture_max_interval),
         .capture_hash(physical_floppy_capture_hash),
         .capture_sample_count(physical_floppy_capture_sample_count),
-        .capture_sample_data(physical_floppy_capture_sample_data)
+        .capture_sample_data(physical_floppy_capture_sample_data),
+        .decode_busy(physical_floppy_decode_busy),
+        .decode_done_toggle(physical_floppy_decode_done_toggle),
+        .decode_success(physical_floppy_decode_success),
+        .decode_track(physical_floppy_decode_track),
+        .decode_side(physical_floppy_decode_side),
+        .decode_sector_valid(physical_floppy_decode_sector_valid),
+        .decode_id_crc_errors(physical_floppy_decode_id_crc_errors),
+        .decode_data_crc_errors(physical_floppy_decode_data_crc_errors),
+        .decode_cache_data(physical_floppy_decode_cache_data)
     );
 `else
     assign physical_floppy_present = 1'b0;
@@ -186,6 +208,15 @@ module wukong_top (
     assign physical_floppy_capture_hash = 32'b0;
     assign physical_floppy_capture_sample_count = 16'b0;
     assign physical_floppy_capture_sample_data = 16'b0;
+    assign physical_floppy_decode_busy = 1'b0;
+    assign physical_floppy_decode_done_toggle = 1'b0;
+    assign physical_floppy_decode_success = 1'b0;
+    assign physical_floppy_decode_track = 8'b0;
+    assign physical_floppy_decode_side = 1'b0;
+    assign physical_floppy_decode_sector_valid = 18'b0;
+    assign physical_floppy_decode_id_crc_errors = 8'b0;
+    assign physical_floppy_decode_data_crc_errors = 8'b0;
+    assign physical_floppy_decode_cache_data = 8'b0;
 `endif
 
 `ifdef HDMI_TEST_PATTERN
@@ -345,6 +376,24 @@ module wukong_top (
             physical_floppy_capture_sample_count),
         .physical_floppy_capture_sample_data(
             physical_floppy_capture_sample_data),
+        .physical_floppy_decode_request_toggle(
+            physical_floppy_decode_request_toggle),
+        .physical_floppy_decode_cache_address(
+            physical_floppy_decode_cache_address),
+        .physical_floppy_decode_busy(physical_floppy_decode_busy),
+        .physical_floppy_decode_done_toggle(
+            physical_floppy_decode_done_toggle),
+        .physical_floppy_decode_success(physical_floppy_decode_success),
+        .physical_floppy_decode_track(physical_floppy_decode_track),
+        .physical_floppy_decode_side(physical_floppy_decode_side),
+        .physical_floppy_decode_sector_valid(
+            physical_floppy_decode_sector_valid),
+        .physical_floppy_decode_id_crc_errors(
+            physical_floppy_decode_id_crc_errors),
+        .physical_floppy_decode_data_crc_errors(
+            physical_floppy_decode_data_crc_errors),
+        .physical_floppy_decode_cache_data(
+            physical_floppy_decode_cache_data),
         .vsync(vsync), .video_enable(video_enable),
         .red(library_red), .green(library_green), .blue(library_blue),
         .audio_dac(audio_dac), .narrow_video_mode(narrow_video_mode),

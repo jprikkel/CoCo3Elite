@@ -1,7 +1,8 @@
 param(
     [string]$Port = 'COM5',
     [ValidateSet('Ping', 'Status', 'Floppy', 'FloppyStart', 'FloppyHome', 'FloppyStop',
-                 'FloppyDirection', 'FloppySide', 'FloppyStep',
+                 'FloppyDirection', 'FloppySide', 'FloppyStep', 'FloppyMount',
+                 'FloppyUnmount', 'FloppyRead',
                  'Reset', 'Release', 'TypeText',
                  'TraceOn', 'TraceOff', 'TraceSnap', 'TraceStatus',
                  'BrowserRoot', 'KeyDown', 'KeyUp', 'FunctionKey')]
@@ -11,6 +12,8 @@ param(
     [ValidateSet(3,6,7,8,9,10,11,12)][int]$Function = 12,
     [ValidateRange(0,1)][int]$FloppyValue = 1,
     [ValidateRange(1,85)][int]$FloppySteps = 1,
+    [ValidateRange(0,39)][int]$FloppyTrack = 17,
+    [ValidateRange(1,18)][int]$FloppySector = 1,
     [ValidateRange(20,1000)][int]$KeyDelayMs = 70
 )
 
@@ -67,6 +70,11 @@ try {
         'FloppyStart' { Send-ManagerCommand 'FLOPPY START' | Out-Null }
         'FloppyHome' { Send-ManagerCommand 'FLOPPY HOME' | Out-Null }
         'FloppyStop' { Send-ManagerCommand 'FLOPPY STOP' | Out-Null }
+        'FloppyMount' { Send-ManagerCommand 'FLOPPY MOUNT' | Out-Null }
+        'FloppyUnmount' { Send-ManagerCommand 'FLOPPY UNMOUNT' | Out-Null }
+        'FloppyRead' {
+            Send-ManagerCommand ('FLOPPY READ {0:X2} {1:X2}' -f $FloppyTrack, $FloppySector) | Out-Null
+        }
         'FloppyDirection' {
             Send-ManagerCommand ("FLOPPY DIR $FloppyValue") | Out-Null
         }

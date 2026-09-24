@@ -76,6 +76,11 @@ void *memcpy(void *dst,const void *src,unsigned long n){unsigned char *d=dst;con
 #define PHYSICAL_FLOPPY_CAPTURE_HASH REG32(0x800002ecu)
 #define PHYSICAL_FLOPPY_CAPTURE_ADDRESS REG32(0x800002f0u)
 #define PHYSICAL_FLOPPY_CAPTURE_DATA REG32(0x800002f4u)
+#define PHYSICAL_FLOPPY_DECODE_CONTROL REG32(0x800002fcu)
+#define PHYSICAL_FLOPPY_DECODE_STATUS REG32(0x80000300u)
+#define PHYSICAL_FLOPPY_DECODE_VALID REG32(0x80000304u)
+#define PHYSICAL_FLOPPY_DECODE_ADDRESS REG32(0x80000308u)
+#define PHYSICAL_FLOPPY_DECODE_DATA REG32(0x8000030cu)
 
 #define KEY_F12 1u
 #define KEY_UP 2u
@@ -139,6 +144,10 @@ static char serial_command[64];
 static uint8_t serial_command_length;
 static uint8_t trace_enabled;
 static uint32_t physical_floppy_control=0x18u;
+static uint8_t physical_drive0;
+static uint8_t physical_track_known;
+static uint8_t physical_track;
+static uint8_t physical_decode_valid;
 
 struct browser_metadata {
     char title[48],description[128];
@@ -163,6 +172,7 @@ static int parse_hex_word(const char *p,uint16_t *value){uint16_t v=0;for(uint8_
 static void serial_capture_frame(void);
 static void serial_capture_flux(uint16_t skip);
 static void serial_capture_flux_bulk(uint8_t indexed);
+static int physical_read_sector(uint8_t track,uint8_t side,uint8_t disk_sector,uint8_t publish);
 static void serial_apply_keys(void){SERIAL_KEY_LO=serial_key_lo;SERIAL_KEY_HI=serial_key_hi;SERIAL_KEY_CONTROL=(uint32_t)serial_shift|((uint32_t)serial_shift_override<<1);SERIAL_FUNCTION_KEYS=serial_function_keys;}
 static void serial_release_all(void){serial_key_lo=0;serial_key_hi=0;serial_shift=0;serial_shift_override=0;serial_function_keys=0;SERIAL_KEY_CONTROL=0x100u;SERIAL_FUNCTION_KEYS=0;}
 static void serial_browser_root(void){current_directory=root_cluster;parent_directory=root_cluster;directory_depth=0;current_path[0]='/';current_path[1]=0;puts("OK ROOT\r\n");}
@@ -170,21 +180,129 @@ static void serial_reply_status(void){uint32_t cpu=DEBUG_CPU_STATUS,video=DEBUG_
 static void floppy_write_control(void){PHYSICAL_FLOPPY_CONTROL=physical_floppy_control;}
 static void floppy_event(uint32_t event){PHYSICAL_FLOPPY_CONTROL=physical_floppy_control|event;PHYSICAL_FLOPPY_CONTROL=physical_floppy_control;}
 static void serial_reply_floppy(void){uint32_t status=PHYSICAL_FLOPPY_STATUS;if(!(status&8u)){puts("FLOPPY DISABLED\r\n");return;}puts("FLOPPY INDEX=");putc((status&1u)?'1':'0');puts(" TRACK0=");putc((status&2u)?'1':'0');puts(" READ=");putc((status&4u)?'1':'0');puts(" ACTIVE=");putc((status&16u)?'1':'0');puts(" HOME=");putc((status&32u)?'1':'0');puts(" DONE=");putc((status&64u)?'1':'0');puts(" OK=");putc((status&128u)?'1':'0');puts(" STEPS=");hex((uint8_t)(status>>8));puts(" DIR=");putc((physical_floppy_control&8u)?'1':'0');puts(" SIDE=");putc((physical_floppy_control&16u)?'1':'0');puts(" INDEX_COUNT=");hex32(PHYSICAL_FLOPPY_INDEX_COUNT);puts(" READ_EDGES=");hex32(PHYSICAL_FLOPPY_READ_COUNT);puts("\r\n");}
+static int parse_floppy_read(uint8_t *track,uint8_t *disk_sector){
+    int a,b,c,d;
+    if(serial_command_length!=17u||serial_command[6]!=' '||
+       serial_command[11]!=' '||serial_command[14]!=' ')return 0;
+    if(serial_command[0]!='F'||serial_command[1]!='L'||
+       serial_command[2]!='O'||serial_command[3]!='P'||
+       serial_command[4]!='P'||serial_command[5]!='Y'||
+       serial_command[7]!='R'||serial_command[8]!='E'||
+       serial_command[9]!='A'||serial_command[10]!='D')return 0;
+    a=hex_digit(serial_command[12]);b=hex_digit(serial_command[13]);
+    c=hex_digit(serial_command[15]);d=hex_digit(serial_command[16]);
+    if(a<0||b<0||c<0||d<0)return 0;
+    *track=(uint8_t)((a<<4)|b);*disk_sector=(uint8_t)((c<<4)|d);
+    return 1;
+}
+static void physical_delay(uint32_t count){volatile uint32_t n=count;while(n)--n;}
+static int physical_home_drive(void){
+    uint32_t previous=PHYSICAL_FLOPPY_STATUS&64u,timeout=100000000u,status;
+    physical_floppy_control|=8u;
+    floppy_write_control();floppy_event(2u);
+    while(((PHYSICAL_FLOPPY_STATUS&64u)==previous)&&timeout)--timeout;
+    status=PHYSICAL_FLOPPY_STATUS;
+    if(!timeout||!(status&128u)){physical_track_known=0;return 1;}
+    physical_track=0;physical_track_known=1;return 0;
+}
+static int physical_start_and_index(void){
+    uint32_t index=PHYSICAL_FLOPPY_INDEX_COUNT,timeout=50000000u;
+    physical_floppy_control&=~1u;floppy_write_control();
+    physical_delay(1000u);
+    physical_floppy_control|=1u;floppy_write_control();
+    while(PHYSICAL_FLOPPY_INDEX_COUNT==index&&timeout)--timeout;
+    return timeout?0:1;
+}
+static int physical_seek_track(uint8_t target){
+    uint8_t count;
+    if(target>39u)return 1;
+    if(!physical_track_known&&physical_home_drive())return 1;
+    // The tested TEAC can ignore the first STEP immediately after reversing
+    // from outward to inward motion.  That breaks the common DECB transition
+    // from directory track 17 to a file granule on track 16.  Re-home inward
+    // seeks and approach every target in the already validated outward
+    // direction.  This costs seek time but keeps the read-only path reliable.
+    if(target<physical_track&&physical_home_drive())return 1;
+    if(target==physical_track)return physical_start_and_index();
+    if(!(PHYSICAL_FLOPPY_STATUS&16u)&&physical_start_and_index())return 1;
+    physical_floppy_control&=~8u;count=(uint8_t)(target-physical_track);
+    floppy_write_control();physical_delay(25000u);
+    while(count--){floppy_event(32u);physical_delay(220000u);}
+    physical_track=target;return 0;
+}
+static int physical_capture_track(uint8_t track,uint8_t side){
+    uint32_t previous,timeout,status;
+    uint8_t attempt;
+    physical_decode_valid=0;
+    if(physical_seek_track(track))return 1;
+    // The FeatherWing/TEAC wiring names the normal bottom head as SIDE 1.
+    // Invert the logical WD1773 side so CoCo single-sided media (side 0)
+    // selects that tested physical head.
+    if(side)physical_floppy_control&=~16u;else physical_floppy_control|=16u;
+    floppy_write_control();physical_delay(25000u);
+    for(attempt=0;attempt<2u;++attempt){
+        previous=PHYSICAL_FLOPPY_CAPTURE_STATUS&1u;
+        PHYSICAL_FLOPPY_CAPTURE_SKIP=0xfffeu;
+        PHYSICAL_FLOPPY_CAPTURE_CONTROL=1u;
+        timeout=50000000u;
+        while(((PHYSICAL_FLOPPY_CAPTURE_STATUS&1u)==previous)&&timeout)--timeout;
+        if(!timeout||!(PHYSICAL_FLOPPY_CAPTURE_STATUS&4u))continue;
+        previous=PHYSICAL_FLOPPY_DECODE_STATUS&1u;
+        PHYSICAL_FLOPPY_DECODE_CONTROL=1u;
+        timeout=20000000u;
+        while(((PHYSICAL_FLOPPY_DECODE_STATUS&1u)==previous)&&timeout)--timeout;
+        status=PHYSICAL_FLOPPY_DECODE_STATUS;
+        if(timeout&&(status&4u)&&((uint8_t)(status>>8)==track)&&
+           (PHYSICAL_FLOPPY_DECODE_VALID&0x3ffffu)){
+            physical_decode_valid=1;return 0;
+        }
+    }
+    return 1;
+}
+static int physical_read_sector(uint8_t track,uint8_t side,uint8_t disk_sector,uint8_t publish){
+    uint32_t status=PHYSICAL_FLOPPY_DECODE_STATUS,valid=PHYSICAL_FLOPPY_DECODE_VALID;
+    uint16_t base;
+    if(disk_sector<1u||disk_sector>18u)return 1;
+    if(!physical_decode_valid||!(status&4u)||(uint8_t)(status>>8)!=track||
+       !(valid&(1u<<(disk_sector-1u)))){
+        if(physical_capture_track(track,side))return 1;
+        status=PHYSICAL_FLOPPY_DECODE_STATUS;
+        valid=PHYSICAL_FLOPPY_DECODE_VALID;
+        if(!(status&4u)||!(valid&(1u<<(disk_sector-1u))))return 1;
+    }
+    base=(uint16_t)(disk_sector-1u)*256u;
+    if(publish)FDC_BUFFER_RESET=0;
+    for(uint16_t n=0;n<256u;++n){
+        uint8_t value;
+        PHYSICAL_FLOPPY_DECODE_ADDRESS=(uint32_t)(base+n);
+        value=(uint8_t)PHYSICAL_FLOPPY_DECODE_DATA;
+        value=(uint8_t)PHYSICAL_FLOPPY_DECODE_DATA;
+        if(publish)FDC_BUFFER_DATA=value;
+        else if(n<16u){hex(value);if(n!=15u)putc(' ');}
+    }
+    return 0;
+}
 static void serial_execute_command(void){
-    uint8_t value;
+    uint8_t value,floppy_track,floppy_sector;
     uint16_t word;
     serial_command[serial_command_length]=0;
     if(equal(serial_command,"PING")){puts("PONG\r\n");}
     else if(equal(serial_command,"STATUS")){serial_reply_status();}
     else if(equal(serial_command,"FLOPPY")){serial_reply_floppy();}
     else if(equal(serial_command,"FLOPPY START")){if(!(PHYSICAL_FLOPPY_STATUS&8u))puts("ERR FLOPPY DISABLED\r\n");else{physical_floppy_control&=~1u;floppy_write_control();physical_floppy_control|=1u;floppy_write_control();puts("OK FLOPPY START\r\n");}}
-    else if(equal(serial_command,"FLOPPY HOME")){uint32_t status=PHYSICAL_FLOPPY_STATUS;if(!(status&8u))puts("ERR FLOPPY DISABLED\r\n");else if(status&32u)puts("ERR FLOPPY BUSY\r\n");else{floppy_event(2u);puts("OK FLOPPY HOME\r\n");}}
+    else if(equal(serial_command,"FLOPPY HOME")){uint32_t status=PHYSICAL_FLOPPY_STATUS;physical_track_known=0;physical_decode_valid=0;if(!(status&8u))puts("ERR FLOPPY DISABLED\r\n");else if(status&32u)puts("ERR FLOPPY BUSY\r\n");else{floppy_event(2u);puts("OK FLOPPY HOME\r\n");}}
     else if(equal(serial_command,"FLOPPY STOP")){physical_floppy_control&=~1u;floppy_event(4u);puts("OK FLOPPY STOP\r\n");}
-    else if(equal(serial_command,"FLOPPY DIR 0")){physical_floppy_control&=~8u;floppy_write_control();puts("OK FLOPPY DIR 0\r\n");}
-    else if(equal(serial_command,"FLOPPY DIR 1")){physical_floppy_control|=8u;floppy_write_control();puts("OK FLOPPY DIR 1\r\n");}
-    else if(equal(serial_command,"FLOPPY SIDE 0")){physical_floppy_control&=~16u;floppy_write_control();puts("OK FLOPPY SIDE 0\r\n");}
-    else if(equal(serial_command,"FLOPPY SIDE 1")){physical_floppy_control|=16u;floppy_write_control();puts("OK FLOPPY SIDE 1\r\n");}
-    else if(equal(serial_command,"FLOPPY STEP")){uint32_t status=PHYSICAL_FLOPPY_STATUS;if(!(status&8u))puts("ERR FLOPPY DISABLED\r\n");else if(!(status&16u))puts("ERR FLOPPY MOTOR OFF\r\n");else if(status&32u)puts("ERR FLOPPY BUSY\r\n");else{floppy_event(32u);puts("OK FLOPPY STEP\r\n");}}
+    else if(equal(serial_command,"FLOPPY DIR 0")){physical_decode_valid=0;physical_floppy_control&=~8u;floppy_write_control();puts("OK FLOPPY DIR 0\r\n");}
+    else if(equal(serial_command,"FLOPPY DIR 1")){physical_decode_valid=0;physical_floppy_control|=8u;floppy_write_control();puts("OK FLOPPY DIR 1\r\n");}
+    else if(equal(serial_command,"FLOPPY SIDE 0")){physical_decode_valid=0;physical_floppy_control&=~16u;floppy_write_control();puts("OK FLOPPY SIDE 0\r\n");}
+    else if(equal(serial_command,"FLOPPY SIDE 1")){physical_decode_valid=0;physical_floppy_control|=16u;floppy_write_control();puts("OK FLOPPY SIDE 1\r\n");}
+    else if(equal(serial_command,"FLOPPY STEP")){uint32_t status=PHYSICAL_FLOPPY_STATUS;physical_track_known=0;physical_decode_valid=0;if(!(status&8u))puts("ERR FLOPPY DISABLED\r\n");else if(!(status&16u))puts("ERR FLOPPY MOTOR OFF\r\n");else if(status&32u)puts("ERR FLOPPY BUSY\r\n");else{floppy_event(32u);puts("OK FLOPPY STEP\r\n");}}
+    else if(equal(serial_command,"FLOPPY MOUNT")){physical_drive0=1u;physical_track_known=0;physical_decode_valid=0;MOUNT_STATUS=0x101u;puts("OK FLOPPY MOUNT D0 READ ONLY\r\n");}
+    else if(equal(serial_command,"FLOPPY UNMOUNT")){physical_drive0=0u;physical_track_known=0;physical_decode_valid=0;physical_floppy_control&=~1u;floppy_write_control();MOUNT_STATUS=card_online?0x100u:0u;puts("OK FLOPPY UNMOUNT\r\n");}
+    else if(parse_floppy_read(&floppy_track,&floppy_sector)){
+        puts("FLOPPY SECTOR T=");hex(floppy_track);puts(" S=");hex(floppy_sector);puts(" DATA=");
+        if(physical_read_sector(floppy_track,0u,floppy_sector,0u))puts("ERR\r\n");else puts(" OK\r\n");
+    }
     else if(equal(serial_command,"FLUX BULK")){serial_capture_flux_bulk(0u);}
     else if(equal(serial_command,"FLUX TRACK")){serial_capture_flux_bulk(1u);}
     else if(serial_command[0]=='F'&&serial_command[1]=='L'&&serial_command[2]=='U'&&serial_command[3]=='X'&&serial_command[4]==' '&&parse_hex_word(&serial_command[5],&word)){serial_capture_flux(word);}
@@ -985,6 +1103,7 @@ static int run_disk_menu(uint8_t *present){
             for(uint16_t n=0;n<MAX_NAME;++n)candidate.name[n]=browser_entries[menu_selection].name[n];
             candidate.cluster=browser_entries[menu_selection].cluster;candidate.size=browser_entries[menu_selection].size;
             draw_menu("Mounting drive 0 - please wait");
+            physical_drive0=0;physical_track_known=0;physical_decode_valid=0;
             MOUNT_STATUS=0;
             if(!load_disk_cache(&candidate)){
                 copy_disk(&mounted_disk,&candidate);*present=1;MOUNT_STATUS=0x101u;
@@ -1031,6 +1150,10 @@ int main(void){
             probe=0;
             if(read_sector(0)){present=0;error=1;}
         }
+        // A physical drive remains present even if the independent SD card is
+        // removed. Reassert D0 because media_lost() correctly clears SD-backed
+        // mounts but must not hide the selected real floppy.
+        if(physical_drive0)MOUNT_STATUS=0x101u;
         uint32_t state=FDC_STATE;
         if(((state>>11)&1u)!=seen_complete){uint32_t word=FDC_COMPLETED_DEBUG_WORD;
             puts("FDC CPU ");hex((uint8_t)(word>>24));putc(' ');hex((uint8_t)(word>>16));putc(' ');hex((uint8_t)(word>>8));putc(' ');hex((uint8_t)word);puts("\r\n");
@@ -1038,16 +1161,19 @@ int main(void){
         if(((state>>12)&1u)!=seen_write){
             uint32_t info=FDC_INFO;uint8_t drive=info&3u,disk_sector=(info>>8)&0xffu,track=(info>>16)&0xffu;
             uint8_t side=(info>>2)&1u;
-            int ok=card_online&&error==0&&drive==0&&(present&1u)&&!flush_decb_sector(&mounted_disk,track,side,disk_sector);
+            int ok=!physical_drive0&&card_online&&error==0&&drive==0&&
+                (present&1u)&&!flush_decb_sector(&mounted_disk,track,side,disk_sector);
             puts(ok ? "FDC WRITE OK " : "FDC WRITE ERR ");hex(drive);putc(' ');hex(track);putc(' ');hex(disk_sector);puts("\r\n");
             FDC_WRITE_ACK=ok?1:0;seen_write=(state>>12)&1u;
         }
         if((state&1u)!=seen){uint32_t info=FDC_INFO;uint8_t drive=info&3u, disk_sector=(info>>8)&0xffu, track=(info>>16)&0xffu, type1=info>>24;
             // D0 is already in the full-image cache. Future D1/D2 requests
             // will populate the owned sector banks here instead.
-            int ok=card_online&&error==0&&drive==0&&(present&1u);
-            puts(ok ? "FDC CACHE " : "FDC ERR "); hex(drive);putc(' ');hex(track);putc(' ');hex(disk_sector);putc(' ');hex(type1);
-            if(ok){puts(" BUF ");print_buffer_head();}
+            int ok=drive==0&&(physical_drive0
+                ? !physical_read_sector(track,(info>>2)&1u,disk_sector,1u)
+                : (card_online&&error==0&&(present&1u)));
+            puts(ok ? (physical_drive0?"FDC PHYSICAL ":"FDC CACHE ") : "FDC ERR "); hex(drive);putc(' ');hex(track);putc(' ');hex(disk_sector);putc(' ');hex(type1);
+            if(ok&&!physical_drive0){puts(" BUF ");print_buffer_head();}
             puts("\r\n");
             FDC_ACK=ok?1:0; seen=state&1u;
         }

@@ -1,26 +1,22 @@
 param([string]$VivadoBin = 'C:\AMD\2025.2\Vivado\bin')
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path -Parent $PSScriptRoot
-$runDir = Join-Path $repoRoot 'build\pmod_floppy_read_only'
+$runDir = Join-Path $repoRoot 'build\floppy_mfm_track_decoder'
 New-Item -ItemType Directory -Force -Path $runDir | Out-Null
-
 Push-Location $runDir
 try {
-    & "$VivadoBin\xvlog.bat" `
+    & "$vivadoBin\xvlog.bat" `
         (Join-Path $repoRoot 'rtl\wukong\floppy_mfm_track_decoder.v') `
-        (Join-Path $repoRoot 'rtl\wukong\pmod_floppy_read_only.v') `
-        (Join-Path $repoRoot 'tb\pmod_floppy_read_only_tb.v')
+        (Join-Path $repoRoot 'tb\floppy_mfm_track_decoder_tb.v')
     if ($LASTEXITCODE) { throw "xvlog failed: $LASTEXITCODE" }
-    & "$VivadoBin\xelab.bat" pmod_floppy_read_only_tb `
-        -s pmod_floppy_read_only_sim
+    & "$vivadoBin\xelab.bat" floppy_mfm_track_decoder_tb `
+        -s floppy_mfm_track_decoder_sim
     if ($LASTEXITCODE) { throw "xelab failed: $LASTEXITCODE" }
-    & "$VivadoBin\xsim.bat" pmod_floppy_read_only_sim -runall
+    & "$vivadoBin\xsim.bat" floppy_mfm_track_decoder_sim -runall
     if ($LASTEXITCODE) { throw "xsim failed: $LASTEXITCODE" }
     $pass = Select-String -Path xsim.log -SimpleMatch `
-        'PASS: J13 read-only floppy telemetry, motor, and home'
-    if (-not $pass) {
-        throw 'J13 read-only floppy regression did not report PASS'
-    }
+        'PASS: CoCo DECB MFM track decoder and CRC'
+    if (-not $pass) { throw 'MFM decoder regression did not report PASS' }
 } finally {
     Pop-Location
 }

@@ -98,6 +98,17 @@ module manager_sd_mmio #(
     input wire [31:0] physical_floppy_capture_hash,
     input wire [15:0] physical_floppy_capture_sample_count,
     input wire [15:0] physical_floppy_capture_sample_data,
+    output reg physical_floppy_decode_request_toggle,
+    output reg [12:0] physical_floppy_decode_cache_address,
+    input wire physical_floppy_decode_busy,
+    input wire physical_floppy_decode_done_toggle,
+    input wire physical_floppy_decode_success,
+    input wire [7:0] physical_floppy_decode_track,
+    input wire physical_floppy_decode_side,
+    input wire [17:0] physical_floppy_decode_sector_valid,
+    input wire [7:0] physical_floppy_decode_id_crc_errors,
+    input wire [7:0] physical_floppy_decode_data_crc_errors,
+    input wire [7:0] physical_floppy_decode_cache_data,
     output reg video_capture_request_toggle,
     output reg [2:0] video_capture_stripe,
     output reg [15:0] video_capture_read_address,
@@ -184,7 +195,12 @@ module manager_sd_mmio #(
                PHYSICAL_FLOPPY_CAPTURE_HASH = 32'h800002ec,
                PHYSICAL_FLOPPY_CAPTURE_ADDRESS = 32'h800002f0,
                PHYSICAL_FLOPPY_CAPTURE_DATA = 32'h800002f4,
-               UART_DIVISOR = 32'h800002f8;
+               UART_DIVISOR = 32'h800002f8,
+               PHYSICAL_FLOPPY_DECODE_CONTROL = 32'h800002fc,
+               PHYSICAL_FLOPPY_DECODE_STATUS = 32'h80000300,
+               PHYSICAL_FLOPPY_DECODE_VALID = 32'h80000304,
+               PHYSICAL_FLOPPY_DECODE_ADDRESS = 32'h80000308,
+               PHYSICAL_FLOPPY_DECODE_DATA = 32'h8000030c;
     reg have_address, have_data, transaction_active, await_spi, spi_seen_busy;
     reg [31:0] write_address, write_data;
     reg [7:0] spi_tx, spi_rx, spi_tx_shift, spi_rx_shift;
@@ -557,6 +573,8 @@ module manager_sd_mmio #(
             physical_floppy_capture_request_toggle <= 1'b0;
             physical_floppy_capture_skip_count <= 16'b0;
             physical_floppy_capture_sample_address <= 16'b0;
+            physical_floppy_decode_request_toggle <= 1'b0;
+            physical_floppy_decode_cache_address <= 13'b0;
             uart_claim <= 1'b0;
             video_capture_request_toggle <= 1'b0;
             video_capture_stripe <= 3'b0;
@@ -812,6 +830,16 @@ module manager_sd_mmio #(
                     physical_floppy_capture_sample_address <=
                         write_data[15:0];
                     axi_bvalid <= 1'b1;
+                end else if (write_address ==
+                             PHYSICAL_FLOPPY_DECODE_CONTROL) begin
+                    if (write_data[0])
+                        physical_floppy_decode_request_toggle <=
+                            ~physical_floppy_decode_request_toggle;
+                    axi_bvalid <= 1'b1;
+                end else if (write_address ==
+                             PHYSICAL_FLOPPY_DECODE_ADDRESS) begin
+                    physical_floppy_decode_cache_address <= write_data[12:0];
+                    axi_bvalid <= 1'b1;
                 end else if (write_address == UART_DIVISOR) begin
                     // Firmware changes speed only while TX is idle. Keep the
                     // legal range bounded so a bad command cannot wedge the
@@ -1006,6 +1034,26 @@ module manager_sd_mmio #(
                     PHYSICAL_FLOPPY_CAPTURE_DATA:
                         axi_rdata <= {16'b0,
                             physical_floppy_capture_sample_data};
+                    PHYSICAL_FLOPPY_DECODE_CONTROL:
+                        axi_rdata <= {31'b0,
+                            physical_floppy_decode_request_toggle};
+                    PHYSICAL_FLOPPY_DECODE_STATUS: axi_rdata <= {
+                        physical_floppy_decode_id_crc_errors,
+                        physical_floppy_decode_data_crc_errors,
+                        physical_floppy_decode_track, 4'b0,
+                        physical_floppy_decode_side,
+                        physical_floppy_decode_success,
+                        physical_floppy_decode_busy,
+                        physical_floppy_decode_done_toggle};
+                    PHYSICAL_FLOPPY_DECODE_VALID:
+                        axi_rdata <= {14'b0,
+                            physical_floppy_decode_sector_valid};
+                    PHYSICAL_FLOPPY_DECODE_ADDRESS:
+                        axi_rdata <= {19'b0,
+                            physical_floppy_decode_cache_address};
+                    PHYSICAL_FLOPPY_DECODE_DATA:
+                        axi_rdata <= {24'b0,
+                            physical_floppy_decode_cache_data};
                     UART_DIVISOR:
                         axi_rdata <= {16'b0, uart_clks_per_bit};
                     MENU_KEY_STATE: axi_rdata <= {22'b0, menu_key_state};

@@ -31,6 +31,8 @@ module pmod_floppy_read_only #(
     input  wire        capture_request_toggle,
     input  wire [15:0] capture_skip_count,
     input  wire [15:0] capture_sample_address,
+    input  wire        decode_request_toggle,
+    input  wire [12:0] decode_cache_address,
     input  wire        read_data_n,
     input  wire        track_zero_n,
     input  wire        index_n,
@@ -59,7 +61,16 @@ module pmod_floppy_read_only #(
     output reg  [15:0] capture_max_interval,
     output reg  [31:0] capture_hash,
     output reg  [15:0] capture_sample_count,
-    output reg  [15:0] capture_sample_data
+    output reg  [15:0] capture_sample_data,
+    output wire        decode_busy,
+    output reg         decode_done_toggle,
+    output wire        decode_success,
+    output wire [7:0]  decode_track,
+    output wire        decode_side,
+    output wire [17:0] decode_sector_valid,
+    output wire [7:0]  decode_id_crc_errors,
+    output wire [7:0]  decode_data_crc_errors,
+    output wire [7:0]  decode_cache_data
 );
     (* ASYNC_REG = "TRUE" *) reg [2:0] input_meta;
     (* ASYNC_REG = "TRUE" *) reg [2:0] input_sync;
@@ -91,6 +102,20 @@ module pmod_floppy_read_only #(
         capture_bulk_samples [0:CAPTURE_BULK_SAMPLES-1];
     reg [15:0] capture_sample_word;
     reg [7:0] capture_bulk_sample_byte;
+    reg decode_request_meta;
+    reg decode_request_sync;
+    reg decode_request_previous;
+    reg decode_start;
+    reg decode_sample_valid;
+    reg decode_sample_last;
+    reg [7:0] decode_sample_interval;
+    reg [15:0] decode_sample_index;
+    reg [2:0] decode_feed_state;
+    reg decode_done_previous;
+    wire decode_sample_ready;
+    wire decode_done;
+    wire [15:0] bulk_read_address = decode_busy
+        ? decode_sample_index : capture_sample_address;
     wire index_active_edge = input_previous[0] && !input_sync[0];
     // RD is an active-low pulse for each detected flux transition. The rising
     // edge is the fixed pulse ending, not a second transition.
@@ -112,6 +137,25 @@ module pmod_floppy_read_only #(
     localparam [1:0] CAPTURE_IDLE = 2'd0,
                      CAPTURE_WAIT_INDEX = 2'd1,
                      CAPTURE_REVOLUTION = 2'd2;
+    localparam [2:0] DECODE_FEED_IDLE = 3'd0,
+                     DECODE_FEED_WAIT1 = 3'd1,
+                     DECODE_FEED_WAIT2 = 3'd2,
+                     DECODE_FEED_SEND = 3'd3;
+
+    floppy_mfm_track_decoder mfm_decoder_i (
+        .clock(clock), .reset(reset), .start(decode_start),
+        .sample_valid(decode_sample_valid),
+        .sample_ready(decode_sample_ready),
+        .sample_interval(decode_sample_interval),
+        .sample_last(decode_sample_last),
+        .cache_read_address(decode_cache_address),
+        .cache_read_data(decode_cache_data), .busy(decode_busy),
+        .done(decode_done), .success(decode_success),
+        .decoded_track(decode_track), .decoded_side(decode_side),
+        .sector_valid(decode_sector_valid),
+        .id_crc_errors(decode_id_crc_errors),
+        .data_crc_errors(decode_data_crc_errors)
+    );
 
     // Select, motor, and step are active low. Direction and side are runtime
     // controls so drive mechanics and cable wiring can be diagnosed over the
@@ -170,6 +214,17 @@ module pmod_floppy_read_only #(
             capture_hash <= 32'h811c9dc5;
             capture_sample_count <= 16'b0;
             capture_sample_data <= 16'b0;
+            decode_request_meta <= 1'b0;
+            decode_request_sync <= 1'b0;
+            decode_request_previous <= 1'b0;
+            decode_start <= 1'b0;
+            decode_sample_valid <= 1'b0;
+            decode_sample_last <= 1'b0;
+            decode_sample_interval <= 8'b0;
+            decode_sample_index <= 16'b0;
+            decode_feed_state <= DECODE_FEED_IDLE;
+            decode_done_previous <= 1'b0;
+            decode_done_toggle <= 1'b0;
         end else begin
             input_meta <= {read_data_n, track_zero_n, index_n};
             input_sync <= input_meta;
@@ -183,6 +238,15 @@ module pmod_floppy_read_only #(
             capture_request_meta <= capture_request_toggle;
             capture_request_sync <= capture_request_meta;
             capture_request_previous <= capture_request_sync;
+            decode_request_meta <= decode_request_toggle;
+            decode_request_sync <= decode_request_meta;
+            decode_request_previous <= decode_request_sync;
+            decode_start <= 1'b0;
+            decode_sample_valid <= 1'b0;
+            decode_sample_last <= 1'b0;
+            decode_done_previous <= decode_done;
+            if (decode_done && !decode_done_previous)
+                decode_done_toggle <= ~decode_done_toggle;
             // Select between independently registered BRAM read ports.  A
             // mux around the array references prevents Vivado from inferring
             // block RAM and would otherwise expand the 64 KiB track buffer
@@ -474,13 +538,49 @@ module pmod_floppy_read_only #(
                     read_transition_count != 32'hffffffff)
                     read_transition_count <= read_transition_count + 1'b1;
             end
+
+            // Reuse the bulk-capture BRAM as the source for an offline MFM
+            // decode. The decoder owns the read address only while active;
+            // serial flux uploads retain the same external read port at all
+            // other times.
+            if ((decode_request_sync != decode_request_previous) &&
+                !capture_busy && !decode_busy && capture_bulk_mode &&
+                capture_success && capture_sample_count != 0) begin
+                decode_start <= 1'b1;
+                decode_sample_index <= 16'b0;
+                decode_feed_state <= DECODE_FEED_WAIT1;
+            end else if (decode_busy) begin
+                case (decode_feed_state)
+                    DECODE_FEED_WAIT1:
+                        decode_feed_state <= DECODE_FEED_WAIT2;
+                    DECODE_FEED_WAIT2:
+                        decode_feed_state <= DECODE_FEED_SEND;
+                    DECODE_FEED_SEND: begin
+                        if (decode_sample_ready) begin
+                            decode_sample_interval <=
+                                capture_bulk_sample_byte;
+                            decode_sample_last <= decode_sample_index + 1'b1 ==
+                                                  capture_sample_count;
+                            decode_sample_valid <= 1'b1;
+                            if (decode_sample_index + 1'b1 !=
+                                capture_sample_count) begin
+                                decode_sample_index <=
+                                    decode_sample_index + 1'b1;
+                                decode_feed_state <= DECODE_FEED_WAIT1;
+                            end else
+                                decode_feed_state <= DECODE_FEED_IDLE;
+                        end
+                    end
+                    default: decode_feed_state <= DECODE_FEED_IDLE;
+                endcase
+            end else if (decode_feed_state != DECODE_FEED_WAIT1)
+                decode_feed_state <= DECODE_FEED_IDLE;
         end
     end
 
     always @(posedge clock) begin
         capture_sample_word <= capture_samples[capture_sample_address[9:0]];
-        capture_bulk_sample_byte <=
-            capture_bulk_samples[capture_sample_address];
+        capture_bulk_sample_byte <= capture_bulk_samples[bulk_read_address];
     end
 endmodule
 

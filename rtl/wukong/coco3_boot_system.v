@@ -46,6 +46,17 @@ module coco3_boot_system #(
     input wire [31:0] physical_floppy_capture_hash,
     input wire [15:0] physical_floppy_capture_sample_count,
     input wire [15:0] physical_floppy_capture_sample_data,
+    output wire physical_floppy_decode_request_toggle,
+    output wire [12:0] physical_floppy_decode_cache_address,
+    input wire physical_floppy_decode_busy,
+    input wire physical_floppy_decode_done_toggle,
+    input wire physical_floppy_decode_success,
+    input wire [7:0] physical_floppy_decode_track,
+    input wire physical_floppy_decode_side,
+    input wire [17:0] physical_floppy_decode_sector_valid,
+    input wire [7:0] physical_floppy_decode_id_crc_errors,
+    input wire [7:0] physical_floppy_decode_data_crc_errors,
+    input wire [7:0] physical_floppy_decode_cache_data,
     output wire hsync, output wire vsync, output wire video_enable,
     output wire [6:0] audio_dac,
     output wire narrow_video_mode,
@@ -470,6 +481,24 @@ module coco3_boot_system #(
             physical_floppy_capture_sample_count),
         .physical_floppy_capture_sample_data(
             physical_floppy_capture_sample_data),
+        .physical_floppy_decode_request_toggle(
+            physical_floppy_decode_request_toggle),
+        .physical_floppy_decode_cache_address(
+            physical_floppy_decode_cache_address),
+        .physical_floppy_decode_busy(physical_floppy_decode_busy),
+        .physical_floppy_decode_done_toggle(
+            physical_floppy_decode_done_toggle),
+        .physical_floppy_decode_success(physical_floppy_decode_success),
+        .physical_floppy_decode_track(physical_floppy_decode_track),
+        .physical_floppy_decode_side(physical_floppy_decode_side),
+        .physical_floppy_decode_sector_valid(
+            physical_floppy_decode_sector_valid),
+        .physical_floppy_decode_id_crc_errors(
+            physical_floppy_decode_id_crc_errors),
+        .physical_floppy_decode_data_crc_errors(
+            physical_floppy_decode_data_crc_errors),
+        .physical_floppy_decode_cache_data(
+            physical_floppy_decode_cache_data),
         .video_capture_request_toggle(video_capture_request_toggle),
         .video_capture_stripe(video_capture_stripe),
         .video_capture_read_address(video_capture_read_address),

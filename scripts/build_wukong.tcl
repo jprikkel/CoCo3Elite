@@ -40,6 +40,7 @@ set sources [list \
     [file join $rtl_dir clocking.v] \
     [file join $rtl_dir pmod_atari_joystick.v] \
     [file join $rtl_dir pmod_floppy_read_only.v] \
+    [file join $rtl_dir floppy_mfm_track_decoder.v] \
     [file join $rtl_dir hdmi test_pattern.v] \
     [file join $rtl_dir hdmi tmds_serializer.v]]
 set systemverilog_sources [list [file join $rtl_dir wukong_top.v]]

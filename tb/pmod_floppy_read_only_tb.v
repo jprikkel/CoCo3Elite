@@ -12,6 +12,8 @@ module pmod_floppy_read_only_tb;
     reg capture_request_toggle = 1'b0;
     reg [15:0] capture_skip_count = 16'b0;
     reg [15:0] capture_sample_address = 16'b0;
+    reg decode_request_toggle = 1'b0;
+    reg [12:0] decode_cache_address = 13'b0;
     reg read_data_n = 1'b1;
     reg track_zero_n = 1'b1;
     reg index_n = 1'b1;
@@ -28,6 +30,10 @@ module pmod_floppy_read_only_tb;
     wire [23:0] capture_revolution_cycles;
     wire [31:0] capture_hash;
     wire [15:0] capture_sample_count;
+    wire decode_busy, decode_done_toggle, decode_success, decode_side;
+    wire [7:0] decode_track, decode_id_crc_errors;
+    wire [7:0] decode_data_crc_errors, decode_cache_data;
+    wire [17:0] decode_sector_valid;
 
     always #5 clock = !clock;
 
@@ -47,6 +53,8 @@ module pmod_floppy_read_only_tb;
         .capture_request_toggle(capture_request_toggle),
         .capture_skip_count(capture_skip_count),
         .capture_sample_address(capture_sample_address),
+        .decode_request_toggle(decode_request_toggle),
+        .decode_cache_address(decode_cache_address),
         .read_data_n(read_data_n), .track_zero_n(track_zero_n),
         .index_n(index_n), .drive_select_n(drive_select_n),
         .motor_enable_n(motor_enable_n), .direction(direction),
@@ -69,7 +77,15 @@ module pmod_floppy_read_only_tb;
         .capture_max_interval(capture_max_interval),
         .capture_hash(capture_hash),
         .capture_sample_count(capture_sample_count),
-        .capture_sample_data(capture_sample_data)
+        .capture_sample_data(capture_sample_data),
+        .decode_busy(decode_busy),
+        .decode_done_toggle(decode_done_toggle),
+        .decode_success(decode_success), .decode_track(decode_track),
+        .decode_side(decode_side),
+        .decode_sector_valid(decode_sector_valid),
+        .decode_id_crc_errors(decode_id_crc_errors),
+        .decode_data_crc_errors(decode_data_crc_errors),
+        .decode_cache_data(decode_cache_data)
     );
 
     task settle;
