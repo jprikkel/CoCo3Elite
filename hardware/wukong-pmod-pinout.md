@@ -69,6 +69,11 @@ Building with `-SdSlot PMOD` instead assigns J13 pin 1 to chip select, pin 2 to
 MOSI, pin 3 to MISO, and pin 4 to SPI clock. The two targets use separate,
 mutually exclusive constraint fragments.
 
+The proposed [read-only physical floppy interface](pmod-physical-floppy-interface.md)
+also uses J13 and is therefore mutually exclusive with the PMOD MicroSD build.
+Its passive interposer uses all eight J13 signal pins to connect one Adafruit
+Floppy FeatherWing while leaving write gate and write data disconnected.
+
 J10 is assigned to one direct Atari/C64-style digital joystick:
 
 | J10 pin | FPGA pin | Function |

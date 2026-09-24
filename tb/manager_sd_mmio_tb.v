@@ -15,6 +15,21 @@ module manager_sd_mmio_tb;
     wire [15:0] video_capture_read_address;
     reg [7:0] video_capture_read_data = 8'ha5;
     reg video_capture_done_toggle = 0, video_capture_busy = 0;
+    reg physical_floppy_present = 1;
+    reg [2:0] physical_floppy_status = 3'b110;
+    reg [31:0] physical_floppy_index_count = 32'h12345678;
+    reg [31:0] physical_floppy_read_transition_count = 32'h9abcdef0;
+    reg physical_floppy_motor_active = 1'b1;
+    reg physical_floppy_home_active = 1'b0;
+    reg physical_floppy_home_done_toggle = 1'b1;
+    reg physical_floppy_home_success = 1'b1;
+    reg [7:0] physical_floppy_home_step_count = 8'h2a;
+    wire physical_floppy_motor_request;
+    wire physical_floppy_direction_request;
+    wire physical_floppy_side_select_request;
+    wire physical_floppy_step_request_toggle;
+    wire physical_floppy_home_request_toggle;
+    wire physical_floppy_abort_request_toggle;
     wire [14:0] cartridge_address;
     wire [7:0] cartridge_data;
     wire cartridge_write, cartridge_enabled, cartridge_launch;
@@ -105,6 +120,27 @@ module manager_sd_mmio_tb;
         .debug_cpu_pc(16'ha7d5), .debug_gime_init0(8'h40),
         .debug_gime_init1(8'h00), .debug_video_mode(8'h80),
         .debug_video_resolution(8'h12),
+        .physical_floppy_present(physical_floppy_present),
+        .physical_floppy_status(physical_floppy_status),
+        .physical_floppy_index_count(physical_floppy_index_count),
+        .physical_floppy_read_transition_count(
+            physical_floppy_read_transition_count),
+        .physical_floppy_motor_request(physical_floppy_motor_request),
+        .physical_floppy_direction_request(
+            physical_floppy_direction_request),
+        .physical_floppy_side_select_request(
+            physical_floppy_side_select_request),
+        .physical_floppy_step_request_toggle(
+            physical_floppy_step_request_toggle),
+        .physical_floppy_home_request_toggle(
+            physical_floppy_home_request_toggle),
+        .physical_floppy_abort_request_toggle(
+            physical_floppy_abort_request_toggle),
+        .physical_floppy_motor_active(physical_floppy_motor_active),
+        .physical_floppy_home_active(physical_floppy_home_active),
+        .physical_floppy_home_done_toggle(physical_floppy_home_done_toggle),
+        .physical_floppy_home_success(physical_floppy_home_success),
+        .physical_floppy_home_step_count(physical_floppy_home_step_count),
         .video_capture_request_toggle(video_capture_request_toggle),
         .video_capture_stripe(video_capture_stripe),
         .video_capture_read_address(video_capture_read_address),
@@ -183,6 +219,39 @@ module manager_sd_mmio_tb;
         read32(32'h8000029c, value);
         if (value !== 32'h40008012)
             $fatal(1, "video status readback mismatch: %h", value);
+        $display("checking physical floppy diagnostic MMIO");
+        read32(32'h800002c4, value);
+        if (value !== 32'h00002ade)
+            $fatal(1, "physical floppy status mismatch: %h", value);
+        read32(32'h800002c8, value);
+        if (value !== 32'h12345678)
+            $fatal(1, "physical floppy index count mismatch: %h", value);
+        read32(32'h800002cc, value);
+        if (value !== 32'h9abcdef0)
+            $fatal(1, "physical floppy read count mismatch: %h", value);
+        write32(32'h800002d0, 32'h00000019);
+        if (!physical_floppy_motor_request ||
+            !physical_floppy_direction_request ||
+            !physical_floppy_side_select_request)
+            $fatal(1, "physical floppy motor request was not published");
+        read32(32'h800002d0, value);
+        if (value !== 32'h00000019)
+            $fatal(1, "physical floppy control readback mismatch: %h", value);
+        write32(32'h800002d0, 32'h00000018);
+        if (physical_floppy_motor_request)
+            $fatal(1, "physical floppy motor request did not stop");
+        write32(32'h800002d0, 32'h0000001a);
+        if (!physical_floppy_home_request_toggle)
+            $fatal(1, "physical floppy home event was not published");
+        write32(32'h800002d0, 32'h0000001c);
+        if (!physical_floppy_abort_request_toggle)
+            $fatal(1, "physical floppy abort event was not published");
+        write32(32'h800002d0, 32'h00000038);
+        if (!physical_floppy_step_request_toggle)
+            $fatal(1, "physical floppy step event was not published");
+        read32(32'h800002d0, value);
+        if (value[5:0] !== 6'b111110)
+            $fatal(1, "physical floppy event readback mismatch: %h", value);
         $display("checking video capture and UART ownership MMIO");
         write32(32'h800002a0, 1);
         if (!uart_claim) $fatal(1, "manager UART claim was not retained");

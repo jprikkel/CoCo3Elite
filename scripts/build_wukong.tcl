@@ -14,6 +14,7 @@ set cpu_uart_debug [expr {$argc > 3 ? [lindex $argv 3] : 1}]
 # block-RAM implementation; SDRAM is still available for isolated experiments.
 set use_sdram [expr {$argc > 4 ? [lindex $argv 4] : 0}]
 set sd_slot [string toupper [expr {$argc > 5 ? [lindex $argv 5] : "ONBOARD"}]]
+set physical_floppy [expr {$argc > 6 ? [lindex $argv 6] : 0}]
 set top        wukong_top
 
 # Allow Vivado implementation phases to use the available host cores. Some
@@ -26,12 +27,19 @@ if {$mode ni {HDMI_TEST_PATTERN COCO3_ELITE BASIC_6809_DVI_TEST}} {
 if {$sd_slot ni {ONBOARD PMOD}} {
     error "Unknown SD slot '$sd_slot'; use ONBOARD or PMOD"
 }
+if {$physical_floppy && $mode ne "COCO3_ELITE"} {
+    error "The physical floppy probe is available only in COCO3_ELITE mode"
+}
+if {$physical_floppy && $sd_slot eq "PMOD"} {
+    error "J13 cannot host the physical floppy interface and PMOD SD simultaneously; use ONBOARD SD"
+}
 
 file mkdir $output_dir
 
 set sources [list \
     [file join $rtl_dir clocking.v] \
     [file join $rtl_dir pmod_atari_joystick.v] \
+    [file join $rtl_dir pmod_floppy_read_only.v] \
     [file join $rtl_dir hdmi test_pattern.v] \
     [file join $rtl_dir hdmi tmds_serializer.v]]
 set systemverilog_sources [list [file join $rtl_dir wukong_top.v]]
@@ -104,6 +112,9 @@ if {$mode eq "COCO3_ELITE"} {
         lappend sources [file join $rtl_dir coco3_uart_debug.v]
         lappend coco3_defines COCO3_CPU_UART_DEBUG
     }
+    if {$physical_floppy} {
+        lappend coco3_defines WUKONG_PHYSICAL_FLOPPY
+    }
     set_property verilog_define $coco3_defines [current_fileset]
     read_verilog [file join $repo_dir rtl third-party MC6809 mc6809i.v]
     read_verilog [file join $repo_dir rtl core cpu09.v]
@@ -125,6 +136,10 @@ read_xdc [file join $repo_dir constraints wukong.xdc]
 set sd_xdc [expr {$sd_slot eq "ONBOARD" ? "wukong_sd_onboard.xdc" : "wukong_sd_pmod.xdc"}]
 read_xdc [file join $repo_dir constraints $sd_xdc]
 puts "MicroSD target: $sd_slot ([file join $repo_dir constraints $sd_xdc])"
+if {$physical_floppy} {
+    read_xdc [file join $repo_dir constraints wukong_floppy_j13.xdc]
+    puts "Physical floppy target: J13 read-only interface with bounded motor test"
+}
 if {$mode in {HDMI_TEST_PATTERN COCO3_ELITE}} {
     read_xdc [file join $repo_dir constraints wukong_audio.xdc]
 }

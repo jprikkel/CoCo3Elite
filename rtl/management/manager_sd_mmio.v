@@ -67,6 +67,21 @@ module manager_sd_mmio #(
     input wire [15:0] debug_cpu_pc,
     input wire [7:0] debug_gime_init0, input wire [7:0] debug_gime_init1,
     input wire [7:0] debug_video_mode, input wire [7:0] debug_video_resolution,
+    input wire physical_floppy_present,
+    input wire [2:0] physical_floppy_status,
+    input wire [31:0] physical_floppy_index_count,
+    input wire [31:0] physical_floppy_read_transition_count,
+    output reg physical_floppy_motor_request,
+    output reg physical_floppy_direction_request,
+    output reg physical_floppy_side_select_request,
+    output reg physical_floppy_step_request_toggle,
+    output reg physical_floppy_home_request_toggle,
+    output reg physical_floppy_abort_request_toggle,
+    input wire physical_floppy_motor_active,
+    input wire physical_floppy_home_active,
+    input wire physical_floppy_home_done_toggle,
+    input wire physical_floppy_home_success,
+    input wire [7:0] physical_floppy_home_step_count,
     output reg video_capture_request_toggle,
     output reg [2:0] video_capture_stripe,
     output reg [15:0] video_capture_read_address,
@@ -139,7 +154,11 @@ module manager_sd_mmio #(
                OSD_PREVIEW_ADDRESS = 32'h800002b4,
                OSD_PREVIEW_DATA = 32'h800002b8,
                OSD_PREVIEW_PALETTE = 32'h800002bc,
-               OSD_PREVIEW_CONTROL = 32'h800002c0;
+               OSD_PREVIEW_CONTROL = 32'h800002c0,
+               PHYSICAL_FLOPPY_STATUS = 32'h800002c4,
+               PHYSICAL_FLOPPY_INDEX_COUNT = 32'h800002c8,
+               PHYSICAL_FLOPPY_READ_COUNT = 32'h800002cc,
+               PHYSICAL_FLOPPY_CONTROL = 32'h800002d0;
     reg have_address, have_data, transaction_active, await_spi, spi_seen_busy;
     reg [31:0] write_address, write_data;
     reg [7:0] spi_tx, spi_rx, spi_tx_shift, spi_rx_shift;
@@ -499,6 +518,12 @@ module manager_sd_mmio #(
             serial_cold_reset <= 1'b0;
             serial_trace_enable <= 1'b0;
             serial_trace_snapshot_toggle <= 1'b0;
+            physical_floppy_motor_request <= 1'b0;
+            physical_floppy_direction_request <= 1'b1;
+            physical_floppy_side_select_request <= 1'b1;
+            physical_floppy_step_request_toggle <= 1'b0;
+            physical_floppy_home_request_toggle <= 1'b0;
+            physical_floppy_abort_request_toggle <= 1'b0;
             uart_claim <= 1'b0;
             video_capture_request_toggle <= 1'b0;
             video_capture_stripe <= 3'b0;
@@ -725,6 +750,20 @@ module manager_sd_mmio #(
                 end else if (write_address == VIDEO_CAPTURE_ADDRESS) begin
                     video_capture_read_address <= write_data[15:0];
                     axi_bvalid <= 1'b1;
+                end else if (write_address == PHYSICAL_FLOPPY_CONTROL) begin
+                    physical_floppy_motor_request <= write_data[0];
+                    physical_floppy_direction_request <= write_data[3];
+                    physical_floppy_side_select_request <= write_data[4];
+                    if (write_data[1])
+                        physical_floppy_home_request_toggle <=
+                            ~physical_floppy_home_request_toggle;
+                    if (write_data[2])
+                        physical_floppy_abort_request_toggle <=
+                            ~physical_floppy_abort_request_toggle;
+                    if (write_data[5])
+                        physical_floppy_step_request_toggle <=
+                            ~physical_floppy_step_request_toggle;
+                    axi_bvalid <= 1'b1;
                 end else if (write_address == CARTRIDGE_ADDRESS) begin
                     cartridge_address <= write_data[14:0];
                     axi_bvalid <= 1'b1;
@@ -862,6 +901,26 @@ module manager_sd_mmio #(
                                                osd_option_selection,
                                                osd_narrow_selection, osd_active};
                     OSD_PREVIEW_CONTROL: axi_rdata <= {31'b0, osd_preview_active};
+                    PHYSICAL_FLOPPY_STATUS: axi_rdata <= {
+                        16'b0, physical_floppy_home_step_count,
+                        physical_floppy_home_success,
+                        physical_floppy_home_done_toggle,
+                        physical_floppy_home_active,
+                        physical_floppy_motor_active,
+                        physical_floppy_present,
+                        physical_floppy_status};
+                    PHYSICAL_FLOPPY_INDEX_COUNT:
+                        axi_rdata <= physical_floppy_index_count;
+                    PHYSICAL_FLOPPY_READ_COUNT:
+                        axi_rdata <= physical_floppy_read_transition_count;
+                    PHYSICAL_FLOPPY_CONTROL:
+                        axi_rdata <= {26'b0,
+                                      physical_floppy_step_request_toggle,
+                                      physical_floppy_side_select_request,
+                                      physical_floppy_direction_request,
+                                      physical_floppy_abort_request_toggle,
+                                      physical_floppy_home_request_toggle,
+                                      physical_floppy_motor_request};
                     MENU_KEY_STATE: axi_rdata <= {22'b0, menu_key_state};
                     OSD_FONT_STYLE: axi_rdata <= {30'b0, osd_font_style};
                     VIDEO_SETTINGS: axi_rdata <= {23'b0, coco2_palette[3],

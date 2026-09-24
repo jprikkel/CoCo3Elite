@@ -14,6 +14,16 @@ module wukong_top (
     output wire       sd_sck,
     output wire       sd_mosi,
     input  wire       sd_miso,
+`ifdef WUKONG_PHYSICAL_FLOPPY
+    output wire       floppy_select_n,
+    output wire       floppy_motor_enable_n,
+    output wire       floppy_direction,
+    output wire       floppy_step_n,
+    output wire       floppy_side_select,
+    input  wire       floppy_read_data_n,
+    input  wire       floppy_track_zero_n,
+    input  wire       floppy_index_n,
+`endif
     output wire       uart_tx,
     input  wire       uart_rx,
     output wire       sdram_clk,
@@ -58,6 +68,21 @@ module wukong_top (
     wire physical_joystick_right;
     wire physical_joystick_button1;
     wire physical_joystick_button2;
+    wire physical_floppy_present;
+    wire [2:0] physical_floppy_status;
+    wire [31:0] physical_floppy_index_count;
+    wire [31:0] physical_floppy_read_transition_count;
+    wire physical_floppy_motor_request;
+    wire physical_floppy_direction_request;
+    wire physical_floppy_side_select_request;
+    wire physical_floppy_step_request_toggle;
+    wire physical_floppy_home_request_toggle;
+    wire physical_floppy_abort_request_toggle;
+    wire physical_floppy_motor_active;
+    wire physical_floppy_home_active;
+    wire physical_floppy_home_done_toggle;
+    wire physical_floppy_home_success;
+    wire [7:0] physical_floppy_home_step_count;
 
     wukong_clocking clocking_i (
         .clk_50mhz    (clk_50mhz),
@@ -79,6 +104,43 @@ module wukong_top (
         .button1(physical_joystick_button1),
         .button2(physical_joystick_button2)
     );
+
+`ifdef WUKONG_PHYSICAL_FLOPPY
+    assign physical_floppy_present = 1'b1;
+    pmod_floppy_read_only physical_floppy_i (
+        .clock(pixel_clk), .reset(video_reset),
+        .motor_request(physical_floppy_motor_request),
+        .direction_request(physical_floppy_direction_request),
+        .side_select_request(physical_floppy_side_select_request),
+        .step_request_toggle(physical_floppy_step_request_toggle),
+        .home_request_toggle(physical_floppy_home_request_toggle),
+        .abort_request_toggle(physical_floppy_abort_request_toggle),
+        .read_data_n(floppy_read_data_n),
+        .track_zero_n(floppy_track_zero_n), .index_n(floppy_index_n),
+        .drive_select_n(floppy_select_n),
+        .motor_enable_n(floppy_motor_enable_n),
+        .direction(floppy_direction), .step_n(floppy_step_n),
+        .side_select(floppy_side_select),
+        .motor_active(physical_floppy_motor_active),
+        .home_active(physical_floppy_home_active),
+        .home_done_toggle(physical_floppy_home_done_toggle),
+        .home_success(physical_floppy_home_success),
+        .home_step_count(physical_floppy_home_step_count),
+        .input_status(physical_floppy_status),
+        .index_pulse_count(physical_floppy_index_count),
+        .read_transition_count(physical_floppy_read_transition_count)
+    );
+`else
+    assign physical_floppy_present = 1'b0;
+    assign physical_floppy_status = 3'b000;
+    assign physical_floppy_index_count = 32'b0;
+    assign physical_floppy_read_transition_count = 32'b0;
+    assign physical_floppy_motor_active = 1'b0;
+    assign physical_floppy_home_active = 1'b0;
+    assign physical_floppy_home_done_toggle = 1'b0;
+    assign physical_floppy_home_success = 1'b0;
+    assign physical_floppy_home_step_count = 8'b0;
+`endif
 
 `ifdef HDMI_TEST_PATTERN
     wire [9:0] library_x;
@@ -188,6 +250,27 @@ module wukong_top (
         .physical_joystick_button2(physical_joystick_button2),
         .sd_cs_n(sd_cs_n), .sd_sck(sd_sck),
         .sd_mosi(sd_mosi), .sd_miso(sd_miso),
+        .physical_floppy_present(physical_floppy_present),
+        .physical_floppy_status(physical_floppy_status),
+        .physical_floppy_index_count(physical_floppy_index_count),
+        .physical_floppy_read_transition_count(
+            physical_floppy_read_transition_count),
+        .physical_floppy_motor_request(physical_floppy_motor_request),
+        .physical_floppy_direction_request(
+            physical_floppy_direction_request),
+        .physical_floppy_side_select_request(
+            physical_floppy_side_select_request),
+        .physical_floppy_step_request_toggle(
+            physical_floppy_step_request_toggle),
+        .physical_floppy_home_request_toggle(
+            physical_floppy_home_request_toggle),
+        .physical_floppy_abort_request_toggle(
+            physical_floppy_abort_request_toggle),
+        .physical_floppy_motor_active(physical_floppy_motor_active),
+        .physical_floppy_home_active(physical_floppy_home_active),
+        .physical_floppy_home_done_toggle(physical_floppy_home_done_toggle),
+        .physical_floppy_home_success(physical_floppy_home_success),
+        .physical_floppy_home_step_count(physical_floppy_home_step_count),
         .vsync(vsync), .video_enable(video_enable),
         .red(library_red), .green(library_green), .blue(library_blue),
         .audio_dac(audio_dac), .narrow_video_mode(narrow_video_mode),

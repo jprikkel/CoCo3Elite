@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1050" viewBox="0 0 1600 1050">
+  <defs>
+    <style>
+      .bg { fill: #101418; }
+      .panel { fill: #1d242b; stroke: #e8b85c; stroke-width: 4; }
+      .board { fill: #173f34; stroke: #60d0a0; stroke-width: 4; }
+      .drive { fill: #333941; stroke: #c8d0d8; stroke-width: 4; }
+      .header { fill: #273039; stroke: #65717c; stroke-width: 2; }
+      .title { fill: #f2c66d; font: 700 32px sans-serif; }
+      .heading { fill: #ffffff; font: 700 23px sans-serif; }
+      .text { fill: #e3e8eb; font: 18px sans-serif; }
+      .small { fill: #bdc7ce; font: 16px sans-serif; }
+      .rowLabel { fill: #ffffff; font: 700 18px monospace; dominant-baseline: middle; }
+      .pinText { fill: #ffe5a6; font: 700 17px monospace; dominant-baseline: middle; }
+      .idcText { fill: #cdeedd; font: 700 16px monospace; dominant-baseline: middle; }
+      .wireOut { fill: none; stroke: #ffb84d; stroke-width: 6; }
+      .wireIn { fill: none; stroke: #55c8ff; stroke-width: 6; }
+      .wirePower { fill: none; stroke: #ee607a; stroke-width: 6; }
+      .wireGround { fill: none; stroke: #aeb5bc; stroke-width: 6; }
+      .arrowOut { fill: #ffb84d; }
+      .arrowIn { fill: #55c8ff; }
+      .danger { fill: #ff8595; font: 700 18px sans-serif; }
+    </style>
+    <marker id="outArrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" class="arrowOut"/>
+    </marker>
+    <marker id="inArrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" class="arrowIn"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="1050" class="bg"/>
+  <text x="800" y="48" class="title" text-anchor="middle">CoCo3Elite read-only physical floppy wiring</text>
+  <text x="800" y="80" class="text" text-anchor="middle">Wukong V3 J13 PMOD → Adafruit Floppy FeatherWing 5679 → one 34-pin Shugart drive</text>
+
+  <!-- Column panels -->
+  <rect x="35" y="115" width="430" height="720" rx="18" class="panel"/>
+  <rect x="650" y="115" width="600" height="720" rx="18" class="board"/>
+  <rect x="1330" y="170" width="235" height="355" rx="18" class="drive"/>
+
+  <text x="250" y="153" class="heading" text-anchor="middle">Wukong V3 — J13</text>
+  <text x="250" y="180" class="small" text-anchor="middle">PMOD pin and Artix-7 package pin</text>
+  <text x="950" y="153" class="heading" text-anchor="middle">Adafruit Floppy FeatherWing</text>
+  <text x="950" y="180" class="small" text-anchor="middle">Feather header label and 34-pin IDC destination</text>
+
+  <!-- Row backgrounds keep each connection visually isolated. -->
+  <g>
+    <rect x="55" y="198" width="390" height="50" rx="8" class="header"/>
+    <rect x="670" y="198" width="560" height="50" rx="8" class="header"/>
+    <rect x="55" y="258" width="390" height="50" rx="8" class="header"/>
+    <rect x="670" y="258" width="560" height="50" rx="8" class="header"/>
+    <rect x="55" y="318" width="390" height="50" rx="8" class="header"/>
+    <rect x="670" y="318" width="560" height="50" rx="8" class="header"/>
+    <rect x="55" y="378" width="390" height="50" rx="8" class="header"/>
+    <rect x="670" y="378" width="560" height="50" rx="8" class="header"/>
+    <rect x="55" y="438" width="390" height="50" rx="8" class="header"/>
+    <rect x="670" y="438" width="560" height="50" rx="8" class="header"/>
+    <rect x="55" y="498" width="390" height="50" rx="8" class="header"/>
+    <rect x="670" y="498" width="560" height="50" rx="8" class="header"/>
+    <rect x="55" y="558" width="390" height="50" rx="8" class="header"/>
+    <rect x="670" y="558" width="560" height="50" rx="8" class="header"/>
+    <rect x="55" y="618" width="390" height="50" rx="8" class="header"/>
+    <rect x="670" y="618" width="560" height="50" rx="8" class="header"/>
+    <rect x="55" y="692" width="390" height="50" rx="8" class="header"/>
+    <rect x="670" y="692" width="560" height="50" rx="8" class="header"/>
+    <rect x="55" y="752" width="390" height="50" rx="8" class="header"/>
+    <rect x="670" y="752" width="560" height="50" rx="8" class="header"/>
+  </g>
+
+  <!-- Left labels -->
+  <g>
+    <text x="75" y="223" class="pinText">J13-1</text><text x="185" y="223" class="rowLabel">N22</text><text x="260" y="223" class="text">Drive select</text>
+    <text x="75" y="283" class="pinText">J13-2</text><text x="185" y="283" class="rowLabel">N21</text><text x="260" y="283" class="text">Motor enable</text>
+    <text x="75" y="343" class="pinText">J13-3</text><text x="185" y="343" class="rowLabel">R20</text><text x="260" y="343" class="text">Read data</text>
+    <text x="75" y="403" class="pinText">J13-4</text><text x="185" y="403" class="rowLabel">T22</text><text x="260" y="403" class="text">Direction</text>
+    <text x="75" y="463" class="pinText">J13-7</text><text x="185" y="463" class="rowLabel">P20</text><text x="260" y="463" class="text">Step</text>
+    <text x="75" y="523" class="pinText">J13-8</text><text x="185" y="523" class="rowLabel">N23</text><text x="260" y="523" class="text">Side select</text>
+    <text x="75" y="583" class="pinText">J13-9</text><text x="185" y="583" class="rowLabel">P21</text><text x="260" y="583" class="text">Track zero</text>
+    <text x="75" y="643" class="pinText">J13-10</text><text x="185" y="643" class="rowLabel">R21</text><text x="260" y="643" class="text">Index</text>
+    <text x="75" y="717" class="pinText">J13-6/12</text><text x="225" y="717" class="rowLabel">3.3 V</text><text x="315" y="717" class="text">Logic only</text>
+    <text x="75" y="777" class="pinText">J13-5/11</text><text x="225" y="777" class="rowLabel">GND</text><text x="315" y="777" class="text">Common</text>
+  </g>
+
+  <!-- FeatherWing labels -->
+  <g>
+    <text x="700" y="223" class="pinText">A0 / Sel</text><text x="845" y="223" class="text">Drive select</text><text x="1060" y="223" class="idcText">IDC 12</text>
+    <text x="700" y="283" class="pinText">A2 / En</text><text x="845" y="283" class="text">Motor enable</text><text x="1060" y="283" class="idcText">IDC 16</text>
+    <text x="700" y="343" class="pinText">D9 / RD</text><text x="845" y="343" class="text">Raw transitions</text><text x="1060" y="343" class="idcText">IDC 30</text>
+    <text x="700" y="403" class="pinText">A3 / Dir</text><text x="845" y="403" class="text">Direction</text><text x="1060" y="403" class="idcText">IDC 18</text>
+    <text x="700" y="463" class="pinText">A4 / Stp</text><text x="845" y="463" class="text">Step pulse</text><text x="1060" y="463" class="idcText">IDC 20</text>
+    <text x="700" y="523" class="pinText">D6 / Sid</text><text x="845" y="523" class="text">Head/side</text><text x="1060" y="523" class="idcText">IDC 32</text>
+    <text x="700" y="583" class="pinText">D10 / Trk</text><text x="845" y="583" class="text">Track-zero sense</text><text x="1060" y="583" class="idcText">IDC 26</text>
+    <text x="700" y="643" class="pinText">A5 / Idx</text><text x="845" y="643" class="text">Index pulse</text><text x="1060" y="643" class="idcText">IDC 8</text>
+    <text x="700" y="717" class="pinText">3V</text><text x="845" y="717" class="text">FeatherWing logic</text>
+    <text x="700" y="777" class="pinText">GND</text><text x="845" y="777" class="text">Signal and PSU return</text>
+  </g>
+
+  <!-- One straight wire per row; there are no crossings. -->
+  <path d="M445 223 H665" class="wireOut" marker-end="url(#outArrow)"/>
+  <path d="M445 283 H665" class="wireOut" marker-end="url(#outArrow)"/>
+  <path d="M665 343 H445" class="wireIn" marker-end="url(#inArrow)"/>
+  <path d="M445 403 H665" class="wireOut" marker-end="url(#outArrow)"/>
+  <path d="M445 463 H665" class="wireOut" marker-end="url(#outArrow)"/>
+  <path d="M445 523 H665" class="wireOut" marker-end="url(#outArrow)"/>
+  <path d="M665 583 H445" class="wireIn" marker-end="url(#inArrow)"/>
+  <path d="M665 643 H445" class="wireIn" marker-end="url(#inArrow)"/>
+  <path d="M445 717 H665" class="wirePower"/>
+  <path d="M445 777 H665" class="wireGround"/>
+
+  <!-- Drive and ribbon connection -->
+  <text x="1447" y="210" class="heading" text-anchor="middle">Floppy drive</text>
+  <rect x="1360" y="250" width="175" height="54" rx="7" fill="#11161b" stroke="#c8d0d8" stroke-width="3"/>
+  <text x="1447" y="284" class="text" text-anchor="middle">34-pin IDC</text>
+  <rect x="1370" y="360" width="155" height="48" rx="7" fill="#11161b" stroke="#c8d0d8" stroke-width="3"/>
+  <text x="1447" y="391" class="small" text-anchor="middle">power input</text>
+  <text x="1447" y="454" class="small" text-anchor="middle">Use the untwisted</text>
+  <text x="1447" y="480" class="small" text-anchor="middle">cable position</text>
+  <path d="M1250 277 H1360" stroke="#d8dde2" stroke-width="18" fill="none"/>
+  <text x="1305" y="252" class="small" text-anchor="middle">ribbon</text>
+
+  <!-- Power legend -->
+  <rect x="1130" y="585" width="435" height="250" rx="18" class="panel"/>
+  <text x="1347" y="625" class="heading" text-anchor="middle">External drive supply</text>
+  <text x="1347" y="670" class="text" text-anchor="middle">3.5-inch: regulated 5 V, allow ~2 A</text>
+  <text x="1347" y="705" class="text" text-anchor="middle">5.25-inch: typically 5 V + 12 V</text>
+  <text x="1347" y="753" class="danger" text-anchor="middle">Never power the motor from J13</text>
+  <text x="1347" y="790" class="small" text-anchor="middle">Join supply ground to FeatherWing GND</text>
+  <path d="M1447 585 V412" class="wirePower" marker-end="url(#outArrow)"/>
+
+  <!-- Legend and warnings -->
+  <rect x="35" y="865" width="1530" height="140" rx="14" fill="#24191c" stroke="#ff8595" stroke-width="3"/>
+  <line x1="85" y1="905" x2="155" y2="905" class="wireOut" marker-end="url(#outArrow)"/>
+  <text x="175" y="905" class="text" dominant-baseline="middle">FPGA output</text>
+  <line x1="365" y1="905" x2="295" y2="905" class="wireIn" marker-end="url(#inArrow)"/>
+  <text x="385" y="905" class="text" dominant-baseline="middle">FPGA input</text>
+  <line x1="575" y1="905" x2="645" y2="905" class="wirePower"/>
+  <text x="665" y="905" class="text" dominant-baseline="middle">3.3 V logic</text>
+  <line x1="855" y1="905" x2="925" y2="905" class="wireGround"/>
+  <text x="945" y="905" class="text" dominant-baseline="middle">Common ground</text>
+  <text x="800" y="955" class="danger" text-anchor="middle">READ ONLY: D12/WG and D13/WD are not connected; set the FeatherWing switch to NoWr</text>
+  <text x="800" y="985" class="text" text-anchor="middle">Leave A1/Den open for double density. Do not hot-plug the ribbon cable or drive power.</text>
+</svg>

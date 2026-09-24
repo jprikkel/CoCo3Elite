@@ -369,22 +369,24 @@ Ctrl-Alt-Del. Storage operations must not starve HID polling or the CoCo video.
    bitstream, record resource/timing reports and firmware/RTL versions, and
    document card preparation, wiring, mount/eject, loaders, and recovery.
 
-9. **Physical Shugart floppy backend.** Evaluate the [Adafruit Floppy
-   FeatherWing with 34-pin IDC connector][adafruit-floppy] as the level-shifted
-   drive-side adapter. Define a custom PMOD-to-FeatherWing interposer or
-   equivalent breakout, because it is not a direct PMOD module and the full
-   Shugart signal set exceeds one PMOD. Reserve two PMODs if needed, retain
-   J13/J14 assignments, and provide a separately powered floppy drive. Start
-   with one 3.5-inch drive and read-only operation: drive select, motor, track
-   select/step, side select, index, track-zero, read-data, and write-protect.
+9. **Physical Shugart floppy backend.** Use the [Adafruit Floppy FeatherWing
+   with 34-pin IDC connector][adafruit-floppy] as the level-shifted drive-side
+   adapter. The first milestone uses the eight signal pins on J13 for a single,
+   read-only drive: drive select, motor, direction, step, side select, index,
+   track-zero, and read data. This is possible because the normal build now
+   uses the onboard MicroSD socket. The FeatherWing is not a direct PMOD
+   module, so build the passive interposer documented in the
+   [read-only physical floppy interface](../hardware/pmod-physical-floppy-interface.md)
+   and provide a separately powered floppy drive. Write gate, write data, and
+   write-protect sensing are deliberately absent from the first cable.
    Add a physical-backend mode to the existing FDC mailbox, then qualify
    index/track timing, raw read-data capture, FM/MFM decode, sector CRC, and
    error recovery against real formatted CoCo media. Only after stable reads,
-   add write-gate/write-data with an explicit hardware write-disable default,
-   current limiting, and removable-media recovery tests. Do not connect a
-   floppy drive directly to FPGA pins; the adapter must provide level
-   compatibility and the drive must receive its own 5 V supply (and 12 V when
-   required by a 5.25-inch mechanism).
+   design a separate write-capable interposer with additional I/O, an explicit
+   hardware write-disable default, current limiting, and removable-media
+   recovery tests. Do not connect a floppy drive directly to FPGA pins; the
+   adapter must provide level compatibility and the drive must receive its own
+   5 V supply (and 12 V when required by a 5.25-inch mechanism).
 
 SD read/write delivery (stages 3-5) and the management UI can proceed without
 waiting for final USB hardware. The USB feasibility result is a dependency for committing to its

@@ -63,6 +63,10 @@ void *memcpy(void *dst,const void *src,unsigned long n){unsigned char *d=dst;con
 #define OSD_PREVIEW_DATA REG32(0x800002b8u)
 #define OSD_PREVIEW_PALETTE REG32(0x800002bcu)
 #define OSD_PREVIEW_CONTROL REG32(0x800002c0u)
+#define PHYSICAL_FLOPPY_STATUS REG32(0x800002c4u)
+#define PHYSICAL_FLOPPY_INDEX_COUNT REG32(0x800002c8u)
+#define PHYSICAL_FLOPPY_READ_COUNT REG32(0x800002ccu)
+#define PHYSICAL_FLOPPY_CONTROL REG32(0x800002d0u)
 
 #define KEY_F12 1u
 #define KEY_UP 2u
@@ -125,6 +129,7 @@ static uint8_t serial_shift,serial_shift_override,serial_function_keys;
 static char serial_command[64];
 static uint8_t serial_command_length;
 static uint8_t trace_enabled;
+static uint32_t physical_floppy_control=0x18u;
 
 struct browser_metadata {
     char title[48],description[128];
@@ -149,11 +154,23 @@ static void serial_apply_keys(void){SERIAL_KEY_LO=serial_key_lo;SERIAL_KEY_HI=se
 static void serial_release_all(void){serial_key_lo=0;serial_key_hi=0;serial_shift=0;serial_shift_override=0;serial_function_keys=0;SERIAL_KEY_CONTROL=0x100u;SERIAL_FUNCTION_KEYS=0;}
 static void serial_browser_root(void){current_directory=root_cluster;parent_directory=root_cluster;directory_depth=0;current_path[0]='/';current_path[1]=0;puts("OK ROOT\r\n");}
 static void serial_reply_status(void){uint32_t cpu=DEBUG_CPU_STATUS,video=DEBUG_VIDEO_STATUS;puts("STATUS PC=");hex((uint8_t)(cpu>>8));hex((uint8_t)cpu);puts(" I0=");hex((uint8_t)(video>>24));puts(" I1=");hex((uint8_t)(video>>16));puts(" VM=");hex((uint8_t)(video>>8));puts(" VR=");hex((uint8_t)video);puts("\r\n");}
+static void floppy_write_control(void){PHYSICAL_FLOPPY_CONTROL=physical_floppy_control;}
+static void floppy_event(uint32_t event){PHYSICAL_FLOPPY_CONTROL=physical_floppy_control|event;PHYSICAL_FLOPPY_CONTROL=physical_floppy_control;}
+static void serial_reply_floppy(void){uint32_t status=PHYSICAL_FLOPPY_STATUS;if(!(status&8u)){puts("FLOPPY DISABLED\r\n");return;}puts("FLOPPY INDEX=");putc((status&1u)?'1':'0');puts(" TRACK0=");putc((status&2u)?'1':'0');puts(" READ=");putc((status&4u)?'1':'0');puts(" ACTIVE=");putc((status&16u)?'1':'0');puts(" HOME=");putc((status&32u)?'1':'0');puts(" DONE=");putc((status&64u)?'1':'0');puts(" OK=");putc((status&128u)?'1':'0');puts(" STEPS=");hex((uint8_t)(status>>8));puts(" DIR=");putc((physical_floppy_control&8u)?'1':'0');puts(" SIDE=");putc((physical_floppy_control&16u)?'1':'0');puts(" INDEX_COUNT=");hex32(PHYSICAL_FLOPPY_INDEX_COUNT);puts(" READ_EDGES=");hex32(PHYSICAL_FLOPPY_READ_COUNT);puts("\r\n");}
 static void serial_execute_command(void){
     uint8_t value;
     serial_command[serial_command_length]=0;
     if(equal(serial_command,"PING")){puts("PONG\r\n");}
     else if(equal(serial_command,"STATUS")){serial_reply_status();}
+    else if(equal(serial_command,"FLOPPY")){serial_reply_floppy();}
+    else if(equal(serial_command,"FLOPPY START")){if(!(PHYSICAL_FLOPPY_STATUS&8u))puts("ERR FLOPPY DISABLED\r\n");else{physical_floppy_control&=~1u;floppy_write_control();physical_floppy_control|=1u;floppy_write_control();puts("OK FLOPPY START\r\n");}}
+    else if(equal(serial_command,"FLOPPY HOME")){uint32_t status=PHYSICAL_FLOPPY_STATUS;if(!(status&8u))puts("ERR FLOPPY DISABLED\r\n");else if(status&32u)puts("ERR FLOPPY BUSY\r\n");else{floppy_event(2u);puts("OK FLOPPY HOME\r\n");}}
+    else if(equal(serial_command,"FLOPPY STOP")){physical_floppy_control&=~1u;floppy_event(4u);puts("OK FLOPPY STOP\r\n");}
+    else if(equal(serial_command,"FLOPPY DIR 0")){physical_floppy_control&=~8u;floppy_write_control();puts("OK FLOPPY DIR 0\r\n");}
+    else if(equal(serial_command,"FLOPPY DIR 1")){physical_floppy_control|=8u;floppy_write_control();puts("OK FLOPPY DIR 1\r\n");}
+    else if(equal(serial_command,"FLOPPY SIDE 0")){physical_floppy_control&=~16u;floppy_write_control();puts("OK FLOPPY SIDE 0\r\n");}
+    else if(equal(serial_command,"FLOPPY SIDE 1")){physical_floppy_control|=16u;floppy_write_control();puts("OK FLOPPY SIDE 1\r\n");}
+    else if(equal(serial_command,"FLOPPY STEP")){uint32_t status=PHYSICAL_FLOPPY_STATUS;if(!(status&8u))puts("ERR FLOPPY DISABLED\r\n");else if(!(status&16u))puts("ERR FLOPPY MOTOR OFF\r\n");else if(status&32u)puts("ERR FLOPPY BUSY\r\n");else{floppy_event(32u);puts("OK FLOPPY STEP\r\n");}}
     else if(equal(serial_command,"TRACE ON")){
         trace_enabled=1u;SERIAL_MACHINE_CONTROL=4u;puts("OK TRACE ON\r\n");
     }

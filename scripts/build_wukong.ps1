@@ -13,6 +13,7 @@ param(
     [switch]$UseSdram = $true,
     [ValidateSet('ONBOARD', 'PMOD')]
     [string]$SdSlot = 'ONBOARD',
+    [switch]$PhysicalFloppy,
     [string]$Drive0Disk = 'disks\fpgatest.dsk',
     [string]$Drive1Disk = 'disks\games.dsk'
 )
@@ -112,7 +113,7 @@ $env:XILINX_LOCAL_USER_DATA = 'NO'
 Push-Location $buildDir
 try {
     & $Vivado -mode batch -nojournal -nolog `
-        -source $buildTcl -tclargs $Part $Mode ([int]$EmbeddedTestDisks.IsPresent) ([int](-not $NoCpuUartDebug.IsPresent)) ([int]$UseSdram.IsPresent) $SdSlot
+        -source $buildTcl -tclargs $Part $Mode ([int]$EmbeddedTestDisks.IsPresent) ([int](-not $NoCpuUartDebug.IsPresent)) ([int]$UseSdram.IsPresent) $SdSlot ([int]$PhysicalFloppy.IsPresent)
     $vivadoExitCode = $LASTEXITCODE
 } finally {
     Pop-Location

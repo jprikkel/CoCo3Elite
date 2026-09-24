@@ -1,12 +1,16 @@
 param(
     [string]$Port = 'COM5',
-    [ValidateSet('Ping', 'Status', 'Reset', 'Release', 'TypeText',
+    [ValidateSet('Ping', 'Status', 'Floppy', 'FloppyStart', 'FloppyHome', 'FloppyStop',
+                 'FloppyDirection', 'FloppySide', 'FloppyStep',
+                 'Reset', 'Release', 'TypeText',
                  'TraceOn', 'TraceOff', 'TraceSnap', 'TraceStatus',
                  'BrowserRoot', 'KeyDown', 'KeyUp', 'FunctionKey')]
     [string]$Command = 'Ping',
     [string]$Text = '',
     [ValidateRange(0,55)][int]$Key = 0,
     [ValidateSet(3,6,7,8,9,10,11,12)][int]$Function = 12,
+    [ValidateRange(0,1)][int]$FloppyValue = 1,
+    [ValidateRange(1,85)][int]$FloppySteps = 1,
     [ValidateRange(20,1000)][int]$KeyDelayMs = 70
 )
 
@@ -23,7 +27,7 @@ function Send-ManagerCommand {
     while ([DateTime]::UtcNow -lt $deadline) {
         try {
             $reply = $serial.ReadLine().Trim()
-            if ($reply -match '^(OK|ERR|PONG|STATUS|TRACE)') {
+            if ($reply -match '^(OK|ERR|PONG|STATUS|TRACE|FLOPPY)') {
                 Write-Host $reply
                 if ($reply -match '^ERR') { throw "Manager rejected '$Line': $reply" }
                 return $reply
@@ -59,6 +63,22 @@ try {
     switch ($Command) {
         'Ping'    { Send-ManagerCommand 'PING' | Out-Null }
         'Status'  { Send-ManagerCommand 'STATUS' | Out-Null }
+        'Floppy'  { Send-ManagerCommand 'FLOPPY' | Out-Null }
+        'FloppyStart' { Send-ManagerCommand 'FLOPPY START' | Out-Null }
+        'FloppyHome' { Send-ManagerCommand 'FLOPPY HOME' | Out-Null }
+        'FloppyStop' { Send-ManagerCommand 'FLOPPY STOP' | Out-Null }
+        'FloppyDirection' {
+            Send-ManagerCommand ("FLOPPY DIR $FloppyValue") | Out-Null
+        }
+        'FloppySide' {
+            Send-ManagerCommand ("FLOPPY SIDE $FloppyValue") | Out-Null
+        }
+        'FloppyStep' {
+            for ($step = 0; $step -lt $FloppySteps; $step++) {
+                Send-ManagerCommand 'FLOPPY STEP' | Out-Null
+                Start-Sleep -Milliseconds 10
+            }
+        }
         'TraceOn' { Send-ManagerCommand 'TRACE ON' | Out-Null }
         'TraceOff' { Send-ManagerCommand 'TRACE OFF' | Out-Null }
         'TraceSnap' {

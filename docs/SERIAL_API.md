@@ -36,6 +36,13 @@ binary transfer so diagnostic text cannot be inserted into the frame payload.
 | --- | --- | --- |
 | `PING` | `PONG` | Check that the management processor is responsive. |
 | `STATUS` | `STATUS PC=.... I0=.. I1=.. VM=.. VR=..` | Read a compact CPU and GIME status snapshot. |
+| `FLOPPY` | `FLOPPY ...` or `FLOPPY DISABLED` | Read the optional J13 physical-floppy probe. |
+| `FLOPPY START` | `OK FLOPPY START` | Select the physical drive and start its motor for at most 10 seconds. |
+| `FLOPPY HOME` | `OK FLOPPY HOME` | Seek toward TRACK0 with an 85-step hardware limit. |
+| `FLOPPY STOP` | `OK FLOPPY STOP` | Immediately deselect the physical drive and stop its motor. |
+| `FLOPPY DIR 0` / `FLOPPY DIR 1` | `OK FLOPPY DIR n` | Set the electrical DIR level without rebuilding. |
+| `FLOPPY SIDE 0` / `FLOPPY SIDE 1` | `OK FLOPPY SIDE n` | Set the electrical side-select level without rebuilding. |
+| `FLOPPY STEP` | `OK FLOPPY STEP` | Issue one bounded STEP pulse while the motor/select interval is active. |
 | `TRACE SNAP` | `OK TRACE SNAP`, then one `PC=... Q=...` line | Request one complete diagnostic snapshot. |
 | `TRACE ON` | `OK TRACE ON` | Start one complete diagnostic snapshot per second. |
 | `TRACE OFF` | `OK TRACE OFF` | Stop repeating snapshots (the power-on default). |
@@ -115,6 +122,73 @@ The two physical button contacts feed independent CoCo 3 PIA inputs. The PIA
 matrix order is right Button 1, left Button 1, left Button 2, then right
 Button 2. F7 moves both contacts to the selected joystick port; Button 2 is
 never reported as Button 1 on the opposite port.
+
+### Physical-floppy probe
+
+The optional read-only J13 floppy build exposes its synchronized input state
+and event counters with:
+
+```text
+FLOPPY
+```
+
+Example response:
+
+```text
+FLOPPY INDEX=0 TRACK0=1 READ=1 ACTIVE=0 HOME=0 DONE=0 OK=0 STEPS=00 DIR=1 SIDE=1 INDEX_COUNT=00000003 READ_EDGES=000012A4
+```
+
+`INDEX` and `TRACK0` are decoded active-high states. `READ` is the synchronized
+raw read-data level and `ACTIVE` reports drive select/motor state.
+`INDEX_COUNT` counts active-low index pulses and
+`READ_EDGES` counts both transitions of the read-data signal; both counters
+saturate at `FFFFFFFF`. `FLOPPY START` enables only select and motor. An FPGA
+watchdog forces them off after 10 seconds even if firmware stalls, while
+`FLOPPY STOP` turns them off immediately and aborts an active seek. Direction
+and side are runtime levels selected by `FLOPPY DIR n` and `FLOPPY SIDE n`.
+`FLOPPY STEP` produces one 20 us active-low STEP pulse only while START is
+active. This allows cautious movement in either direction without another
+bitstream build. `FLOPPY HOME` waits 500 ms for spin-up, uses the currently
+selected DIR level, pulses STEP low for 20 us at 6 ms intervals, and stops on
+TRACK0 or after 85 pulses. The FPGA, not firmware, enforces the step limit and
+STOP path. All write signals remain absent, so this is still a wiring and
+head-motion probe rather than a sector reader.
+
+For example, the following changes direction and issues exactly one step:
+
+```powershell
+.\scripts\coco3_serial_test.ps1 -Port COM5 -Command FloppyStart
+.\scripts\coco3_serial_test.ps1 -Port COM5 -Command FloppyDirection -FloppyValue 0
+.\scripts\coco3_serial_test.ps1 -Port COM5 -Command FloppyStep -FloppySteps 1
+.\scripts\coco3_serial_test.ps1 -Port COM5 -Command Floppy
+.\scripts\coco3_serial_test.ps1 -Port COM5 -Command FloppyStop
+```
+
+The Adafruit FeatherWing exposes the Shugart Select1 signal only. Selecting a
+mechanism configured as DS0 versus DS1 therefore remains a drive-jumper/cable
+choice; it cannot be switched through this API.
+
+The status reply also includes `HOME`, completion-toggle `DONE`, result `OK`,
+and hexadecimal `STEPS` fields. Run the guarded seek test with:
+
+```powershell
+.\scripts\test_physical_floppy_home.ps1 -Port COM5
+```
+
+A normal bitstream built without the optional J13 floppy interface replies:
+
+```text
+FLOPPY DISABLED
+```
+
+Run a guarded motor/select test from the Windows host with:
+
+```powershell
+.\scripts\test_physical_floppy_motor.ps1 -Port COM5 -RunSeconds 6
+```
+
+The script always attempts `FLOPPY STOP` in its cleanup path. The independent
+FPGA watchdog remains the final safety limit if the host or firmware stops.
 
 ### Reset the browser to `/`
 
