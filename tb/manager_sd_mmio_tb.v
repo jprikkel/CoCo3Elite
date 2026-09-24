@@ -11,7 +11,7 @@ module manager_sd_mmio_tb;
     wire [31:0] rdata;
     wire uart_tx, uart_claim, sd_cs_n, sd_sck, sd_mosi;
     wire video_capture_request_toggle;
-    wire [2:0] video_capture_stripe;
+    wire [5:0] video_capture_stripe;
     wire [15:0] video_capture_read_address;
     reg [7:0] video_capture_read_data = 8'ha5;
     reg video_capture_done_toggle = 0, video_capture_busy = 0;
@@ -301,9 +301,9 @@ module manager_sd_mmio_tb;
         if (!uart_claim) $fatal(1, "manager UART claim was not retained");
         read32(32'h800002a0, value);
         if (value[0] !== 1'b1) $fatal(1, "manager UART claim readback failed");
-        write32(32'h800002a4, 32'h00000501);
+        write32(32'h800002a4, 32'h00002501);
         if (video_capture_request_toggle !== 1'b1 ||
-            video_capture_stripe !== 3'd5)
+            video_capture_stripe !== 6'd37)
             $fatal(1, "video capture request/stripe mismatch");
         video_capture_done_toggle = 1;
         video_capture_busy = 1;

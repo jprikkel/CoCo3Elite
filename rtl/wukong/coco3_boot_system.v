@@ -63,7 +63,7 @@ module coco3_boot_system #(
     output wire menu_active,
     output wire uart_debug_tx, input wire uart_rx,
     output wire video_capture_request_toggle,
-    output wire [2:0] video_capture_stripe,
+    output wire [5:0] video_capture_stripe,
     output wire [15:0] video_capture_read_address,
     input wire [7:0] video_capture_read_data,
     input wire video_capture_done_toggle, input wire video_capture_busy,
@@ -806,7 +806,7 @@ module coco3_boot_system #(
         .bin_fifo_pop(machine_bin_fifo_pop),
         .bin_loader_done(machine_bin_loader_done),
         // UART ownership is asserted for the complete multi-stripe screen
-        // transfer. Halt the 6809 so all eight stripes describe one instant.
+        // transfer. Halt the 6809 so every stripe describes one instant.
         .cpu_halt(menu_active | manager_uart_claim),
         .debug_vma(cpu_vma), .debug_read(cpu_read),
         .debug_opfetch(), .debug_read_data(cpu_read_data),

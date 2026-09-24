@@ -486,11 +486,13 @@ static void serial_capture_flux_bulk(uint8_t indexed){
     UART_CONTROL=0u;
 }
 static void serial_capture_frame(void){
-    const uint32_t stripe_bytes=640u*60u;
+    const uint32_t stripe_height=8u;
+    const uint32_t stripe_bytes=640u*stripe_height;
+    const uint32_t stripe_count=480u/stripe_height;
     uint32_t crc=0xffffffffu;
     UART_CONTROL=1u;
     puts("FRAME BEGIN 640 480 RGB332 307200\r\n");
-    for(uint32_t stripe=0;stripe<8u;++stripe){
+    for(uint32_t stripe=0;stripe<stripe_count;++stripe){
         uint32_t previous=VIDEO_CAPTURE_STATUS&1u,timeout=5000000u;
         VIDEO_CAPTURE_CONTROL=(stripe<<8)|1u;
         while(((VIDEO_CAPTURE_STATUS&1u)==previous)&&timeout)--timeout;

@@ -110,7 +110,7 @@ module manager_sd_mmio #(
     input wire [7:0] physical_floppy_decode_data_crc_errors,
     input wire [7:0] physical_floppy_decode_cache_data,
     output reg video_capture_request_toggle,
-    output reg [2:0] video_capture_stripe,
+    output reg [5:0] video_capture_stripe,
     output reg [15:0] video_capture_read_address,
     input wire [7:0] video_capture_read_data,
     input wire video_capture_done_toggle, input wire video_capture_busy,
@@ -577,7 +577,7 @@ module manager_sd_mmio #(
             physical_floppy_decode_cache_address <= 13'b0;
             uart_claim <= 1'b0;
             video_capture_request_toggle <= 1'b0;
-            video_capture_stripe <= 3'b0;
+            video_capture_stripe <= 6'b0;
             video_capture_read_address <= 16'b0;
             fdc_done_toggle <= 0; fdc_success <= 0;
             fdc_write_done_toggle <= 0; fdc_write_success <= 0;
@@ -793,7 +793,7 @@ module manager_sd_mmio #(
                     uart_claim <= write_data[0];
                     axi_bvalid <= 1'b1;
                 end else if (write_address == VIDEO_CAPTURE_CONTROL) begin
-                    video_capture_stripe <= write_data[10:8];
+                    video_capture_stripe <= write_data[13:8];
                     if (write_data[0])
                         video_capture_request_toggle <=
                             ~video_capture_request_toggle;

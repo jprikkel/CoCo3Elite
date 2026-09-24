@@ -77,7 +77,7 @@ module ultraembedded_manager_sd_mount (
     input wire [7:0] physical_floppy_decode_data_crc_errors,
     input wire [7:0] physical_floppy_decode_cache_data,
     output wire video_capture_request_toggle,
-    output wire [2:0] video_capture_stripe,
+    output wire [5:0] video_capture_stripe,
     output wire [15:0] video_capture_read_address,
     input wire [7:0] video_capture_read_data,
     input wire video_capture_done_toggle, input wire video_capture_busy,

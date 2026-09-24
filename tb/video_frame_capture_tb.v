@@ -8,7 +8,7 @@ module video_frame_capture_tb;
     reg [9:0] y = 0;
     reg [23:0] rgb = 0;
     reg request_toggle = 0;
-    reg [2:0] request_stripe = 0;
+    reg [5:0] request_stripe = 0;
     reg [3:0] read_address = 0;
     wire [7:0] read_data;
     wire done_toggle, busy;
@@ -16,7 +16,7 @@ module video_frame_capture_tb;
 
     video_frame_capture #(
         .SOURCE_WIDTH(8), .SOURCE_HEIGHT(4), .STRIPE_HEIGHT(2),
-        .ADDRESS_WIDTH(4)
+        .ADDRESS_WIDTH(4), .STRIPE_INDEX_WIDTH(6)
     ) dut (
         .clock(clock), .reset(reset), .screen_x(x), .screen_y(y), .rgb(rgb),
         .request_toggle(request_toggle), .request_stripe(request_stripe),

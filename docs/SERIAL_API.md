@@ -268,9 +268,10 @@ Each payload byte represents an interval in `SCALE` capture clocks. The FPGA
 stores at most 48 KiB, which is enough for one nominal 300 RPM DD track. This
 is a one-track timing buffer, not a disk-image cache: buffering is required
 because even 460800-baud UART cannot accept live flux transitions without
-pauses. The optional physical-floppy build borrows BRAM from serial video-frame
-capture for this buffer; normal HDMI video output and non-floppy builds are
-unchanged.
+pauses. The optional physical-floppy build retains this full track buffer.
+Serial video-frame capture uses a small distributed-RAM stripe buffer, allowing
+flux capture and full-resolution screenshots to coexist without additional
+BRAM.
 
 The disk-capture host tool homes once, steps at runtime, rejects tracks with
 fewer than 1000 intervals as disconnected-head noise, validates every UART

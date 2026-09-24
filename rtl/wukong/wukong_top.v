@@ -254,7 +254,7 @@ module wukong_top (
 
 `ifdef HDMI_LIBRARY_COCO
     wire video_capture_request_toggle;
-    wire [2:0] video_capture_stripe;
+    wire [5:0] video_capture_stripe;
     wire [15:0] video_capture_read_address;
     wire [7:0] video_capture_read_data;
     wire video_capture_done_toggle;
@@ -436,14 +436,6 @@ module wukong_top (
         end
     end
 
-`ifdef WUKONG_PHYSICAL_FLOPPY
-    // The optional physical-floppy diagnostic build uses these BRAMs for a
-    // contiguous flux revolution. Normal builds retain full serial frame
-    // capture; HDMI output itself is unchanged in either configuration.
-    assign video_capture_done_toggle = video_capture_request_toggle;
-    assign video_capture_busy = 1'b0;
-    assign video_capture_read_data = 8'b0;
-`else
     video_frame_capture capture_i (
         .clock(pixel_clk), .reset(video_reset),
         .screen_x(library_x), .screen_y(library_y), .rgb(library_rgb),
@@ -453,7 +445,6 @@ module wukong_top (
         .read_address(video_capture_read_address),
         .read_data(video_capture_read_data)
     );
-`endif
 `else
     assign uart_tx = 1'b1;
     assign sd_cs_n = 1'b1;

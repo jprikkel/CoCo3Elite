@@ -69,10 +69,11 @@ FRAME BEGIN 640 480 RGB332 307200
 FRAME END CRC32 XXXXXXXX
 ```
 
-The capture hardware stores one 640-by-60 stripe at a time. Firmware requests
-and transmits eight stripes while keeping the CoCo CPU halted. This provides a
-complete 640-by-480 frame without requiring another full-frame block-RAM
-allocation.
+The capture hardware stores one 640-by-8 RGB332 stripe at a time. Firmware
+requests and transmits 60 stripes while keeping the CoCo CPU halted. The
+5,120-byte stripe uses distributed RAM, allowing full-resolution capture to
+coexist with the physical-floppy flux buffer even when all block RAM tiles are
+occupied.
 
 ## Automated checks
 
